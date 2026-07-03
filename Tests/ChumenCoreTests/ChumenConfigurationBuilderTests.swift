@@ -1,0 +1,403 @@
+import XCTest
+@testable import ChumenCore
+
+final class ChumenConfigurationBuilderTests: XCTestCase {
+    func testRuntimeYamlOverridesControllerAndPorts() {
+        let profile = """
+        mixed-port: 1
+        port: 2
+        dns:
+          enable: false
+        tun:
+          enable: true
+        external-controller: 0.0.0.0:1
+        proxies: []
+        rules:
+          - MATCH,DIRECT
+        """
+        let settings = ChumenRuntimeSettings(
+            mixedPort: ChumenRuntimeSettings.defaultMixedPort,
+            socksPort: ChumenRuntimeSettings.defaultSocksPort,
+            httpPort: ChumenRuntimeSettings.defaultHTTPPort,
+            externalControllerPort: ChumenRuntimeSettings.defaultExternalControllerPort,
+            secret: "secret",
+            mode: .global
+        )
+
+        let yaml = ChumenConfigurationBuilder.runtimeYAML(
+            profileYAML: profile,
+            settings: settings,
+            socketPath: "/tmp/chumen.sock"
+        )
+
+        XCTAssertFalse(yamlLines(yaml).contains("mixed-port: 1"))
+        XCTAssertFalse(yamlLines(yaml).contains("port: 2"))
+        XCTAssertTrue(yaml.contains("mixed-port: \(ChumenRuntimeSettings.defaultMixedPort)"))
+        XCTAssertTrue(yaml.contains("socks-port: \(ChumenRuntimeSettings.defaultSocksPort)"))
+        XCTAssertTrue(yaml.contains("port: \(ChumenRuntimeSettings.defaultHTTPPort)"))
+        XCTAssertTrue(yaml.contains("external-controller: 127.0.0.1:\(ChumenRuntimeSettings.defaultExternalControllerPort)"))
+        XCTAssertTrue(yaml.contains("external-controller-unix: \"/tmp/chumen.sock\""))
+        XCTAssertTrue(yaml.contains("mode: global"))
+        XCTAssertTrue(yaml.contains("tun:\n  enable: false"))
+        XCTAssertTrue(yaml.contains("dns:\n  enable: false"))
+    }
+
+    func testRuntimeYamlPreservesProfileDNSAndHostsUnlessChumenOverridesThem() {
+        let profile = """
+        dns:
+          enable: true
+          nameserver:
+            - 9.9.9.9
+        hosts:
+          router.local: 192.168.1.1
+        proxies: []
+        rules:
+          - MATCH,DIRECT
+        """
+
+        let yaml = ChumenConfigurationBuilder.runtimeYAML(
+            profileYAML: profile,
+            settings: ChumenRuntimeSettings(enableTun: false, enableDNS: false, hostsYAML: ""),
+            socketPath: nil
+        )
+
+        XCTAssertTrue(yaml.contains("dns:\n  enable: true\n  nameserver:\n    - 9.9.9.9"))
+        XCTAssertTrue(yaml.contains("hosts:\n  router.local: 192.168.1.1"))
+    }
+
+    func testRuntimeYamlOverridesProfileDNSAndHostsWhenExplicitlyConfigured() {
+        let profile = """
+        dns:
+          enable: true
+          nameserver:
+            - 9.9.9.9
+        hosts:
+          router.local: 192.168.1.1
+        proxies: []
+        rules:
+          - MATCH,DIRECT
+        """
+
+        let yaml = ChumenConfigurationBuilder.runtimeYAML(
+            profileYAML: profile,
+            settings: ChumenRuntimeSettings(
+                enableDNS: true,
+                nameservers: ["1.1.1.1"],
+                hostsYAML: "router.local: 192.168.2.1"
+            ),
+            socketPath: nil
+        )
+
+        XCTAssertFalse(yaml.contains("9.9.9.9"))
+        XCTAssertFalse(yaml.contains("router.local: 192.168.1.1"))
+        XCTAssertTrue(yaml.contains("    - \"1.1.1.1\""))
+        XCTAssertTrue(yaml.contains("hosts:\n  router.local: 192.168.2.1"))
+    }
+
+    func testRuntimeYamlIncludesTunAndDNSSettings() {
+        let settings = ChumenRuntimeSettings(
+            allowLAN: true,
+            ipv6: false,
+            unifiedDelay: false,
+            logLevel: .debug,
+            enableTun: true,
+            tunStack: .mixed,
+            enableDNS: true,
+            dnsListen: "127.0.0.1:1054",
+            dnsMode: .redirHost,
+            nameservers: ["https://example.com/dns-query", "1.1.1.1"]
+        )
+
+        let yaml = ChumenConfigurationBuilder.runtimeYAML(
+            profileYAML: nil,
+            settings: settings,
+            socketPath: nil
+        )
+
+        XCTAssertTrue(yaml.contains("allow-lan: true"))
+        XCTAssertTrue(yaml.contains("ipv6: false"))
+        XCTAssertTrue(yaml.contains("unified-delay: false"))
+        XCTAssertTrue(yaml.contains("log-level: debug"))
+        XCTAssertTrue(yaml.contains("tun:\n  enable: true\n  stack: mixed"))
+        XCTAssertTrue(yaml.contains("dns:\n  enable: true\n  listen: \"127.0.0.1:1054\"\n  enhanced-mode: redir-host"))
+        XCTAssertTrue(yaml.contains("    - \"https://example.com/dns-query\""))
+        XCTAssertTrue(yaml.contains("    - \"1.1.1.1\""))
+    }
+
+    func testRuntimeYamlIncludesAdvancedCoreSettings() {
+        let settings = ChumenRuntimeSettings(
+            redirEnabled: true,
+            tproxyEnabled: true,
+            externalUI: "/tmp/ui",
+            externalUIName: "metacubexd",
+            externalUIURL: "https://example.com/ui.zip",
+            externalControllerCORSAllowOrigins: ["http://localhost:3000"],
+            enableTun: true,
+            tunDevice: "utun9",
+            tunAutoRoute: false,
+            tunStrictRoute: true,
+            tunDNSHijack: ["any:53", "tcp://any:53"],
+            tunRouteExcludeAddress: ["192.168.0.0/16"],
+            enableDNS: true,
+            dnsFakeIPFilterMode: .whitelist,
+            dnsPreferH3: true,
+            dnsRespectRules: true,
+            defaultNameservers: ["system"],
+            fallbackNameservers: ["tls://1.1.1.1"],
+            fakeIPFilters: ["+.example.com"],
+            nameserverPolicyYAML: "+.example.com:\n  - 1.1.1.1",
+            hostsYAML: "router.local: 192.168.1.1",
+            configAppendixYAML: "profile:\n  store-selected: true"
+        )
+
+        let yaml = ChumenConfigurationBuilder.runtimeYAML(
+            profileYAML: "redir-port: 1\nexternal-ui: old\nhosts:\n  old: 1.1.1.1",
+            settings: settings,
+            socketPath: nil
+        )
+
+        XCTAssertFalse(yamlLines(yaml).contains("redir-port: 1"))
+        XCTAssertFalse(yamlLines(yaml).contains("external-ui: old"))
+        XCTAssertTrue(yaml.contains("redir-port: \(ChumenRuntimeSettings.defaultRedirPort)"))
+        XCTAssertTrue(yaml.contains("tproxy-port: \(ChumenRuntimeSettings.defaultTProxyPort)"))
+        XCTAssertTrue(yaml.contains("external-ui: \"/tmp/ui\""))
+        XCTAssertTrue(yaml.contains("external-ui-name: \"metacubexd\""))
+        XCTAssertTrue(yaml.contains("external-controller-cors:"))
+        XCTAssertTrue(yaml.contains("  device: \"utun9\""))
+        XCTAssertTrue(yaml.contains("  auto-route: false"))
+        XCTAssertTrue(yaml.contains("  strict-route: true"))
+        XCTAssertTrue(yaml.contains("  fake-ip-filter-mode: whitelist"))
+        XCTAssertTrue(yaml.contains("  prefer-h3: true"))
+        XCTAssertTrue(yaml.contains("  nameserver-policy:\n    +.example.com:\n      - 1.1.1.1"))
+        XCTAssertTrue(yaml.contains("hosts:\n  router.local: 192.168.1.1"))
+        XCTAssertTrue(yaml.contains("profile:\n  store-selected: true"))
+    }
+
+    func testRemoveTopLevelBlock() {
+        let yaml = """
+        secret:
+          nested: value
+        proxies: []
+        """
+
+        let stripped = ChumenConfigurationBuilder.removeTopLevelKeys(["secret"], from: yaml)
+
+        XCTAssertEqual(stripped, "proxies: []")
+    }
+
+    func testNetworkServiceParsingSkipsDisabledServices() {
+        let output = """
+        An asterisk (*) denotes that a network service is disabled.
+        Wi-Fi
+        *Thunderbolt Bridge
+        USB 10/100/1000 LAN
+        """
+
+        XCTAssertEqual(SystemProxyManager.parseNetworkServices(output), ["Wi-Fi", "USB 10/100/1000 LAN"])
+    }
+
+    func testSystemProxyConfigParsingAndOwnership() {
+        let output = """
+        Enabled: Yes
+        Server: localhost
+        Port: 19881
+        Authenticated Proxy Enabled: 0
+        """
+
+        let endpoint = SystemProxyManager.parseProxyConfig(output)
+        XCTAssertTrue(endpoint.enabled)
+        XCTAssertEqual(endpoint.server, "localhost")
+        XCTAssertEqual(endpoint.port, 19881)
+        XCTAssertTrue(endpoint.matches(host: "127.0.0.1", port: 19881))
+        XCTAssertFalse(endpoint.matches(host: "127.0.0.1", port: 7897))
+    }
+
+    func testSystemProxyStateOnlyMatchesWhenAllEnabledEndpointsPointToChumen() {
+        let state = SystemProxyState(
+            service: "Wi-Fi",
+            web: SystemProxyEndpoint(enabled: true, server: "127.0.0.1", port: 19881),
+            secureWeb: SystemProxyEndpoint(enabled: true, server: "127.0.0.1", port: 19881),
+            socks: SystemProxyEndpoint(enabled: true, server: "127.0.0.1", port: 7897)
+        )
+
+        XCTAssertTrue(state.isEnabled)
+        XCTAssertFalse(state.matches(host: "127.0.0.1", port: 19881))
+        XCTAssertEqual(state.summaryAddress, "127.0.0.1:19881, 127.0.0.1:7897")
+    }
+
+    func testSettingsStoreMigratesLegacyDefaultPorts() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let paths = ChumenPaths(appHome: directory)
+        try paths.ensureDirectories()
+
+        let legacyJSON = """
+        {
+          "corePath": "",
+          "mixedPort": 7897,
+          "socksPort": 7898,
+          "httpPort": 7899,
+          "externalControllerHost": "127.0.0.1",
+          "externalControllerPort": 9097,
+          "secret": "set-your-secret",
+          "mode": "rule",
+          "setSystemProxyOnStart": false,
+          "clearSystemProxyOnStop": true
+        }
+        """
+        try legacyJSON.write(to: paths.settingsURL, atomically: true, encoding: .utf8)
+
+        let settings = ChumenSettingsStore(paths: paths).load()
+
+        XCTAssertEqual(settings.mixedPort, ChumenRuntimeSettings.defaultMixedPort)
+        XCTAssertEqual(settings.socksPort, ChumenRuntimeSettings.defaultSocksPort)
+        XCTAssertEqual(settings.httpPort, ChumenRuntimeSettings.defaultHTTPPort)
+        XCTAssertEqual(settings.externalControllerPort, ChumenRuntimeSettings.defaultExternalControllerPort)
+        XCTAssertFalse(settings.enableTun)
+        XCTAssertFalse(settings.enableDNS)
+        XCTAssertEqual(settings.logLevel, .info)
+        XCTAssertEqual(settings.nameservers, ChumenRuntimeSettings.defaultNameservers)
+        XCTAssertEqual(settings.systemProxyHost, "127.0.0.1")
+        XCTAssertTrue(settings.showStatusBarItem)
+        XCTAssertEqual(settings.statusBarDisplayMode, .speed)
+        XCTAssertFalse(settings.statusBarCustomTemplate.isEmpty)
+        XCTAssertFalse(settings.usesPlaceholderSecret)
+        XCTAssertNotEqual(settings.secret, ChumenRuntimeSettings.placeholderSecret)
+    }
+
+    func testSettingsStoreMigratesLegacyBundledCorePath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chumen-core-path-migration-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let paths = ChumenPaths(appHome: root.appendingPathComponent("app", isDirectory: true))
+        try paths.ensureDirectories()
+        let oldCore = root.appendingPathComponent("dist/\(previousAppBundleName)/Contents/Resources/mihomo")
+        try FileManager.default.createDirectory(at: oldCore.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "".write(to: oldCore, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: oldCore.path)
+
+        let newCore = root.appendingPathComponent("bin/mihomo")
+        try FileManager.default.createDirectory(at: newCore.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "".write(to: newCore, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: newCore.path)
+
+        try """
+        {
+          "corePath": "\(oldCore.path)",
+          "mixedPort": 19881,
+          "socksPort": 19882,
+          "httpPort": 19883,
+          "externalControllerHost": "127.0.0.1",
+          "externalControllerPort": 19897,
+          "secret": "set-your-secret",
+          "mode": "rule"
+        }
+        """.write(to: paths.settingsURL, atomically: true, encoding: .utf8)
+
+        let previousCWD = FileManager.default.currentDirectoryPath
+        XCTAssertTrue(FileManager.default.changeCurrentDirectoryPath(root.path))
+        defer {
+            FileManager.default.changeCurrentDirectoryPath(previousCWD)
+        }
+
+        let settings = ChumenSettingsStore(paths: paths).load()
+
+        XCTAssertEqual(
+            URL(fileURLWithPath: settings.corePath).resolvingSymlinksInPath().path,
+            newCore.resolvingSymlinksInPath().path
+        )
+    }
+
+    func testSettingsStoreMigratesLegacyProfilePath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chumen-profile-path-migration-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let appHome = root.appendingPathComponent("io.github.chumen.native-macos", isDirectory: true)
+        let paths = ChumenPaths(appHome: appHome)
+        try paths.ensureDirectories()
+        let legacyProfile = root
+            .appendingPathComponent(previousAppSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("profiles/profile.yaml")
+        let migratedProfile = paths.profilesDirectoryURL.appendingPathComponent("profile.yaml")
+        try "proxies: []\n".write(to: migratedProfile, atomically: true, encoding: .utf8)
+
+        try """
+        {
+          "profilePath": "\(legacyProfile.path)",
+          "mixedPort": 19881,
+          "socksPort": 19882,
+          "httpPort": 19883,
+          "externalControllerHost": "127.0.0.1",
+          "externalControllerPort": 19897,
+          "secret": "set-your-secret",
+          "mode": "rule"
+        }
+        """.write(to: paths.settingsURL, atomically: true, encoding: .utf8)
+
+        let settings = ChumenSettingsStore(paths: paths).load()
+
+        XCTAssertEqual(settings.profilePath, migratedProfile.path)
+        XCTAssertFalse(try String(contentsOf: paths.settingsURL, encoding: .utf8).contains(previousAppSupportDirectoryName))
+    }
+
+    func testPathsMigrateLegacyAppHomeAndRewriteStoredAbsolutePaths() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chumen-legacy-migration-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let legacy = root.appendingPathComponent(previousAppSupportDirectoryName, isDirectory: true)
+        let migrated = root.appendingPathComponent("io.github.chumen.native-macos", isDirectory: true)
+        let legacyProfile = legacy.appendingPathComponent("profiles/profile.yaml")
+        try FileManager.default.createDirectory(
+            at: legacy.appendingPathComponent("profiles", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: legacy.appendingPathComponent("ipc", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "proxies: []\n".write(to: legacyProfile, atomically: true, encoding: .utf8)
+        try "stale".write(to: legacy.appendingPathComponent("ipc/chumen-mihomo.sock"), atomically: true, encoding: .utf8)
+        try """
+        {"profilePath":"\(legacyProfile.path)"}
+        """.write(to: legacy.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
+        let escapedLegacyProfilePath = legacyProfile.path.replacingOccurrences(of: "/", with: "\\/")
+        try """
+        {"profiles":[{"filePath":"\(escapedLegacyProfilePath)"}]}
+        """.write(to: legacy.appendingPathComponent("profiles.json"), atomically: true, encoding: .utf8)
+
+        try ChumenPaths.migrateLegacyAppHomeIfNeeded(from: legacy, to: migrated, fileManager: .default)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: migrated.appendingPathComponent("profiles/profile.yaml").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: migrated.appendingPathComponent("ipc").path))
+        XCTAssertTrue(try String(contentsOf: migrated.appendingPathComponent("settings.json"), encoding: .utf8).contains(migrated.path))
+        let migratedProfilesJSON = try String(contentsOf: migrated.appendingPathComponent("profiles.json"), encoding: .utf8)
+        XCTAssertTrue(migratedProfilesJSON.contains(migrated.path.replacingOccurrences(of: "/", with: "\\/")))
+        XCTAssertFalse(migratedProfilesJSON.contains(legacy.path))
+        XCTAssertFalse(migratedProfilesJSON.contains(legacy.path.replacingOccurrences(of: "/", with: "\\/")))
+    }
+
+    private func yamlLines(_ yaml: String) -> Set<String> {
+        Set(yaml.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+    }
+
+    private var previousAppToken: String {
+        "lu" + "men"
+    }
+
+    private var previousAppSupportDirectoryName: String {
+        "io.github." + previousAppToken + ".native-macos"
+    }
+
+    private var previousAppBundleName: String {
+        "Lu" + "men.app"
+    }
+}
