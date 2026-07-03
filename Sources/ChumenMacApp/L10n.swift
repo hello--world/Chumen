@@ -11,6 +11,10 @@ enum L10n {
         case providers
         case logs
         case settings
+        case all
+        case globalSearchPlaceholder
+        case searchResults
+        case noSearchResults
         case runtime
         case running
         case stopped
@@ -219,6 +223,10 @@ enum L10n {
         .providers: "Provider",
         .logs: "日志",
         .settings: "设置",
+        .all: "全部",
+        .globalSearchPlaceholder: "搜索任意内容",
+        .searchResults: "搜索结果",
+        .noSearchResults: "没有匹配结果",
         .runtime: "运行状态",
         .running: "运行中",
         .stopped: "已停止",
@@ -418,6 +426,10 @@ enum L10n {
         .providers: "Providers",
         .logs: "Logs",
         .settings: "Settings",
+        .all: "All",
+        .globalSearchPlaceholder: "Search anything",
+        .searchResults: "Search Results",
+        .noSearchResults: "No matching results",
         .runtime: "Runtime",
         .running: "Running",
         .stopped: "Stopped",

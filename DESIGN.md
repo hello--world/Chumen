@@ -24,7 +24,7 @@
 ## Information architecture
 - Primary navigation: top tab bar.
 - Core routes/screens: dashboard, profiles, proxies, providers, connections, rules, logs, core tools, settings.
-- Content hierarchy: current runtime state first, then actions, then detailed metrics and lists.
+- Content hierarchy: current runtime state first, then a compact global search launcher, then actions, metrics, and lists. Activating search opens a Spotlight-style top overlay that fully covers the header/search launcher, supports category scopes, and prioritizes settings results before runtime data.
 
 ## Design principles
 - Principle 1: use low-contrast grouped surfaces with hairline borders instead of prominent floating cards.
@@ -47,7 +47,7 @@
 
 ## Accessibility
 - Target standard: clear contrast and readable text at default macOS sizes.
-- Keyboard/focus behavior: use system controls so focus rings and shortcuts remain native.
+- Keyboard/focus behavior: use system controls so focus rings and shortcuts remain native; global search accepts Return to open the first result, closes on outside click or Esc, debounces result generation, and avoids full search during single-letter IME composition.
 - Contrast/readability: avoid low-contrast text over material blur.
 - Screen-reader semantics: keep labels on buttons and status values.
 - Reduced motion and sensory considerations: avoid nonessential animation.
