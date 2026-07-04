@@ -7,6 +7,19 @@ enum ChumenNotificationAuthorizationState: Equatable {
     case notDetermined
     case authorized
     case denied
+
+    var logName: String {
+        switch self {
+        case .unknown:
+            "unknown"
+        case .notDetermined:
+            "not-determined"
+        case .authorized:
+            "authorized"
+        case .denied:
+            "denied"
+        }
+    }
 }
 
 enum ChumenNotificationLevel: Equatable {
@@ -68,6 +81,8 @@ final class ChumenNotificationService: NSObject, ObservableObject {
     @Published private(set) var authorizationState: ChumenNotificationAuthorizationState = .unknown
     @Published private(set) var inAppNotification: ChumenInAppNotification?
 
+    var onLog: ((String) -> Void)?
+
     private let center: UNUserNotificationCenter
     private var dismissalTask: Task<Void, Never>?
 
@@ -78,6 +93,7 @@ final class ChumenNotificationService: NSObject, ObservableObject {
     }
 
     func requestAuthorizationIfNeeded() {
+        log("authorization check requested")
         Task { [weak self] in
             guard let self else { return }
             _ = await self.resolveAuthorization(requestIfNeeded: true)
@@ -85,6 +101,7 @@ final class ChumenNotificationService: NSObject, ObservableObject {
     }
 
     func refreshAuthorizationState() {
+        log("authorization refresh requested")
         Task { [weak self] in
             guard let self else { return }
             _ = await self.resolveAuthorization(requestIfNeeded: false)
@@ -93,6 +110,7 @@ final class ChumenNotificationService: NSObject, ObservableObject {
 
     func notify(title: String, body: String, level: ChumenNotificationLevel = .info) {
         let notification = ChumenInAppNotification(title: title, body: body, level: level)
+        log(notification, phase: "requested")
         Task { [weak self] in
             await self?.deliver(notification)
         }
@@ -100,6 +118,7 @@ final class ChumenNotificationService: NSObject, ObservableObject {
 
     func dismissInAppNotification(_ id: ChumenInAppNotification.ID) {
         guard inAppNotification?.id == id else { return }
+        log("in-app dismissed id=\(id.uuidString)")
         dismissalTask?.cancel()
         dismissalTask = nil
         withAnimation(.easeOut(duration: 0.16)) {
@@ -109,7 +128,9 @@ final class ChumenNotificationService: NSObject, ObservableObject {
 
     private func deliver(_ notification: ChumenInAppNotification) async {
         let state = await resolveAuthorization(requestIfNeeded: true)
+        log(notification, phase: "authorization=\(state.logName)")
         guard state == .authorized else {
+            log(notification, phase: "fallback=in-app reason=authorization-\(state.logName)")
             presentInApp(notification)
             return
         }
@@ -127,7 +148,9 @@ final class ChumenNotificationService: NSObject, ObservableObject {
 
         do {
             try await center.add(request)
+            log(notification, phase: "scheduled system id=\(request.identifier)")
         } catch {
+            log(notification, phase: "system failed id=\(request.identifier) error=\(error.localizedDescription)")
             presentInApp(notification)
         }
     }
@@ -135,6 +158,11 @@ final class ChumenNotificationService: NSObject, ObservableObject {
     private func resolveAuthorization(requestIfNeeded: Bool) async -> ChumenNotificationAuthorizationState {
         let settings = await center.notificationSettings()
         let state = authorizationState(from: settings.authorizationStatus)
+        if authorizationState != state {
+            log("authorization state \(authorizationState.logName) -> \(state.logName)")
+        } else {
+            log("authorization state \(state.logName)")
+        }
         authorizationState = state
 
         guard requestIfNeeded, state == .notDetermined else {
@@ -142,12 +170,15 @@ final class ChumenNotificationService: NSObject, ObservableObject {
         }
 
         do {
+            log("authorization prompt presenting")
             let granted = try await center.requestAuthorization(options: [.alert, .sound])
             let requestedState: ChumenNotificationAuthorizationState = granted ? .authorized : .denied
             authorizationState = requestedState
+            log("authorization prompt result \(requestedState.logName)")
             return requestedState
         } catch {
             authorizationState = .denied
+            log("authorization prompt failed error=\(error.localizedDescription)")
             return .denied
         }
     }
@@ -166,6 +197,7 @@ final class ChumenNotificationService: NSObject, ObservableObject {
     }
 
     private func presentInApp(_ notification: ChumenInAppNotification) {
+        log(notification, phase: "presented in-app")
         dismissalTask?.cancel()
         withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
             inAppNotification = notification
@@ -178,6 +210,14 @@ final class ChumenNotificationService: NSObject, ObservableObject {
             }
         }
     }
+
+    private func log(_ notification: ChumenInAppNotification, phase: String) {
+        log("notification \(phase) [\(notification.level.logName)] \(notification.title): \(notification.body)")
+    }
+
+    private func log(_ message: String) {
+        onLog?("notification-service \(message)")
+    }
 }
 
 extension ChumenNotificationService: UNUserNotificationCenterDelegate {
@@ -186,6 +226,9 @@ extension ChumenNotificationService: UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        Task { @MainActor in
+            self.log("system will-present id=\(notification.request.identifier) title=\(notification.request.content.title)")
+        }
         completionHandler([.banner, .list, .sound])
     }
 }

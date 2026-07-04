@@ -321,6 +321,10 @@ final class AppModel: ObservableObject {
             ? L10n.text(.aiOllamaReady, language: loadedSettings.language ?? .system)
             : (self.aiAPIKeyStored ? L10n.text(.aiKeyStored, language: loadedSettings.language ?? .system) : L10n.text(.aiSearchOnly, language: loadedSettings.language ?? .system))
 
+        notificationService.onLog = { [manager = self.manager] message in
+            manager.appendEventLog(message)
+        }
+
         manager.onLog = { [weak self] text in
             Task { @MainActor in
                 self?.handleCoreLog(text)
@@ -539,7 +543,7 @@ final class AppModel: ObservableObject {
         } catch {
             isRunning = manager.isRunning
             isCoreTransitioning = false
-            statusText = displayError(error)
+            statusText = recordCoreTransitionFailure(action: "recovery-start", error: error)
             notify(title: t(.notificationCoreFailed), body: statusText, level: .failure)
             coreTransitionTask = nil
             return true
@@ -571,6 +575,15 @@ final class AppModel: ObservableObject {
 
     private func activeProfileNotificationBody() -> String {
         "\(t(.activeProfile)): \(activeProfile?.name ?? "-")"
+    }
+
+    private func recordCoreTransitionFailure(action: String, error: Error) -> String {
+        let message = displayError(error)
+        manager.appendEventLog("core \(action) failed: \(message)")
+        if message != error.localizedDescription {
+            manager.appendEventLog("core \(action) raw error: \(error.localizedDescription)")
+        }
+        return message
     }
 
     private func displayError(_ error: Error) -> String {
@@ -2322,6 +2335,7 @@ final class AppModel: ObservableObject {
                 await self.refreshAll()
             } catch {
                 guard let self, !Task.isCancelled else { return }
+                let failureMessage = self.recordCoreTransitionFailure(action: "start", error: error)
                 if let recovery = self.recoverUnreadableActiveProfileForDefaultLaunch(after: error),
                    await self.startRecoveredDefaultRuntime(
                        recovery: recovery,
@@ -2332,7 +2346,7 @@ final class AppModel: ObservableObject {
                 }
                 self.isRunning = manager.isRunning
                 self.isCoreTransitioning = false
-                self.statusText = self.displayError(error)
+                self.statusText = failureMessage
                 self.notify(title: self.t(.notificationCoreFailed), body: self.statusText, level: .failure)
                 self.coreTransitionTask = nil
             }
@@ -2422,6 +2436,7 @@ final class AppModel: ObservableObject {
                 self.coreTransitionTask = nil
             } catch {
                 guard let self, !Task.isCancelled else { return }
+                let failureMessage = self.recordCoreTransitionFailure(action: "restart", error: error)
                 let wasTunToggle = self.pendingTunToggleTarget != nil
                 self.pendingTunToggleTarget = nil
                 self.isRunning = manager.isRunning
@@ -2433,10 +2448,10 @@ final class AppModel: ObservableObject {
                               recovery: recovery,
                               manager: manager,
                               notificationTitle: self.t(.activeProfileDisabled)
-                          ) {
+                    ) {
                     return
                 } else {
-                    self.statusText = self.displayError(error)
+                    self.statusText = failureMessage
                     self.notify(title: self.t(.notificationCoreFailed), body: self.statusText, level: .failure)
                 }
                 self.coreTransitionTask = nil
