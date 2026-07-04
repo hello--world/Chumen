@@ -9,6 +9,20 @@ private final class StackedSpeedStatusView: NSView {
     private let upValueLabel = NSTextField(labelWithString: "0 KB/s")
     private let downValueLabel = NSTextField(labelWithString: "0 KB/s")
     private static let rateFormatter = ByteCountFormatter()
+    private static let statusFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
+    private static let iconSize: CGFloat = 16
+    private static let leadingPadding: CGFloat = 4
+    private static let iconTextGap: CGFloat = 4
+    private static let arrowWidth: CGFloat = 8
+    private static let arrowValueGap: CGFloat = 2
+    private static let trailingPadding: CGFloat = 4
+    private static let preferredWidth: CGFloat = {
+        let referenceRateWidth = ["999 KB/s", "99.9 MB/s", "9.99 GB/s"]
+            .map { ($0 as NSString).size(withAttributes: [.font: statusFont]).width }
+            .max() ?? 54
+        let contentWidth = leadingPadding + iconSize + iconTextGap + arrowWidth + arrowValueGap + referenceRateWidth + trailingPadding
+        return ceil(contentWidth)
+    }()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -31,33 +45,35 @@ private final class StackedSpeedStatusView: NSView {
         needsLayout = true
     }
 
+    static func statusItemWidth() -> CGFloat {
+        preferredWidth
+    }
+
     override func layout() {
         super.layout()
         let height = bounds.height
-        let iconSize: CGFloat = 18
-        let rowHeight: CGFloat = 11
+        let rowHeight: CGFloat = 10
         let rowGap: CGFloat = 0
         let blockHeight = rowHeight * 2 + rowGap
         let blockY = floor((height - blockHeight) / 2)
-        let iconY = floor((height - iconSize) / 2)
-        let textX: CGFloat = 31
-        let arrowWidth: CGFloat = 9
-        let valueWidth: CGFloat = 76
+        let iconY = floor((height - Self.iconSize) / 2)
+        let textX = Self.leadingPadding + Self.iconSize + Self.iconTextGap
+        let valueX = textX + Self.arrowWidth + Self.arrowValueGap
+        let valueWidth = max(0, bounds.width - valueX - Self.trailingPadding)
 
-        iconView.frame = NSRect(x: 5, y: iconY, width: iconSize, height: iconSize)
-        upArrowLabel.frame = NSRect(x: textX, y: blockY + rowHeight + rowGap, width: arrowWidth, height: rowHeight)
-        downArrowLabel.frame = NSRect(x: textX, y: blockY, width: arrowWidth, height: rowHeight)
-        upValueLabel.frame = NSRect(x: textX + arrowWidth + 2, y: blockY + rowHeight + rowGap, width: valueWidth, height: rowHeight)
-        downValueLabel.frame = NSRect(x: textX + arrowWidth + 2, y: blockY, width: valueWidth, height: rowHeight)
+        iconView.frame = NSRect(x: Self.leadingPadding, y: iconY, width: Self.iconSize, height: Self.iconSize)
+        upArrowLabel.frame = NSRect(x: textX, y: blockY + rowHeight + rowGap, width: Self.arrowWidth, height: rowHeight)
+        downArrowLabel.frame = NSRect(x: textX, y: blockY, width: Self.arrowWidth, height: rowHeight)
+        upValueLabel.frame = NSRect(x: valueX, y: blockY + rowHeight + rowGap, width: valueWidth, height: rowHeight)
+        downValueLabel.frame = NSRect(x: valueX, y: blockY, width: valueWidth, height: rowHeight)
     }
 
     private func configure() {
-        let font = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
         iconView.imageScaling = .scaleProportionallyDown
         upArrowLabel.textColor = .systemRed
         downArrowLabel.textColor = .systemBlue
         for label in [upArrowLabel, downArrowLabel, upValueLabel, downValueLabel] {
-            label.font = font
+            label.font = Self.statusFont
             label.alignment = .left
             label.cell?.usesSingleLineMode = true
             label.cell?.lineBreakMode = .byClipping
@@ -79,13 +95,7 @@ private final class StackedSpeedStatusView: NSView {
     }
 
     private static func formatRate(_ bytes: Int64) -> String {
-        "\(fixedWidthBytes(bytes))/s"
-    }
-
-    private static func fixedWidthBytes(_ bytes: Int64) -> String {
-        let text = bytes == 0 ? "0 KB" : rateFormatter.string(fromByteCount: bytes)
-        guard text.count < 6 else { return text }
-        return String(repeating: " ", count: 6 - text.count) + text
+        "\(bytes == 0 ? "0 KB" : rateFormatter.string(fromByteCount: bytes))/s"
     }
 }
 
@@ -236,19 +246,24 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         guard !model.statusBarTitleText.isEmpty else { return NSStatusItem.squareLength }
         switch model.settings.statusBarDisplayMode {
         case .speed, .traffic:
-            // 速率文本使用固定宽度，避免流量变化时菜单栏左右抖动。
-            return 156
+            return measuredStatusItemLength(for: model.statusBarTitleText, minimum: 68, maximum: 126)
         case .stackedSpeed:
-            return 126
+            return StackedSpeedStatusView.statusItemWidth()
         case .custom:
-            return 160
+            return measuredStatusItemLength(for: model.statusBarTitleText, minimum: 44, maximum: 136)
         case .statusAndSpeed:
-            return 220
+            return measuredStatusItemLength(for: model.statusBarTitleText, minimum: 96, maximum: 180)
         case .appName, .status:
             return NSStatusItem.variableLength
         case .iconOnly:
             return NSStatusItem.squareLength
         }
+    }
+
+    private func measuredStatusItemLength(for title: String, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
+        let textWidth = attributedStatusTitle(title.isEmpty ? "" : " \(title)").size().width
+        let iconAndPaddingWidth: CGFloat = 28
+        return min(max(ceil(textWidth + iconAndPaddingWidth), minimum), maximum)
     }
 
     private func rebuildMenu(_ menu: NSMenu) {

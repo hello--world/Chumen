@@ -300,7 +300,7 @@ final class ChumenConfigurationBuilderTests: XCTestCase {
         XCTAssertEqual(settings.nameservers, ChumenRuntimeSettings.defaultNameservers)
         XCTAssertEqual(settings.systemProxyHost, "127.0.0.1")
         XCTAssertTrue(settings.showStatusBarItem)
-        XCTAssertEqual(settings.statusBarDisplayMode, .speed)
+        XCTAssertEqual(settings.statusBarDisplayMode, .stackedSpeed)
         XCTAssertFalse(settings.statusBarCustomTemplate.isEmpty)
         XCTAssertFalse(settings.usesPlaceholderSecret)
         XCTAssertNotEqual(settings.secret, ChumenRuntimeSettings.placeholderSecret)
