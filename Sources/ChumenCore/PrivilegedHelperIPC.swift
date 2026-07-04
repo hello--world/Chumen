@@ -9,6 +9,7 @@ public struct PrivilegedHelperRequest: Codable, Sendable {
     public var controllerSocketPath: String?
     public var logPath: String?
     public var pidPath: String?
+    public var ageSecretKey: String?
 
     public init(
         command: String,
@@ -17,7 +18,8 @@ public struct PrivilegedHelperRequest: Codable, Sendable {
         runtimeConfigPath: String? = nil,
         controllerSocketPath: String? = nil,
         logPath: String? = nil,
-        pidPath: String? = nil
+        pidPath: String? = nil,
+        ageSecretKey: String? = nil
     ) {
         self.command = command
         self.corePath = corePath
@@ -26,6 +28,7 @@ public struct PrivilegedHelperRequest: Codable, Sendable {
         self.controllerSocketPath = controllerSocketPath
         self.logPath = logPath
         self.pidPath = pidPath
+        self.ageSecretKey = ageSecretKey
     }
 }
 

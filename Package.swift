@@ -13,11 +13,17 @@ let package = Package(
         .executable(name: "chumenctl", targets: ["ChumenCLI"]),
         .executable(name: "ChumenHelper", targets: ["ChumenHelper"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/krzyzanowskim/STTextView", from: "2.2.0")
+    ],
     targets: [
         .target(name: "ChumenCore"),
         .executableTarget(
             name: "ChumenMacApp",
-            dependencies: ["ChumenCore"]
+            dependencies: [
+                "ChumenCore",
+                .product(name: "STTextView", package: "STTextView")
+            ]
         ),
         .executableTarget(
             name: "ChumenCLI",

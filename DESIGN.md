@@ -2,9 +2,10 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-07-03
+- Last refreshed: 2026-07-04
 - Primary product surfaces: Native macOS Chumen app and its menu bar controller.
-- Evidence reviewed: `Sources/ChumenMacApp/ContentView.swift`, `Sources/ChumenMacApp/AppModel.swift`, `Sources/ChumenMacApp/L10n.swift`, `README.md`, user screenshots of Chumen and macOS Settings.
+- Evidence reviewed: `Sources/ChumenMacApp/ContentView.swift`, `Sources/ChumenMacApp/AppModel.swift`, `Sources/ChumenMacApp/L10n.swift`, `README.md`, user screenshots of Chumen, macOS Settings, and Shortcuts.
+- Implementation spec: `docs/ui-design-system.md` is the detailed UI contract for colors, layout, typography, first-run setup, search, dashboard, list, and AI assistant surfaces.
 
 ## Brand
 - Personality: quiet, native, technical, reliable.
@@ -29,6 +30,7 @@
 ## Design principles
 - Principle 1: use low-contrast grouped surfaces with hairline borders instead of prominent floating cards.
 - Principle 2: make state readable without oversized blocks or loud color.
+- Principle 3: use system-native SwiftUI/AppKit controls and semantic colors first; add custom color only as a small identity or action accent.
 - Tradeoffs: functional density is more important than decorative whitespace.
 
 ## Visual language
@@ -41,7 +43,7 @@
 
 ## Components
 - Existing components to reuse: header, command panel, metric tile, settings form, tab navigation.
-- New/changed components: centered global search field with dropdown results, compact header status pills, native grouped dashboard surfaces, localized status error copy, `内核` quick navigation sidebar, separate `设置` form, review-first AI assistant panel, and closed/half-open/open door variants for the menu bar status icon.
+- New/changed components: centered global search field with dropdown results, compact header status pills, native grouped dashboard surfaces, localized status error copy, `内核` quick navigation sidebar, separate `设置` form, first-run security setup panel with muted neutral grouping and a distinct app-lock toggle, review-first AI assistant panel, and closed/half-open/open door variants for the menu bar status icon.
 - Variants and states: running/stopped, API reachable/unreachable, proxy on/off, TUN on/off, empty metrics, local Ollama ready, remote AI key missing/search-only, AI pending diff review, menu bar closed/half-open/open door network capture state.
 - Token/component ownership: `ChumenStyle` in `ContentView.swift`.
 
@@ -74,6 +76,7 @@
 ## Implementation constraints
 - Framework/styling system: SwiftUI/AppKit native controls.
 - Design-token constraints: keep style tokens in `ChumenStyle`; no new theming layer.
+- UI contract constraints: every UI change must check `docs/ui-design-system.md` first; if the implementation needs an exception, update the document or add a local code intent note explaining why.
 - Performance constraints: dashboard updates must remain cheap during traffic/connection streams; assistant search uses the same debounced/off-main-thread snapshot search as global search.
 - Compatibility constraints: macOS native Swift Package app.
 - Security constraints: AI API keys are stored in Keychain, not in `settings.json`; local Ollama does not require a key; model calls use user-configured OpenAI-compatible endpoints.

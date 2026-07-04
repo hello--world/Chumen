@@ -2,6 +2,8 @@ import AppKit
 import Combine
 import Foundation
 import ChumenCore
+import Security
+import STTextView
 
 enum ProfileSectionEditorKind: String, CaseIterable, Identifiable {
     case rules
@@ -74,6 +76,12 @@ struct LogReportSample: Identifiable, Equatable, Sendable {
     var id: Date { timestamp }
 }
 
+private struct ProfileContentCacheEntry: Sendable {
+    var content: String
+    var sections: [YAMLTopLevelSection]
+    var topLevelBlocks: [String: String]
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     // AppModel 是 GUI 的单一状态源：窗口、状态栏菜单和异步内核任务都从这里读写状态。
@@ -95,14 +103,18 @@ final class AppModel: ObservableObject {
     @Published var profileEditorName = ""
     @Published var profileEditorRemoteURL = ""
     @Published var profileEditorText = ""
+    @Published var profileEditorVisualSections: [YAMLTopLevelSection] = []
     @Published var profileEditorIsLoading = false
     @Published var editingProfileSection: ProfileSectionEditorState?
     @Published var profileSectionEditorText = ""
+    @Published var profileSectionEditorVisualSections: [YAMLTopLevelSection] = []
     @Published var profileSectionEditorIsLoading = false
     @Published var editingProfileAppendix: ProfileAppendixEditorTarget?
     @Published var profileAppendixEditorText = ""
+    @Published var profileAppendixEditorVisualSections: [YAMLTopLevelSection] = []
     @Published var externalProfileCandidates: [ExternalProfileCandidate] = []
     @Published var externalProfileScanCompleted = false
+    @Published var startupImportPromptPresented = false
     @Published var proxyGroups: [ProxyGroupSnapshot] = []
     @Published var proxyProviders: [MihomoProvider] = []
     @Published var ruleProviders: [MihomoProvider] = []
@@ -125,6 +137,8 @@ final class AppModel: ObservableObject {
     @Published var memoryLimit: Int64 = 0
     @Published var memoryUnavailable = false
     @Published var systemProxyStateText = ""
+    @Published var systemProxyRuntimeFailed = false
+    @Published var systemProxyRuntimeFailureMessage = ""
     @Published var tunRuntimeFailed = false
     @Published var tunRuntimeFailureMessage = ""
     @Published var coreToolResult = ""
@@ -142,13 +156,27 @@ final class AppModel: ObservableObject {
     @Published var aiIsSending = false
     @Published var aiPendingChanges: [ChumenAIProposedChange] = []
     @Published var aiStatusText = ""
+    @Published var pinInput = ""
+    @Published var pinSetupPIN = ""
+    @Published var pinSetupConfirm = ""
+    @Published var pinStatusText = ""
+    @Published var pinVaultExists = false
+    @Published var pinSetupRequired = false
+    @Published var pinSetupProtectAgeKey = false
+    @Published var pinStorageLocked = false
+    @Published var pinAppLocked = false
+    @Published var pinAppLockOnLaunch = false
+    @Published var pinStorageKind: ChumenAgeKeyStorageKind = .local
 
     let paths: ChumenPaths
     let configSync: ChumenConfigSyncService
 
     private let manager: CoreProcessManager
-    private let profileRepository: ProfileRepository
-    private let settingsStore: ChumenSettingsStore
+    private var profileRepository: ProfileRepository
+    private var settingsStore: ChumenSettingsStore
+    private let pinVault: ChumenPINVault
+    private var protectionKeyStore: ChumenConfigProtectionKeyStore
+    private var unlockedAgeKeyPair: MihomoAgeKeyPair?
     private let logStream = MihomoLogStream()
     private let trafficStream = MihomoEventStream<MihomoTraffic>()
     private let memoryStream = MihomoEventStream<MihomoMemory>()
@@ -164,10 +192,13 @@ final class AppModel: ObservableObject {
     private var autoRefreshTask: Task<Void, Never>?
     private var profileEditorLoadTask: Task<Void, Never>?
     private var profileSectionEditorLoadTask: Task<Void, Never>?
+    private var profileVisualPreloadTask: Task<Void, Never>?
+    private var profileContentCache: [String: ProfileContentCacheEntry] = [:]
     private var profileEditorOriginalText = ""
     private var coreTransitionTask: Task<Void, Never>?
     private var settingsAutosaveTask: Task<Void, Never>?
     private var aiTask: Task<Void, Never>?
+    private var pendingTunToggleTarget: Bool?
     private var lastSavedSettings: ChumenRuntimeSettings
     private var isPreparingForQuit = false
     private let aiKeychainStore = ChumenAIKeychainStore()
@@ -177,20 +208,89 @@ final class AppModel: ObservableObject {
     init(notificationService: ChumenNotificationService = ChumenNotificationService()) {
         self.notificationService = notificationService
         let paths = (try? ChumenPaths.defaultPaths()) ?? ChumenPaths(appHome: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("chumen"))
-        let settingsStore = ChumenSettingsStore(paths: paths)
+        let bootstrapKeyStore = Self.makeProtectionKeyStore(paths: paths, storage: .local)
+        let settingsStore = ChumenSettingsStore(paths: paths, protectionKeyStore: bootstrapKeyStore)
+        let pinVault = ChumenPINVault(paths: paths)
         self.paths = paths
         self.configSync = ChumenConfigSyncService(paths: paths)
+        self.protectionKeyStore = bootstrapKeyStore
+        self.pinVault = pinVault
         self.settingsStore = settingsStore
         try? paths.ensureDirectories()
-        let loadedSettings = settingsStore.load()
-        self.settings = loadedSettings
-        self.profileRepository = ProfileRepository(paths: paths, protectConfigFiles: loadedSettings.protectConfigFiles)
-        var library = profileRepository.load()
-        if library.activeProfileID == nil {
-            library.activeProfileID = loadedSettings.activeProfileID
+
+        var loadedSettings: ChumenRuntimeSettings
+        var library: ProfileLibrary
+        let shouldDeferStartup: Bool
+        if pinVault.exists {
+            // PIN-protected settings cannot be decoded until the user supplies the PIN that unwraps
+            // the age identity. Do not call settingsStore.load() here: its legacy fallback behavior
+            // would synthesize defaults and risk later overwriting the protected files.
+            loadedSettings = ChumenSettingsStore.defaultSettings()
+            library = ProfileLibrary()
+            self.pinVaultExists = true
+            self.pinStorageLocked = true
+            let detectedPINStorage = pinVault.storageKind() ?? .local
+            self.pinStorageKind = detectedPINStorage
+            self.pinAppLockOnLaunch = (try? pinVault.load(preferredStorage: detectedPINStorage)?.lockAppOnLaunch) ?? false
+            self.pinStatusText = L10n.text(.pinRequired, language: loadedSettings.language ?? .system)
+            self.profileRepository = ProfileRepository(
+                paths: paths,
+                protectConfigFiles: loadedSettings.protectConfigFiles,
+                protectionKeyStore: bootstrapKeyStore,
+                corePath: loadedSettings.corePath
+            )
+            shouldDeferStartup = true
+        } else {
+            // First pass is read-only: if the decoded/default settings require PIN protection, we
+            // must not migrate plaintext settings or profiles yet because migration writes would
+            // create an unwrapped age identity before the user chooses PIN/Keychain/local storage.
+            loadedSettings = settingsStore.load(migrateOnLoad: false)
+            let activeKeyStore = Self.makeProtectionKeyStore(paths: paths, storage: loadedSettings.ageKeyStorage)
+            self.protectionKeyStore = activeKeyStore
+            let activeSettingsStore = ChumenSettingsStore(paths: paths, protectionKeyStore: activeKeyStore)
+            self.settingsStore = activeSettingsStore
+            let repository = ProfileRepository(
+                paths: paths,
+                protectConfigFiles: loadedSettings.protectConfigFiles,
+                protectionKeyStore: activeKeyStore,
+                corePath: loadedSettings.corePath
+            )
+            self.profileRepository = repository
+            if loadedSettings.protectAgeKeyWithPIN {
+                library = ProfileLibrary()
+            } else {
+                loadedSettings = activeSettingsStore.load(migrateOnLoad: true)
+                library = repository.load()
+                if library.activeProfileID == nil {
+                    library.activeProfileID = loadedSettings.activeProfileID
+                }
+                if let activeProfile = library.activeProfile,
+                   loadedSettings.activeProfileID != activeProfile.id || loadedSettings.profilePath != activeProfile.filePath {
+                    loadedSettings.activeProfileID = activeProfile.id
+                    loadedSettings.profilePath = activeProfile.filePath
+                    try? activeSettingsStore.save(loadedSettings)
+                }
+            }
+            let needsSecuritySetup = !loadedSettings.securitySetupCompleted
+            let needsPINSetup = loadedSettings.protectAgeKeyWithPIN || needsSecuritySetup
+            self.pinSetupRequired = needsPINSetup
+            self.pinVaultExists = false
+            self.pinSetupProtectAgeKey = loadedSettings.protectAgeKeyWithPIN
+            self.pinStorageKind = loadedSettings.ageKeyStorage
+            self.pinAppLockOnLaunch = false
+            self.pinStatusText = needsPINSetup
+                ? L10n.text(.pinSetupRequired, language: loadedSettings.language ?? .system)
+                : ""
+            if needsPINSetup {
+                let generatedPIN = Self.generateDefaultPIN()
+                self.pinSetupPIN = generatedPIN
+                self.pinSetupConfirm = generatedPIN
+            }
+            shouldDeferStartup = needsPINSetup
         }
+        self.settings = loadedSettings
         self.profileLibrary = library
-        self.manager = CoreProcessManager(paths: paths)
+        self.manager = CoreProcessManager(paths: paths, protectionKeyStore: self.protectionKeyStore)
         self.lastSavedSettings = loadedSettings
         self.aiAPIKeyStored = aiKeychainStore.hasAPIKey()
         self.aiStatusText = loadedSettings.ai.usesLocalOllama
@@ -218,12 +318,18 @@ final class AppModel: ObservableObject {
 
         statusText = t(.stopped)
         apiText = t(.apiNotTested)
+        preloadProfileVisualData(for: library.profiles, force: false)
         refreshSystemProxyState()
-        Task {
+        if shouldDeferStartup {
+            statusText = pinStatusText.isEmpty ? t(.pending) : pinStatusText
+        } else {
+            presentStartupImportPromptIfNeeded()
+            Task {
             // 启动 GUI 时先探测已有 controller，避免误把其他客户端启动的内核当成自己管理的进程。
-            await detectRunningCore()
-            if settings.autoStartCoreOnLaunch, !isRunning {
-                start()
+                await detectRunningCore()
+                if settings.autoStartCoreOnLaunch, !isRunning {
+                    start()
+                }
             }
         }
     }
@@ -238,7 +344,7 @@ final class AppModel: ObservableObject {
     }
 
     func sendTestNotification() {
-        notificationService.notify(
+        notify(
             title: t(.notificationTestTitle),
             body: t(.notificationTestBody),
             level: .info
@@ -286,10 +392,15 @@ final class AppModel: ObservableObject {
         guard !isCoreTransitioning else { return }
         Task {
             do {
-                let imported = try await configSync.pull(currentSettings: settings)
+                let imported = try await configSync.pull(
+                    currentSettings: settings,
+                    protectionKeyStore: protectionKeyStore
+                )
                 settings = imported.settings
                 profileLibrary = imported.profileLibrary
                 lastSavedSettings = imported.settings
+                profileContentCache.removeAll()
+                preloadProfileVisualData(for: imported.profileLibrary.profiles, force: true)
                 statusText = t(.syncDownloaded)
                 notify(title: t(.syncDownloaded), body: t(.syncCompleted), level: .success)
                 if isRunning {
@@ -314,7 +425,124 @@ final class AppModel: ObservableObject {
     }
 
     private func notify(title: String, body: String, level: ChumenNotificationLevel = .info) {
+        // Notifications are user-visible failures/successes, so mirror them into the process log.
+        // This keeps transient macOS banners from becoming the only diagnostic record.
+        manager.appendEventLog("notification[\(level.logName)] \(title): \(body)")
         notificationService.notify(title: title, body: body, level: level)
+    }
+
+    private struct ProfileLaunchRecovery {
+        var launchSettings: ChumenRuntimeSettings
+        var profileName: String
+        var profilePath: String
+    }
+
+    private func recoverUnreadableActiveProfileForDefaultLaunch(after error: Error) -> ProfileLaunchRecovery? {
+        guard isAgeIdentityMismatch(error), let failedProfile = activeProfile else {
+            return nil
+        }
+
+        // Recovery is deliberately non-destructive: the encrypted profile remains in the library
+        // and on disk, but it is no longer the active launch input. A mismatched age identity cannot
+        // be repaired by retrying with a fresh key, so the app falls back to Chumen's default DIRECT
+        // runtime to keep the UI/API usable for re-import or manual recovery.
+        profileLibrary.activeProfileID = nil
+        settings.activeProfileID = nil
+        settings.profilePath = nil
+
+        do {
+            try profileRepository.save(profileLibrary)
+            try settingsStore.save(settings)
+            lastSavedSettings = settings
+        } catch {
+            manager.appendEventLog("profile-recovery save failed: \(error.localizedDescription)")
+        }
+
+        manager.appendEventLog(
+            "profile-recovery disabled active profile \(failedProfile.id) \(failedProfile.filePath): \(error.localizedDescription)"
+        )
+
+        var fallback = launchSettings()
+        fallback.activeProfileID = nil
+        fallback.profilePath = nil
+        return ProfileLaunchRecovery(
+            launchSettings: fallback,
+            profileName: failedProfile.name,
+            profilePath: failedProfile.filePath
+        )
+    }
+
+    private func startRecoveredDefaultRuntime(
+        recovery: ProfileLaunchRecovery,
+        manager: CoreProcessManager,
+        notificationTitle: String
+    ) async -> Bool {
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try manager.start(settings: recovery.launchSettings, profileAppendixYAML: "")
+            }.value
+
+            settings = recovery.launchSettings
+            isRunning = true
+            isCoreTransitioning = false
+            statusText = "\(t(.activeProfileDisabled)): \(recovery.profileName)"
+            saveSettings()
+            startControllerStreams()
+            notify(
+                title: notificationTitle,
+                body: "\(t(.activeProfileDisabledBody)) \(recovery.profilePath)",
+                level: .warning
+            )
+
+            if recovery.launchSettings.setSystemProxyOnStart {
+                resetSystemProxyRuntimeState()
+                systemProxyEnabled = true
+                do {
+                    try await setSystemProxy(true, using: recovery.launchSettings)
+                    systemProxyEnabled = true
+                    statusText = t(.systemProxyEnabled)
+                    await refreshSystemProxyStateAsync()
+                } catch {
+                    systemProxyEnabled = false
+                    recordSystemProxyFailure(error)
+                }
+            }
+
+            coreTransitionTask = nil
+            try? await Task.sleep(for: .milliseconds(600))
+            await refreshAll()
+            return true
+        } catch {
+            isRunning = manager.isRunning
+            isCoreTransitioning = false
+            statusText = displayError(error)
+            notify(title: t(.notificationCoreFailed), body: statusText, level: .failure)
+            coreTransitionTask = nil
+            return true
+        }
+    }
+
+    private static func profileEditorRecoveryTemplate(profile: ProxyProfile) -> String {
+        """
+        # Chumen could not decrypt the previous encrypted content for this profile.
+        # Saving this editor will replace the unreadable file with a new config encrypted by the current age key.
+        # Profile: \(profile.name)
+        proxies: []
+        proxy-groups:
+          - name: PROXY
+            type: select
+            proxies:
+              - DIRECT
+        rules:
+          - MATCH,DIRECT
+        """
+    }
+
+    private func isAgeIdentityMismatch(_ error: Error) -> Bool {
+        let message = error.localizedDescription
+        return message.contains("stored age identity cannot decrypt") ||
+            message.contains("identity did not match any of the recipients") ||
+            message.contains("incorrect identity for recipient block")
     }
 
     private func activeProfileNotificationBody() -> String {
@@ -355,6 +583,338 @@ final class AppModel: ObservableObject {
             }
         }
         return message
+    }
+
+    var pinOverlayPresented: Bool {
+        pinSetupRequired || pinStorageLocked || pinAppLocked
+    }
+
+    func unlockPIN() {
+        do {
+            try ChumenPINVault.validatePIN(pinInput)
+            let keyPair = try pinVault.unlock(pin: pinInput, preferredStorage: pinStorageKind)
+            if pinStorageLocked {
+                try loadUnlockedConfiguration(ageKeyPair: keyPair)
+            } else {
+                unlockedAgeKeyPair = keyPair
+                pinAppLocked = false
+                pinStatusText = t(.pinUnlocked)
+            }
+            pinInput = ""
+        } catch {
+            pinStatusText = t(.pinIncorrect)
+        }
+    }
+
+    func unlockAndDisablePINProtection() {
+        do {
+            try ChumenPINVault.validatePIN(pinInput)
+            let keyPair = try pinVault.unlock(pin: pinInput, preferredStorage: pinStorageKind)
+            if pinStorageLocked {
+                try loadUnlockedConfiguration(ageKeyPair: keyPair)
+            } else {
+                unlockedAgeKeyPair = keyPair
+                pinAppLocked = false
+            }
+            pinInput = ""
+            disablePINProtection()
+        } catch {
+            pinStatusText = t(.pinIncorrect)
+        }
+    }
+
+    func enablePINProtection() {
+        guard pinSetupProtectAgeKey else {
+            skipPINProtectionSetup()
+            return
+        }
+
+        do {
+            try ChumenPINVault.validatePIN(pinSetupPIN)
+            guard pinSetupPIN == pinSetupConfirm else {
+                pinStatusText = t(.pinMismatch)
+                return
+            }
+            let corePath = try resolvedCorePathForPIN()
+            let keyPair = try loadOrGenerateAgeKeyPair(corePath: corePath)
+            try pinVault.create(
+                pin: pinSetupPIN,
+                keyPair: keyPair,
+                lockAppOnLaunch: pinAppLockOnLaunch,
+                storage: pinStorageKind
+            )
+
+            // The vault now owns the persistent age identity. Save settings through an in-memory
+            // override, then remove any raw local/Keychain identity left by older builds.
+            let unlockedStore = ChumenConfigProtectionKeyStore(ageKeyPair: keyPair)
+            protectionKeyStore = unlockedStore
+            settingsStore = ChumenSettingsStore(paths: paths, protectionKeyStore: unlockedStore)
+            manager.updateProtectionKeyStore(unlockedStore)
+            settings.protectAgeKeyWithPIN = true
+            settings.securitySetupCompleted = true
+            settings.ageKeyStorage = pinStorageKind
+            try settingsStore.save(settings)
+            try Self.makeProtectionKeyStore(paths: paths, storage: .local).deleteStoredAgeKeyPair()
+            try loadUnlockedConfiguration(ageKeyPair: keyPair)
+
+            pinSetupPIN = ""
+            pinSetupConfirm = ""
+            pinStatusText = t(.pinEnabled)
+            statusText = t(.pinEnabled)
+        } catch {
+            pinStatusText = displayError(error)
+        }
+    }
+
+    func skipPINProtectionSetup() {
+        do {
+            pinSetupProtectAgeKey = false
+            let keyPair = try loadOrGenerateAgeKeyPair(corePath: resolvedCorePathForPIN())
+            let rawStore = Self.makeProtectionKeyStore(paths: paths, storage: pinStorageKind)
+            try rawStore.storeAgeKeyPair(keyPair)
+            protectionKeyStore = rawStore
+            settingsStore = ChumenSettingsStore(paths: paths, protectionKeyStore: rawStore)
+            profileRepository = ProfileRepository(
+                paths: paths,
+                protectConfigFiles: settings.protectConfigFiles,
+                protectionKeyStore: rawStore,
+                corePath: settings.corePath
+            )
+            manager.updateProtectionKeyStore(rawStore)
+            settings.protectAgeKeyWithPIN = false
+            settings.securitySetupCompleted = true
+            settings.ageKeyStorage = pinStorageKind
+            pinSetupRequired = false
+            pinSetupProtectAgeKey = false
+            pinAppLockOnLaunch = false
+            pinSetupPIN = ""
+            pinSetupConfirm = ""
+            try settingsStore.save(settings)
+            lastSavedSettings = settings
+            var library = profileRepository.load()
+            if library.activeProfileID == nil {
+                library.activeProfileID = settings.activeProfileID
+            }
+            if let activeProfile = library.activeProfile,
+               settings.activeProfileID != activeProfile.id || settings.profilePath != activeProfile.filePath {
+                settings.activeProfileID = activeProfile.id
+                settings.profilePath = activeProfile.filePath
+                try settingsStore.save(settings)
+                lastSavedSettings = settings
+            }
+            profileLibrary = library
+            profileContentCache.removeAll()
+            preloadProfileVisualData(for: library.profiles, force: true)
+            refreshSystemProxyState()
+            pinStatusText = t(.pinDisabled)
+            statusText = t(.pinDisabled)
+            presentStartupImportPromptIfNeeded()
+            Task {
+                await detectRunningCore()
+                if settings.autoStartCoreOnLaunch, !isRunning {
+                    start()
+                }
+            }
+        } catch {
+            pinStatusText = displayError(error)
+        }
+    }
+
+    func disablePINProtection() {
+        guard let keyPair = unlockedAgeKeyPair else {
+            pinStatusText = t(.pinRequired)
+            pinAppLocked = true
+            return
+        }
+
+        do {
+            let rawStore = Self.makeProtectionKeyStore(paths: paths, storage: pinStorageKind)
+            try rawStore.storeAgeKeyPair(keyPair)
+            protectionKeyStore = rawStore
+            settingsStore = ChumenSettingsStore(paths: paths, protectionKeyStore: rawStore)
+            profileRepository = ProfileRepository(
+                paths: paths,
+                protectConfigFiles: settings.protectConfigFiles,
+                protectionKeyStore: rawStore,
+                corePath: settings.corePath
+            )
+            manager.updateProtectionKeyStore(rawStore)
+            settings.protectAgeKeyWithPIN = false
+            settings.securitySetupCompleted = true
+            settings.ageKeyStorage = pinStorageKind
+            try settingsStore.save(settings)
+            try pinVault.delete()
+
+            unlockedAgeKeyPair = nil
+            pinVaultExists = false
+            pinSetupRequired = false
+            pinSetupProtectAgeKey = false
+            pinStorageLocked = false
+            pinAppLocked = false
+            pinAppLockOnLaunch = false
+            pinInput = ""
+            lastSavedSettings = settings
+            pinStatusText = t(.pinDisabled)
+            statusText = t(.pinDisabled)
+        } catch {
+            pinStatusText = displayError(error)
+        }
+    }
+
+    func lockAppWithPIN() {
+        guard pinVaultExists else { return }
+        pinInput = ""
+        pinAppLocked = true
+        pinStatusText = t(.pinLocked)
+    }
+
+    func regeneratePINSetupPIN() {
+        let pin = Self.generateDefaultPIN()
+        pinSetupPIN = pin
+        pinSetupConfirm = pin
+        pinStatusText = ""
+    }
+
+    func setPINAppLockOnLaunch(_ enabled: Bool) {
+        pinAppLockOnLaunch = enabled
+        guard pinVaultExists else { return }
+        do {
+            try pinVault.updateLockAppOnLaunch(enabled, storage: pinStorageKind)
+            pinStatusText = t(.saved)
+        } catch {
+            pinStatusText = displayError(error)
+        }
+    }
+
+    func setPINStorageKind(_ storage: ChumenAgeKeyStorageKind) {
+        guard storage != pinStorageKind else { return }
+        do {
+            if pinVaultExists {
+                try pinVault.move(to: storage)
+                pinStorageKind = storage
+                settings.ageKeyStorage = storage
+                if !pinStorageLocked {
+                    try settingsStore.save(settings)
+                    lastSavedSettings = settings
+                }
+            } else if !settings.protectAgeKeyWithPIN {
+                let keyPair = try loadOrGenerateAgeKeyPair(corePath: resolvedCorePathForPIN())
+                let rawStore = Self.makeProtectionKeyStore(paths: paths, storage: storage)
+                try rawStore.storeAgeKeyPair(keyPair)
+                protectionKeyStore = rawStore
+                settingsStore = ChumenSettingsStore(paths: paths, protectionKeyStore: rawStore)
+                profileRepository = ProfileRepository(
+                    paths: paths,
+                    protectConfigFiles: settings.protectConfigFiles,
+                    protectionKeyStore: rawStore,
+                    corePath: settings.corePath
+                )
+                manager.updateProtectionKeyStore(rawStore)
+                pinStorageKind = storage
+                settings.ageKeyStorage = storage
+                try settingsStore.save(settings)
+                lastSavedSettings = settings
+            } else {
+                pinStorageKind = storage
+            }
+            pinStatusText = t(.saved)
+        } catch {
+            pinStatusText = displayError(error)
+        }
+    }
+
+    private func loadUnlockedConfiguration(ageKeyPair: MihomoAgeKeyPair) throws {
+        let unlockedStore = ChumenConfigProtectionKeyStore(ageKeyPair: ageKeyPair)
+        protectionKeyStore = unlockedStore
+        settingsStore = ChumenSettingsStore(paths: paths, protectionKeyStore: unlockedStore)
+        var loadedSettings = try settingsStore.loadOrThrow()
+        let decodedProtectAgeKeyWithPIN = loadedSettings.protectAgeKeyWithPIN
+        loadedSettings.protectAgeKeyWithPIN = true
+        loadedSettings.ageKeyStorage = pinStorageKind
+        profileRepository = ProfileRepository(
+            paths: paths,
+            protectConfigFiles: loadedSettings.protectConfigFiles,
+            protectionKeyStore: unlockedStore,
+            corePath: loadedSettings.corePath
+        )
+        var library = profileRepository.load()
+        var needsSave = false
+        if library.activeProfileID == nil {
+            library.activeProfileID = loadedSettings.activeProfileID
+        }
+        if let activeProfile = library.activeProfile,
+           loadedSettings.activeProfileID != activeProfile.id || loadedSettings.profilePath != activeProfile.filePath {
+            loadedSettings.activeProfileID = activeProfile.id
+            loadedSettings.profilePath = activeProfile.filePath
+            needsSave = true
+        }
+        if !decodedProtectAgeKeyWithPIN {
+            needsSave = true
+        }
+        if needsSave {
+            try settingsStore.save(loadedSettings)
+        }
+
+        unlockedAgeKeyPair = ageKeyPair
+        manager.updateProtectionKeyStore(unlockedStore)
+        settings = loadedSettings
+        profileLibrary = library
+        lastSavedSettings = loadedSettings
+        pinVaultExists = true
+        pinSetupRequired = false
+        pinStorageLocked = false
+        pinAppLocked = false
+        pinAppLockOnLaunch = (try? pinVault.load(preferredStorage: pinStorageKind)?.lockAppOnLaunch) ?? false
+        pinStatusText = t(.pinUnlocked)
+        statusText = t(.pinUnlocked)
+        profileContentCache.removeAll()
+        preloadProfileVisualData(for: library.profiles, force: true)
+        refreshSystemProxyState()
+        presentStartupImportPromptIfNeeded()
+        Task {
+            await detectRunningCore()
+            if settings.autoStartCoreOnLaunch, !isRunning {
+                start()
+            }
+        }
+    }
+
+    private func resolvedCorePathForPIN() throws -> String {
+        if !settings.corePath.isEmpty, FileManager.default.isExecutableFile(atPath: settings.corePath) {
+            return settings.corePath
+        }
+        if let candidate = ChumenRuntimeSettings.firstExecutableCoreCandidate() {
+            settings.corePath = candidate
+            return candidate
+        }
+        throw ChumenError.missingCorePath
+    }
+
+    private nonisolated static func generateDefaultPIN() -> String {
+        var bytes = [UInt8](repeating: 0, count: 4)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else {
+            return String(format: "%04d", Int.random(in: 0..<10_000))
+        }
+        let value = bytes.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        return String(format: "%04u", value % 10_000)
+    }
+
+    private func loadOrGenerateAgeKeyPair(corePath: String) throws -> MihomoAgeKeyPair {
+        if let existing = try protectionKeyStore.loadAgeKeyPairIfPresent() {
+            return existing
+        }
+        return try MihomoAgeRuntimeProtection.generateKeyPair(corePath: corePath)
+    }
+
+    private static func makeProtectionKeyStore(
+        paths: ChumenPaths,
+        storage: ChumenAgeKeyStorageKind
+    ) -> ChumenConfigProtectionKeyStore {
+        ChumenConfigProtectionKeyStore(
+            ageIdentityURL: paths.ageIdentityURL,
+            useKeychainForAgeKey: storage == .keychain
+        )
     }
 
     func setLanguage(_ language: AppLanguage) {
@@ -429,7 +989,8 @@ final class AppModel: ObservableObject {
                 let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(
                     settings: settings,
                     paths: paths,
-                    profileAppendixYAML: activeProfileAppendixYAML
+                    profileAppendixYAML: activeProfileAppendixYAML,
+                    protectionKeyStore: protectionKeyStore
                 )
                 defer {
                     ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeConfigURL, paths: paths)
@@ -491,6 +1052,117 @@ final class AppModel: ObservableObject {
 
     var activeProfileAppendixYAML: String {
         activeProfile?.configAppendixYAML ?? ""
+    }
+
+    private func preloadProfileVisualData(for profiles: [ProxyProfile], force: Bool) {
+        guard !profiles.isEmpty else { return }
+        profileVisualPreloadTask?.cancel()
+        let repository = profileRepository
+        profileVisualPreloadTask = Task { [weak self] in
+            guard let self else { return }
+            for profile in profiles {
+                guard !Task.isCancelled else { return }
+                if !force, self.profileContentCache[profile.id] != nil {
+                    continue
+                }
+
+                do {
+                    let entry = try await Self.loadProfileContentCacheEntry(profile: profile, repository: repository)
+                    guard !Task.isCancelled else { return }
+                    self.profileContentCache[profile.id] = entry
+                    self.applyProfileCacheToOpenEditors(profileID: profile.id, entry: entry)
+                } catch {
+                    continue
+                }
+            }
+        }
+    }
+
+    private nonisolated static func loadProfileContentCacheEntry(
+        profile: ProxyProfile,
+        repository: ProfileRepository
+    ) async throws -> ProfileContentCacheEntry {
+        try await Task.detached(priority: .utility) {
+            let content = try repository.profileContent(profile)
+            return makeProfileContentCacheEntry(content)
+        }.value
+    }
+
+    private nonisolated static func makeProfileContentCacheEntry(_ content: String) -> ProfileContentCacheEntry {
+        ProfileContentCacheEntry(
+            content: content,
+            sections: YAMLTopLevelSection.parse(content),
+            topLevelBlocks: topLevelBlocks(in: content)
+        )
+    }
+
+    private nonisolated static func topLevelBlocks(in yaml: String) -> [String: String] {
+        let lines = yaml.components(separatedBy: .newlines)
+        var blocks: [String: String] = [:]
+        var currentKey: String?
+        var currentBlock: [String] = []
+
+        func flush() {
+            guard let currentKey else { return }
+            let block = currentBlock.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !block.isEmpty {
+                blocks[currentKey] = block
+            }
+        }
+
+        for line in lines {
+            if let key = ChumenConfigurationBuilder.topLevelKey(in: line) {
+                flush()
+                currentKey = key
+                currentBlock = [line]
+            } else if currentKey != nil {
+                currentBlock.append(line)
+            }
+        }
+
+        flush()
+        return blocks
+    }
+
+    private nonisolated static func cachedTopLevelBlock(
+        _ key: String,
+        in entry: ProfileContentCacheEntry
+    ) -> String {
+        entry.topLevelBlocks[key] ?? "\(key):\n"
+    }
+
+    private nonisolated static func cachedVisualSections(
+        _ key: String,
+        in entry: ProfileContentCacheEntry,
+        fallbackBlock: String
+    ) -> [YAMLTopLevelSection] {
+        let matched = entry.sections.filter { $0.key == key }
+        return matched.isEmpty ? YAMLTopLevelSection.parse(fallbackBlock) : matched
+    }
+
+    private func rebuildProfileContentCache(_ content: String, for profile: ProxyProfile) {
+        let profileID = profile.id
+        Task { [weak self] in
+            let entry = await Task.detached(priority: .utility) {
+                Self.makeProfileContentCacheEntry(content)
+            }.value
+            guard let self else { return }
+            self.profileContentCache[profileID] = entry
+            self.applyProfileCacheToOpenEditors(profileID: profileID, entry: entry)
+        }
+    }
+
+    private func applyProfileCacheToOpenEditors(profileID: String, entry: ProfileContentCacheEntry) {
+        if editingProfile?.id == profileID, profileEditorText.isEmpty {
+            profileEditorVisualSections = entry.sections
+        }
+        if let editingProfileSection, editingProfileSection.profile.id == profileID {
+            let key = editingProfileSection.kind.yamlKey
+            let block = Self.cachedTopLevelBlock(key, in: entry)
+            if profileSectionEditorText.isEmpty || profileSectionEditorText == "\(key):\n" {
+                profileSectionEditorVisualSections = Self.cachedVisualSections(key, in: entry, fallbackBlock: block)
+            }
+        }
     }
 
     var connectionAnalysisSnapshot: ConnectionAnalysisSnapshot {
@@ -620,6 +1292,12 @@ final class AppModel: ObservableObject {
         return "\(title): \(message)"
     }
 
+    var systemProxyRuntimeFailureDetail: String {
+        guard systemProxyRuntimeFailed else { return "" }
+        let message = systemProxyRuntimeFailureMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        return message.isEmpty ? t(.failed) : message
+    }
+
     func chooseCore(_ url: URL) {
         settings.corePath = url.path
         saveSettings()
@@ -638,6 +1316,8 @@ final class AppModel: ObservableObject {
             let profile = try profileRepository.importLocalProfile(from: url, into: &library)
             profileLibrary = library
             activateProfile(profile)
+            preloadProfileVisualData(for: [profile], force: true)
+            startupImportPromptPresented = false
             statusText = "\(t(.imported)) \(profile.name)"
         } catch {
             statusText = displayError(error)
@@ -661,6 +1341,8 @@ final class AppModel: ObservableObject {
                 )
                 profileLibrary = library
                 activateProfile(profile)
+                preloadProfileVisualData(for: [profile], force: true)
+                startupImportPromptPresented = false
                 remoteProfileURL = ""
                 remoteProfileName = ""
                 statusText = "\(t(.imported)) \(profile.name)"
@@ -1031,12 +1713,29 @@ final class AppModel: ObservableObject {
         importExternalProfiles([candidate])
     }
 
+    func dismissStartupImportPrompt() {
+        startupImportPromptPresented = false
+    }
+
+    private func presentStartupImportPromptIfNeeded() {
+        // First-run onboarding should appear only after the PIN/key choice is resolved. At that
+        // point an empty profile library means Chumen has nothing useful to route with, so reuse
+        // the existing client scanner and show an import-focused next step instead of dropping the
+        // user into an empty dashboard.
+        guard profileLibrary.profiles.isEmpty, !pinOverlayPresented else { return }
+        startupImportPromptPresented = true
+        if !externalProfileScanCompleted {
+            scanExternalProfiles()
+        }
+    }
+
     func updateProfile(_ profile: ProxyProfile) {
         Task {
             do {
                 var library = profileLibrary
-                _ = try await profileRepository.update(profile, in: &library)
+                let updated = try await profileRepository.update(profile, in: &library)
                 profileLibrary = library
+                preloadProfileVisualData(for: [updated], force: true)
                 statusText = "\(t(.updated)) \(profile.name)"
                 if isRunning, profile.id == settings.activeProfileID {
                     restart()
@@ -1056,13 +1755,14 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 var library = profileLibrary
-                _ = try await profileRepository.update(
+                let updated = try await profileRepository.update(
                     profile,
                     usingHTTPProxyHost: settings.systemProxyHost,
                     port: settings.mixedPort,
                     in: &library
                 )
                 profileLibrary = library
+                preloadProfileVisualData(for: [updated], force: true)
                 statusText = "\(t(.updated)) \(profile.name)"
                 if isRunning, profile.id == settings.activeProfileID {
                     restart()
@@ -1112,24 +1812,46 @@ final class AppModel: ObservableObject {
         profileEditorRemoteURL = profile.remoteURL ?? ""
         profileEditorText = ""
         profileEditorOriginalText = ""
+        profileEditorVisualSections = []
         profileEditorIsLoading = true
         editingProfile = profile
+
+        if let entry = profileContentCache[profile.id] {
+            profileEditorVisualSections = entry.sections
+            profileEditorText = entry.content
+            profileEditorOriginalText = entry.content
+            profileEditorIsLoading = false
+            return
+        }
 
         let repository = profileRepository
         profileEditorLoadTask = Task { [weak self] in
             do {
-                let text = try await Task.detached(priority: .userInitiated) {
-                    try repository.profileContent(profile)
-                }.value
+                let entry = try await Self.loadProfileContentCacheEntry(profile: profile, repository: repository)
                 guard !Task.isCancelled else { return }
-                self?.profileEditorText = text
-                self?.profileEditorOriginalText = text
+                self?.profileContentCache[profile.id] = entry
+                self?.profileEditorVisualSections = entry.sections
+                self?.profileEditorText = entry.content
+                self?.profileEditorOriginalText = entry.content
                 self?.profileEditorIsLoading = false
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.profileEditorIsLoading = false
-                self?.editingProfile = nil
-                self?.statusText = self?.displayError(error) ?? error.localizedDescription
+                guard let self else { return }
+                if self.isAgeIdentityMismatch(error) {
+                    let recoveryText = Self.profileEditorRecoveryTemplate(profile: profile)
+                    self.profileEditorVisualSections = YAMLTopLevelSection.parse(recoveryText)
+                    self.profileEditorText = recoveryText
+                    self.profileEditorOriginalText = ""
+                    self.profileEditorIsLoading = false
+                    self.statusText = "\(self.t(.profileRecoveryEditorReady)) \(profile.name)"
+                    self.manager.appendEventLog(
+                        "profile-editor opened recovery template for \(profile.id) \(profile.filePath): \(error.localizedDescription)"
+                    )
+                } else {
+                    self.profileEditorIsLoading = false
+                    self.editingProfile = nil
+                    self.statusText = self.displayError(error)
+                }
             }
         }
     }
@@ -1138,17 +1860,21 @@ final class AppModel: ObservableObject {
         guard let editingProfile else { return }
         guard !profileEditorIsLoading else { return }
         do {
-            let contentChanged = profileEditorText != profileEditorOriginalText
+            let editorText = focusedYAMLCodeEditorText() ?? profileEditorText
+            profileEditorText = editorText
+            let contentChanged = editorText != profileEditorOriginalText
             var library = profileLibrary
             let updated = try profileRepository.saveContentAndMetadata(
                 editingProfile,
-                content: profileEditorText,
+                content: editorText,
                 name: profileEditorName,
                 remoteURL: profileEditorRemoteURL,
                 in: &library
             )
             profileLibrary = library
+            rebuildProfileContentCache(editorText, for: updated)
             self.editingProfile = nil
+            profileEditorVisualSections = []
             statusText = "\(t(.saved)) \(updated.name)"
             if contentChanged, isRunning, updated.id == settings.activeProfileID {
                 restart()
@@ -1166,24 +1892,35 @@ final class AppModel: ObservableObject {
         profileEditorRemoteURL = ""
         profileEditorText = ""
         profileEditorOriginalText = ""
+        profileEditorVisualSections = []
         profileEditorIsLoading = false
     }
 
     func beginEditProfileSection(_ profile: ProxyProfile, kind: ProfileSectionEditorKind) {
         profileSectionEditorLoadTask?.cancel()
         profileSectionEditorText = "\(kind.yamlKey):\n"
+        profileSectionEditorVisualSections = YAMLTopLevelSection.parse(profileSectionEditorText)
         profileSectionEditorIsLoading = true
         editingProfileSection = ProfileSectionEditorState(profile: profile, kind: kind)
+
+        if let entry = profileContentCache[profile.id] {
+            let block = Self.cachedTopLevelBlock(kind.yamlKey, in: entry)
+            profileSectionEditorVisualSections = Self.cachedVisualSections(kind.yamlKey, in: entry, fallbackBlock: block)
+            profileSectionEditorText = block
+            profileSectionEditorIsLoading = false
+            return
+        }
 
         let repository = profileRepository
         let yamlKey = kind.yamlKey
         profileSectionEditorLoadTask = Task { [weak self] in
             do {
-                let yaml = try await Task.detached(priority: .userInitiated) {
-                    try repository.profileContent(profile)
-                }.value
+                let entry = try await Self.loadProfileContentCacheEntry(profile: profile, repository: repository)
                 guard !Task.isCancelled else { return }
-                self?.profileSectionEditorText = Self.extractTopLevelBlock(yamlKey, from: yaml)
+                let block = Self.cachedTopLevelBlock(yamlKey, in: entry)
+                self?.profileContentCache[profile.id] = entry
+                self?.profileSectionEditorVisualSections = Self.cachedVisualSections(yamlKey, in: entry, fallbackBlock: block)
+                self?.profileSectionEditorText = block
                 self?.profileSectionEditorIsLoading = false
             } catch {
                 guard !Task.isCancelled else { return }
@@ -1199,17 +1936,26 @@ final class AppModel: ObservableObject {
         guard !profileSectionEditorIsLoading else { return }
 
         do {
-            let current = try profileRepository.profileContent(editingProfileSection.profile)
+            let editorText = focusedYAMLCodeEditorText() ?? profileSectionEditorText
+            profileSectionEditorText = editorText
+            let current: String
+            if let cachedContent = profileContentCache[editingProfileSection.profile.id]?.content {
+                current = cachedContent
+            } else {
+                current = try profileRepository.profileContent(editingProfileSection.profile)
+            }
             let content = Self.replacingTopLevelBlock(
                 editingProfileSection.kind.yamlKey,
                 in: current,
-                with: profileSectionEditorText
+                with: editorText
             )
             var library = profileLibrary
             let updated = try profileRepository.saveContent(editingProfileSection.profile, content: content, in: &library)
             profileLibrary = library
+            rebuildProfileContentCache(content, for: updated)
             self.editingProfileSection = nil
             profileSectionEditorText = ""
+            profileSectionEditorVisualSections = []
             profileSectionEditorIsLoading = false
             statusText = "\(t(.saved)) \(t(editingProfileSection.kind.titleKey))"
             if isRunning, updated.id == settings.activeProfileID {
@@ -1225,16 +1971,19 @@ final class AppModel: ObservableObject {
         profileSectionEditorLoadTask = nil
         editingProfileSection = nil
         profileSectionEditorText = ""
+        profileSectionEditorVisualSections = []
         profileSectionEditorIsLoading = false
     }
 
     func beginEditProfileAppendix(_ profile: ProxyProfile) {
         profileAppendixEditorText = profile.configAppendixYAML ?? ""
+        profileAppendixEditorVisualSections = YAMLTopLevelSection.parse(profileAppendixEditorText)
         editingProfileAppendix = .profile(profile)
     }
 
     func beginEditGlobalProfileAppendix() {
         profileAppendixEditorText = settings.configAppendixYAML
+        profileAppendixEditorVisualSections = YAMLTopLevelSection.parse(profileAppendixEditorText)
         editingProfileAppendix = .global
     }
 
@@ -1242,15 +1991,17 @@ final class AppModel: ObservableObject {
         guard let editingProfileAppendix else { return }
 
         do {
+            let editorText = focusedYAMLCodeEditorText() ?? profileAppendixEditorText
+            profileAppendixEditorText = editorText
             switch editingProfileAppendix {
             case .global:
-                settings.configAppendixYAML = profileAppendixEditorText
+                settings.configAppendixYAML = editorText
                 saveSettings()
                 statusText = "\(t(.saved)) \(t(.configAppendix))"
                 reloadRunningCoreAfterProfileChange()
             case let .profile(profile):
                 var library = profileLibrary
-                let updated = try profileRepository.updateConfigAppendix(profile, yaml: profileAppendixEditorText, in: &library)
+                let updated = try profileRepository.updateConfigAppendix(profile, yaml: editorText, in: &library)
                 profileLibrary = library
                 statusText = "\(t(.saved)) \(updated.name)"
                 if isRunning, updated.id == settings.activeProfileID {
@@ -1259,6 +2010,7 @@ final class AppModel: ObservableObject {
             }
             self.editingProfileAppendix = nil
             profileAppendixEditorText = ""
+            profileAppendixEditorVisualSections = []
         } catch {
             statusText = displayError(error)
         }
@@ -1267,6 +2019,7 @@ final class AppModel: ObservableObject {
     func cancelProfileAppendixEditor() {
         editingProfileAppendix = nil
         profileAppendixEditorText = ""
+        profileAppendixEditorVisualSections = []
     }
 
     func noteProfileScriptUnsupported() {
@@ -1283,6 +2036,7 @@ final class AppModel: ObservableObject {
             var library = profileLibrary
             try profileRepository.delete(profile, from: &library)
             profileLibrary = library
+            profileContentCache[profile.id] = nil
             settings.activeProfileID = library.activeProfileID
             settings.profilePath = library.activeProfile?.filePath
             saveSettings()
@@ -1302,6 +2056,7 @@ final class AppModel: ObservableObject {
         do {
             try profileRepository.save(profileLibrary)
             saveSettings()
+            startupImportPromptPresented = false
             statusText = "\(t(.activeProfile)): \(profile.name)"
             reloadRunningCoreAfterProfileChange()
         } catch {
@@ -1370,11 +2125,23 @@ final class AppModel: ObservableObject {
         return count
     }
 
+    private func focusedYAMLCodeEditorText() -> String? {
+        guard let textView = NSApplication.shared.keyWindow?.firstResponder as? STTextView,
+              textView.identifier?.rawValue == "ChumenYAMLCodeEditor" else {
+            return nil
+        }
+        return textView.text ?? ""
+    }
+
     private func importExternalProfiles(_ candidates: [ExternalProfileCandidate]) {
         do {
             var library = profileLibrary
             let summary = try profileRepository.importExternalProfiles(candidates, into: &library)
             profileLibrary = library
+            if !library.profiles.isEmpty {
+                startupImportPromptPresented = false
+            }
+            preloadProfileVisualData(for: summary.imported, force: true)
             if let firstImported = summary.imported.first {
                 activateProfile(firstImported)
             } else {
@@ -1399,7 +2166,8 @@ final class AppModel: ObservableObject {
                 let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(
                     settings: launch,
                     paths: paths,
-                    profileAppendixYAML: activeProfileAppendixYAML
+                    profileAppendixYAML: activeProfileAppendixYAML,
+                    protectionKeyStore: protectionKeyStore
                 )
                 defer {
                     ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeConfigURL, paths: paths)
@@ -1434,6 +2202,10 @@ final class AppModel: ObservableObject {
     }
 
     func start() {
+        guard !pinOverlayPresented else {
+            statusText = pinStatusText.isEmpty ? t(.pinRequired) : pinStatusText
+            return
+        }
         guard !isCoreTransitioning else { return }
         let launch = launchSettings()
         let profileAppendixYAML = activeProfileAppendixYAML
@@ -1463,14 +2235,17 @@ final class AppModel: ObservableObject {
                 )
 
                 if launch.setSystemProxyOnStart {
+                    self.resetSystemProxyRuntimeState()
+                    self.systemProxyEnabled = true
                     do {
                         try await self.setSystemProxy(true, using: launch)
                         self.systemProxyEnabled = true
                         self.statusText = self.t(.systemProxyEnabled)
+                        await self.refreshSystemProxyStateAsync()
                     } catch {
-                        self.statusText = self.displayError(error)
+                        self.systemProxyEnabled = false
+                        self.recordSystemProxyFailure(error)
                     }
-                    await self.refreshSystemProxyStateAsync()
                 }
 
                 self.isCoreTransitioning = false
@@ -1479,6 +2254,14 @@ final class AppModel: ObservableObject {
                 await self.refreshAll()
             } catch {
                 guard let self, !Task.isCancelled else { return }
+                if let recovery = self.recoverUnreadableActiveProfileForDefaultLaunch(after: error),
+                   await self.startRecoveredDefaultRuntime(
+                       recovery: recovery,
+                       manager: manager,
+                       notificationTitle: self.t(.activeProfileDisabled)
+                   ) {
+                    return
+                }
                 self.isRunning = manager.isRunning
                 self.isCoreTransitioning = false
                 self.statusText = self.displayError(error)
@@ -1513,15 +2296,18 @@ final class AppModel: ObservableObject {
             )
 
             if shouldClearProxy {
-                do {
-                    try await self.setSystemProxy(false, using: stopSettings)
-                    self.systemProxyEnabled = false
-                    self.statusText = self.t(.systemProxyDisabled)
-                } catch {
-                    self.statusText = self.displayError(error)
+                self.resetSystemProxyRuntimeState()
+                self.systemProxyEnabled = false
+                    do {
+                        try await self.setSystemProxy(false, using: stopSettings)
+                        self.systemProxyEnabled = false
+                        self.statusText = self.t(.systemProxyDisabled)
+                        await self.refreshSystemProxyStateAsync()
+                    } catch {
+                        self.systemProxyEnabled = true
+                        self.recordSystemProxyFailure(error)
+                    }
                 }
-                await self.refreshSystemProxyStateAsync()
-            }
 
             self.isCoreTransitioning = false
             self.coreTransitionTask = nil
@@ -1529,6 +2315,10 @@ final class AppModel: ObservableObject {
     }
 
     func restart() {
+        guard !pinOverlayPresented else {
+            statusText = pinStatusText.isEmpty ? t(.pinRequired) : pinStatusText
+            return
+        }
         guard !isCoreTransitioning else { return }
         let launch = launchSettings()
         let profileAppendixYAML = activeProfileAppendixYAML
@@ -1558,15 +2348,29 @@ final class AppModel: ObservableObject {
                     body: self.activeProfileNotificationBody(),
                     level: .success
                 )
+                self.pendingTunToggleTarget = nil
                 try? await Task.sleep(for: .milliseconds(600))
                 await self.refreshAll()
                 self.coreTransitionTask = nil
             } catch {
                 guard let self, !Task.isCancelled else { return }
+                let wasTunToggle = self.pendingTunToggleTarget != nil
+                self.pendingTunToggleTarget = nil
                 self.isRunning = manager.isRunning
                 self.isCoreTransitioning = false
-                self.statusText = self.displayError(error)
-                self.notify(title: self.t(.notificationCoreFailed), body: self.statusText, level: .failure)
+                if wasTunToggle {
+                    self.recordTunOperationFailure(error)
+                } else if let recovery = self.recoverUnreadableActiveProfileForDefaultLaunch(after: error),
+                          await self.startRecoveredDefaultRuntime(
+                              recovery: recovery,
+                              manager: manager,
+                              notificationTitle: self.t(.activeProfileDisabled)
+                          ) {
+                    return
+                } else {
+                    self.statusText = self.displayError(error)
+                    self.notify(title: self.t(.notificationCoreFailed), body: self.statusText, level: .failure)
+                }
                 self.coreTransitionTask = nil
             }
         }
@@ -1808,6 +2612,7 @@ final class AppModel: ObservableObject {
         statusText = enabled ? t(.tunEnabled) : t(.tunDisabled)
         if isRunning {
             // TUN 是启动级配置，不能只 patch controller；运行中切换必须重启内核。
+            pendingTunToggleTarget = enabled
             restart()
         }
     }
@@ -1823,9 +2628,12 @@ final class AppModel: ObservableObject {
 
     func toggleSystemProxy() {
         guard !isCoreTransitioning else { return }
+        let previousEnabled = systemProxyEnabled
         let shouldEnable = !systemProxyEnabled
         let proxySettings = settings
-        statusText = t(.pending)
+        resetSystemProxyRuntimeState()
+        systemProxyEnabled = shouldEnable
+        statusText = shouldEnable ? t(.systemProxyEnabled) : t(.systemProxyDisabled)
 
         Task {
             do {
@@ -1834,7 +2642,8 @@ final class AppModel: ObservableObject {
                 statusText = shouldEnable ? t(.systemProxyEnabled) : t(.systemProxyDisabled)
                 await refreshSystemProxyStateAsync()
             } catch {
-                statusText = displayError(error)
+                systemProxyEnabled = previousEnabled
+                recordSystemProxyFailure(error)
             }
         }
     }
@@ -1854,6 +2663,7 @@ final class AppModel: ObservableObject {
             }.value
             let currentSettings = settings
             let ownedByChumen = state.matches(host: currentSettings.systemProxyHost, port: currentSettings.mixedPort)
+            resetSystemProxyRuntimeState()
             systemProxyEnabled = ownedByChumen
             systemProxyStateText = systemProxyText(for: state, ownedByChumen: ownedByChumen, settings: currentSettings)
         } catch {
@@ -1879,6 +2689,15 @@ final class AppModel: ObservableObject {
         NSApplication.shared.terminate(nil)
     }
 
+    func restartApplication() {
+        guard scheduleRelaunch() else {
+            quit()
+            return
+        }
+        prepareForQuit()
+        NSApplication.shared.terminate(nil)
+    }
+
     func prepareForQuit() {
         guard !isPreparingForQuit else { return }
         isPreparingForQuit = true
@@ -1888,6 +2707,8 @@ final class AppModel: ObservableObject {
         stopControllerStreams()
         autoRefreshTask?.cancel()
         autoRefreshTask = nil
+        profileVisualPreloadTask?.cancel()
+        profileVisualPreloadTask = nil
         if settings.clearSystemProxyOnStop, systemProxyEnabled {
             disableSystemProxySynchronously()
         }
@@ -1895,6 +2716,30 @@ final class AppModel: ObservableObject {
         manager.stop(waitForExit: true)
         isRunning = false
         statusText = t(.stopped)
+    }
+
+    private func scheduleRelaunch() -> Bool {
+        let bundlePath = Bundle.main.bundlePath
+        guard !bundlePath.isEmpty else { return false }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "sleep 0.4; /usr/bin/open \(Self.shellQuoted(bundlePath))"
+        ]
+
+        do {
+            try process.run()
+            return true
+        } catch {
+            statusText = displayError(error)
+            return false
+        }
+    }
+
+    private static func shellQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     private func handleCoreLog(_ text: String) {
@@ -1921,6 +2766,27 @@ final class AppModel: ObservableObject {
     private func resetTunRuntimeState(for settings: ChumenRuntimeSettings) {
         tunRuntimeFailed = false
         tunRuntimeFailureMessage = ""
+    }
+
+    private func resetSystemProxyRuntimeState() {
+        systemProxyRuntimeFailed = false
+        systemProxyRuntimeFailureMessage = ""
+    }
+
+    private func recordSystemProxyFailure(_ error: Error) {
+        let message = displayError(error)
+        systemProxyRuntimeFailed = true
+        systemProxyRuntimeFailureMessage = message
+        statusText = "\(t(.systemProxyFailed)): \(message)"
+        notify(title: t(.systemProxyFailed), body: message, level: .failure)
+    }
+
+    private func recordTunOperationFailure(_ error: Error) {
+        let message = displayError(error)
+        tunRuntimeFailed = true
+        tunRuntimeFailureMessage = message
+        statusText = "\(t(.tunFailed)): \(message)"
+        notify(title: t(.tunFailed), body: message, level: .failure)
     }
 
     func clearLogs() {
@@ -2009,7 +2875,8 @@ final class AppModel: ObservableObject {
                 let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(
                     settings: launch,
                     paths: paths,
-                    profileAppendixYAML: activeProfileAppendixYAML
+                    profileAppendixYAML: activeProfileAppendixYAML,
+                    protectionKeyStore: protectionKeyStore
                 )
                 defer {
                     ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeConfigURL, paths: paths)
@@ -2148,6 +3015,7 @@ final class AppModel: ObservableObject {
     func saveSettings() {
         settingsAutosaveTask?.cancel()
         settingsAutosaveTask = nil
+        guard !pinStorageLocked, !pinSetupRequired else { return }
         guard settings != lastSavedSettings else { return }
         do {
             try paths.ensureDirectories()
@@ -2201,12 +3069,13 @@ final class AppModel: ObservableObject {
     }
 
     private func disableSystemProxySynchronously() {
+        resetSystemProxyRuntimeState()
         do {
             try systemProxyManager(for: settings).disable()
             systemProxyEnabled = false
             statusText = t(.systemProxyDisabled)
         } catch {
-            statusText = displayError(error)
+            recordSystemProxyFailure(error)
         }
     }
 
@@ -2415,6 +3284,9 @@ final class AppModel: ObservableObject {
         if let activeProfile {
             launch.profilePath = activeProfile.filePath
             launch.activeProfileID = activeProfile.id
+        } else {
+            launch.profilePath = nil
+            launch.activeProfileID = nil
         }
         return launch
     }

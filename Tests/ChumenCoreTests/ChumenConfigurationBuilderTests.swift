@@ -384,7 +384,10 @@ final class ChumenConfigurationBuilderTests: XCTestCase {
         let settings = ChumenSettingsStore(paths: paths).load()
 
         XCTAssertEqual(settings.profilePath, migratedProfile.path)
-        let storedSettings = try ChumenConfigProtection().readText(at: paths.settingsURL)
+        let protection = ChumenConfigProtection(
+            keyStore: ChumenConfigProtectionKeyStore(ageIdentityURL: paths.ageIdentityURL)
+        )
+        let storedSettings = try protection.readText(at: paths.settingsURL)
         XCTAssertFalse(storedSettings.contains(previousAppSupportDirectoryName))
     }
 
@@ -425,6 +428,42 @@ final class ChumenConfigurationBuilderTests: XCTestCase {
         XCTAssertTrue(migratedProfilesJSON.contains(migrated.path.replacingOccurrences(of: "/", with: "\\/")))
         XCTAssertFalse(migratedProfilesJSON.contains(legacy.path))
         XCTAssertFalse(migratedProfilesJSON.contains(legacy.path.replacingOccurrences(of: "/", with: "\\/")))
+    }
+
+    func testPathsMigrationSkipsEncryptedStoredFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chumen-encrypted-legacy-migration-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let legacy = root.appendingPathComponent(previousAppSupportDirectoryName, isDirectory: true)
+        let migrated = root.appendingPathComponent("io.github.chumen.native-macos", isDirectory: true)
+        let legacyProfile = legacy.appendingPathComponent("profiles/profile.yaml")
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: migrated, withIntermediateDirectories: true)
+        try "legacy".write(to: legacy.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
+
+        let key = Data(repeating: 9, count: 32)
+        let encryptedSettings = try ChumenConfigProtection.encrypt(
+            Data(#"{"profilePath":"\#(legacyProfile.path)"}"#.utf8),
+            key: key
+        )
+        let encryptedProfiles = try ChumenConfigProtection.encrypt(
+            Data(#"{"profiles":[{"filePath":"\#(legacyProfile.path)"}]}"#.utf8),
+            key: key
+        )
+        try encryptedSettings.write(to: migrated.appendingPathComponent("settings.json"), options: .atomic)
+        try encryptedProfiles.write(to: migrated.appendingPathComponent("profiles.json"), options: .atomic)
+
+        try ChumenPaths.migrateLegacyAppHomeIfNeeded(from: legacy, to: migrated, fileManager: .default)
+
+        let storedSettings = try Data(contentsOf: migrated.appendingPathComponent("settings.json"))
+        let storedProfiles = try Data(contentsOf: migrated.appendingPathComponent("profiles.json"))
+        XCTAssertTrue(ChumenConfigProtection.isProtected(storedSettings))
+        XCTAssertTrue(ChumenConfigProtection.isProtected(storedProfiles))
+        XCTAssertTrue(try String(data: ChumenConfigProtection.decrypt(storedSettings, key: key), encoding: .utf8)?.contains(legacy.path) == true)
+        XCTAssertTrue(try String(data: ChumenConfigProtection.decrypt(storedProfiles, key: key), encoding: .utf8)?.contains(legacy.path) == true)
     }
 
     private func yamlLines(_ yaml: String) -> Set<String> {

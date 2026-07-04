@@ -99,7 +99,10 @@ final class ChumenConfigSyncService: ObservableObject {
         }
     }
 
-    func pull(currentSettings: ChumenRuntimeSettings) async throws -> ChumenImportedSyncState {
+    func pull(
+        currentSettings: ChumenRuntimeSettings,
+        protectionKeyStore: ChumenConfigProtectionKeyStore? = nil
+    ) async throws -> ChumenImportedSyncState {
         try await runSync {
             let payload: ChumenSyncPayload
             switch settings.backend {
@@ -109,7 +112,11 @@ final class ChumenConfigSyncService: ObservableObject {
                 payload = try await pullPayloadFromCloudKit()
             }
 
-            let state = try importPayload(payload, currentSettings: currentSettings)
+            let state = try importPayload(
+                payload,
+                currentSettings: currentSettings,
+                protectionKeyStore: protectionKeyStore
+            )
             markSynced()
             return state
         }
@@ -246,9 +253,11 @@ final class ChumenConfigSyncService: ObservableObject {
 
     private func importPayload(
         _ payload: ChumenSyncPayload,
-        currentSettings: ChumenRuntimeSettings
+        currentSettings: ChumenRuntimeSettings,
+        protectionKeyStore: ChumenConfigProtectionKeyStore?
     ) throws -> ChumenImportedSyncState {
         try paths.ensureDirectories(fileManager: fileManager)
+        let activeKeyStore = protectionKeyStore ?? ChumenConfigProtectionKeyStore(ageIdentityURL: paths.ageIdentityURL)
 
         var importedSettings = payload.settings
         importedSettings.corePath = currentSettings.corePath
@@ -257,7 +266,11 @@ final class ChumenConfigSyncService: ObservableObject {
         importedSettings.protectConfigFiles = currentSettings.protectConfigFiles
 
         var localLibrary = payload.profileLibrary
-        let protection = ChumenConfigProtection(enabled: currentSettings.protectConfigFiles)
+        let protection = ChumenConfigProtection(
+            enabled: currentSettings.protectConfigFiles,
+            keyStore: activeKeyStore,
+            corePath: currentSettings.corePath
+        )
 
         for index in localLibrary.profiles.indices {
             let profile = localLibrary.profiles[index]
@@ -283,8 +296,13 @@ final class ChumenConfigSyncService: ObservableObject {
             localLibrary.activeProfileID = localLibrary.profiles.first?.id
         }
 
-        try ChumenSettingsStore(paths: paths).save(importedSettings)
-        try ProfileRepository(paths: paths, protectConfigFiles: currentSettings.protectConfigFiles).save(localLibrary)
+        try ChumenSettingsStore(paths: paths, protectionKeyStore: activeKeyStore).save(importedSettings)
+        try ProfileRepository(
+            paths: paths,
+            protectConfigFiles: currentSettings.protectConfigFiles,
+            protectionKeyStore: activeKeyStore,
+            corePath: currentSettings.corePath
+        ).save(localLibrary)
 
         return ChumenImportedSyncState(settings: importedSettings, profileLibrary: localLibrary)
     }

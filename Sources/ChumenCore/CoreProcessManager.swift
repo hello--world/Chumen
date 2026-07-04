@@ -7,15 +7,31 @@ public final class CoreProcessManager: @unchecked Sendable {
     public var onExit: (@Sendable (Int32) -> Void)?
 
     private let fileManager: FileManager
+    private let ageProtection: MihomoAgeRuntimeProtecting?
+    private var protectionKeyStore: ChumenConfigProtectionKeyStore
     private var process: Process?
     private var logHandle: FileHandle?
-    // Tracks the actual plaintext runtime file passed to mihomo. The stable runtimeConfigURL may be
-    // encrypted when config protection is enabled, so stop/reload logic must use this live path.
+    // Tracks the runtime file passed to mihomo. With config protection enabled this is an age
+    // encrypted YAML file, not a transient plaintext bridge.
     private var activeRuntimeConfigURL: URL?
 
-    public init(paths: ChumenPaths, fileManager: FileManager = .default) {
+    public init(
+        paths: ChumenPaths,
+        fileManager: FileManager = .default,
+        protectionKeyStore: ChumenConfigProtectionKeyStore? = nil,
+        ageProtection: MihomoAgeRuntimeProtecting? = nil
+    ) {
         self.paths = paths
         self.fileManager = fileManager
+        self.protectionKeyStore = protectionKeyStore ?? ChumenConfigProtectionKeyStore(ageIdentityURL: paths.ageIdentityURL)
+        self.ageProtection = ageProtection
+    }
+
+    public func updateProtectionKeyStore(_ keyStore: ChumenConfigProtectionKeyStore) {
+        // The GUI can unlock or disable PIN protection without recreating the process manager. The
+        // manager only stores the keyStore reference used for future config generation; already
+        // running mihomo processes keep their current runtime config until restart/reload.
+        self.protectionKeyStore = keyStore
     }
 
     public var isRunning: Bool {
@@ -75,17 +91,20 @@ public final class CoreProcessManager: @unchecked Sendable {
         let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(
             settings: settings,
             paths: paths,
-            profileAppendixYAML: profileAppendixYAML
+            profileAppendixYAML: profileAppendixYAML,
+            protectionKeyStore: protectionKeyStore,
+            ageProtection: ageProtection
         )
         do {
             try prepareLogFile()
-            try validateRuntimeConfig(settings: settings, runtimeConfigURL: runtimeConfigURL)
+            let ageSecretKey = try runtimeAgeSecretKey(settings: settings)
+            try validateRuntimeConfig(settings: settings, runtimeConfigURL: runtimeConfigURL, ageSecretKey: ageSecretKey)
 
             if settings.enableTun {
                 // TUN 通常需要特权网络能力，交给 helper 以 LaunchDaemon 方式启动内核。
-                try startPrivileged(settings: settings, runtimeConfigURL: runtimeConfigURL)
+                try startPrivileged(settings: settings, runtimeConfigURL: runtimeConfigURL, ageSecretKey: ageSecretKey)
                 activeRuntimeConfigURL = runtimeConfigURL
-                scheduleRuntimePlaintextCleanup(runtimeConfigURL)
+                scheduleLegacyRuntimeCleanup(runtimeConfigURL)
                 return
             }
 
@@ -101,6 +120,7 @@ public final class CoreProcessManager: @unchecked Sendable {
                 "-ext-ctl-unix",
                 paths.externalControllerSocketURL.path
             ]
+            process.environment = coreEnvironment(ageSecretKey: ageSecretKey)
 
             let pipe = Pipe()
             process.standardOutput = pipe
@@ -122,7 +142,7 @@ public final class CoreProcessManager: @unchecked Sendable {
             try process.run()
             self.process = process
             activeRuntimeConfigURL = runtimeConfigURL
-            scheduleRuntimePlaintextCleanup(runtimeConfigURL)
+            scheduleLegacyRuntimeCleanup(runtimeConfigURL)
             appendLog("[core started] \(settings.corePath)\n")
         } catch {
             ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeConfigURL, paths: paths)
@@ -174,6 +194,9 @@ public final class CoreProcessManager: @unchecked Sendable {
     }
 
     public func appendEventLog(_ message: String) {
+        if logHandle == nil {
+            try? prepareLogFile()
+        }
         appendLog("[app \(Self.isoTimestamp())] \(message)\n")
     }
 
@@ -194,7 +217,7 @@ public final class CoreProcessManager: @unchecked Sendable {
         onLog?(text)
     }
 
-    private func validateRuntimeConfig(settings: ChumenRuntimeSettings, runtimeConfigURL: URL) throws {
+    private func validateRuntimeConfig(settings: ChumenRuntimeSettings, runtimeConfigURL: URL, ageSecretKey: String?) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: settings.corePath)
         process.currentDirectoryURL = paths.appHome
@@ -205,6 +228,7 @@ public final class CoreProcessManager: @unchecked Sendable {
             "-f",
             runtimeConfigURL.path
         ]
+        process.environment = coreEnvironment(ageSecretKey: ageSecretKey)
 
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -226,21 +250,23 @@ public final class CoreProcessManager: @unchecked Sendable {
         }
     }
 
-    private func scheduleRuntimePlaintextCleanup(_ url: URL) {
-        // mihomo 只需要在启动初期读取 -f 指向的 YAML。延迟几秒删除可以避开进程刚拉起
-        // 时还没打开文件的竞态，同时避免明文配置长期留在磁盘上。
+    private func scheduleLegacyRuntimeCleanup(_ url: URL) {
+        // Intent: runtime protection now keeps the stable -f file encrypted for
+        // mihomo. This delayed cleanup exists only for old temp/plaintext paths
+        // that may still be produced by tests or left behind by older versions.
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5) { [paths] in
             ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(url, paths: paths)
         }
     }
 
-    private func startPrivileged(settings: ChumenRuntimeSettings, runtimeConfigURL: URL) throws {
+    private func startPrivileged(settings: ChumenRuntimeSettings, runtimeConfigURL: URL, ageSecretKey: String?) throws {
         appendLog("[core privileged start requested] \(settings.corePath)\n")
         try ensurePrivilegedHelperInstalled(settings: settings)
         let response = try privilegedHelperClient().send(privilegedHelperRequest(
             command: "start",
             settings: settings,
-            runtimeConfigURL: runtimeConfigURL
+            runtimeConfigURL: runtimeConfigURL,
+            ageSecretKey: ageSecretKey
         ))
         appendLog("[core privileged helper start] \(response.message) pid=\(response.pid.map(String.init) ?? "-")\n")
     }
@@ -315,7 +341,8 @@ public final class CoreProcessManager: @unchecked Sendable {
     private func privilegedHelperRequest(
         command: String,
         settings: ChumenRuntimeSettings?,
-        runtimeConfigURL: URL? = nil
+        runtimeConfigURL: URL? = nil,
+        ageSecretKey: String? = nil
     ) -> PrivilegedHelperRequest {
         PrivilegedHelperRequest(
             command: command,
@@ -324,8 +351,27 @@ public final class CoreProcessManager: @unchecked Sendable {
             runtimeConfigPath: runtimeConfigURL?.path ?? activeRuntimeConfigURL?.path ?? paths.runtimeConfigURL.path,
             controllerSocketPath: paths.externalControllerSocketURL.path,
             logPath: paths.sidecarLogURL.path,
-            pidPath: paths.privilegedCorePIDURL.path
+            pidPath: paths.privilegedCorePIDURL.path,
+            ageSecretKey: ageSecretKey
         )
+    }
+
+    private func runtimeAgeSecretKey(settings: ChumenRuntimeSettings) throws -> String? {
+        guard settings.protectConfigFiles else { return nil }
+        if let ageProtection {
+            return try ageProtection.secretKey(corePath: settings.corePath)
+        }
+        return try protectionKeyStore.loadOrCreateAgeKeyPair(corePath: settings.corePath).secretKey
+    }
+
+    private func coreEnvironment(ageSecretKey: String?) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        if let ageSecretKey, !ageSecretKey.isEmpty {
+            environment["CLASH_AGE_SECRET_KEY"] = ageSecretKey
+        } else {
+            environment.removeValue(forKey: "CLASH_AGE_SECRET_KEY")
+        }
+        return environment
     }
 
     private func installPrivilegedHelper(settings: ChumenRuntimeSettings) throws {

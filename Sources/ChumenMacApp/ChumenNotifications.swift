@@ -40,6 +40,19 @@ enum ChumenNotificationLevel: Equatable {
             .red
         }
     }
+
+    var logName: String {
+        switch self {
+        case .info:
+            "info"
+        case .success:
+            "success"
+        case .warning:
+            "warning"
+        case .failure:
+            "failure"
+        }
+    }
 }
 
 struct ChumenInAppNotification: Identifiable, Equatable {

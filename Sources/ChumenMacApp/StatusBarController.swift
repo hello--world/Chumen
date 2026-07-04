@@ -215,7 +215,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         if tunIsActivelyRouting {
             return .open
         }
-        if model.systemProxyEnabled {
+        if model.systemProxyEnabled && !model.systemProxyRuntimeFailed {
             return .proxy
         }
         return .closed
@@ -303,10 +303,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         menu.addItem(menuItem(
-            title: model.t(.systemProxy),
-            symbol: "network",
+            title: systemProxyMenuTitle(model),
+            symbol: model.systemProxyRuntimeFailed ? "exclamationmark.triangle" : "network",
             action: #selector(toggleSystemProxy),
-            state: model.systemProxyEnabled ? .on : .off
+            state: systemProxyMenuState(model)
         ))
         menu.addItem(menuItem(
             title: tunMenuTitle(model),
@@ -503,9 +503,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.addItem(menuItem(
-            title: model.t(.clear),
+            title: model.t(.clearLogs),
             symbol: "trash",
             action: #selector(clearLogs)
+        ))
+        menu.addItem(menuItem(
+            title: model.t(.restartApplication),
+            symbol: "arrow.clockwise",
+            action: #selector(restartApplication)
         ))
         return menu
     }
@@ -544,14 +549,28 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     private func tunMenuState(_ model: AppModel) -> NSControl.StateValue {
-        if isTunIneffective(model) {
+        if model.tunRuntimeFailed {
             return .mixed
         }
         return model.settings.enableTun ? .on : .off
     }
 
     private func isTunIneffective(_ model: AppModel) -> Bool {
-        model.settings.enableTun && model.tunRuntimeFailed
+        model.tunRuntimeFailed
+    }
+
+    private func systemProxyMenuTitle(_ model: AppModel) -> String {
+        if model.systemProxyRuntimeFailed {
+            return "\(model.t(.systemProxy)) (\(model.t(.failed)))"
+        }
+        return model.t(.systemProxy)
+    }
+
+    private func systemProxyMenuState(_ model: AppModel) -> NSControl.StateValue {
+        if model.systemProxyRuntimeFailed {
+            return .mixed
+        }
+        return model.systemProxyEnabled ? .on : .off
     }
 
     @objc private func showMenu() {
@@ -656,6 +675,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func clearLogs() {
         model?.clearLogs()
+    }
+
+    @objc private func restartApplication() {
+        model?.restartApplication()
     }
 
     @objc private func quit() {

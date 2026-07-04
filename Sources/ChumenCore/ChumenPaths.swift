@@ -35,18 +35,10 @@ public struct ChumenPaths: Sendable {
     }
 
     public var runtimePlaintextRootDirectoryURL: URL {
+        // Legacy cleanup root. Current protected runtime configs stay encrypted at
+        // `runtimeConfigURL`; this temp root is scanned only to remove old plaintext
+        // session directories created by earlier builds.
         FileManager.default.temporaryDirectory
-    }
-
-    public var runtimePlaintextDirectoryURL: URL {
-        runtimePlaintextRootDirectoryURL
-    }
-
-    public func makeRuntimePlaintextSessionDirectoryURL() -> URL {
-        // mihomo 目前只能读取明文 YAML 文件；每次生成都放进新的随机临时目录，
-        // 而不是 Application Support 或固定 runtime 目录，避免代理订阅内容长期可扫描。
-        runtimePlaintextRootDirectoryURL
-            .appendingPathComponent("chumen-runtime-session-\(UUID().uuidString)", isDirectory: true)
     }
 
     public var settingsURL: URL {
@@ -55,6 +47,19 @@ public struct ChumenPaths: Sendable {
 
     public var profileLibraryURL: URL {
         appHome.appendingPathComponent("profiles.json")
+    }
+
+    public var pinVaultURL: URL {
+        // PIN vault metadata must be readable before settings.json is decrypted, so it lives beside
+        // the protected settings files instead of inside ChumenRuntimeSettings.
+        appHome.appendingPathComponent("pin-vault.json")
+    }
+
+    public var ageIdentityURL: URL {
+        // Plain age identity storage is intentionally simple and local. It is used only when the
+        // user disables PIN protection for the age key; the default protected path stores the same
+        // identity inside pin-vault.json instead.
+        appHome.appendingPathComponent("age-identity.json")
     }
 
     public var profilesDirectoryURL: URL {

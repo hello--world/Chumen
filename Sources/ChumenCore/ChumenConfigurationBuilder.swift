@@ -1,18 +1,6 @@
 import Foundation
 
 public enum ChumenConfigurationBuilder {
-    // mihomo can only consume plaintext YAML. The canonical runtime file is encrypted with this
-    // process-local session key, while the temporary plaintext file returned by writeRuntimeConfig
-    // lives under the user's temp directory, is chmod 0600, and is deleted right after reload or
-    // shortly after process start. This keeps persistent disk state protected without pretending
-    // the core can read encrypted config directly.
-    private static let runtimeSessionKey: Data = {
-        if let key = try? ChumenConfigProtectionKeyStore.randomBytes(count: 32) {
-            return key
-        }
-        return Data(Data((UUID().uuidString + UUID().uuidString).utf8).prefix(32))
-    }()
-
     // 这些顶层键由 GUI/CLI 设置统一接管，生成运行配置时必须覆盖用户 profile 里的同名值。
     private static let alwaysOverwrittenTopLevelKeys: Set<String> = [
         "mixed-port",
@@ -39,10 +27,17 @@ public enum ChumenConfigurationBuilder {
     public static func writeRuntimeConfig(
         settings: ChumenRuntimeSettings,
         paths: ChumenPaths,
-        profileAppendixYAML: String = ""
+        profileAppendixYAML: String = "",
+        protectionKeyStore: ChumenConfigProtectionKeyStore? = nil,
+        ageProtection: MihomoAgeRuntimeProtecting? = nil
     ) throws -> URL {
         try paths.ensureDirectories()
-        let protection = ChumenConfigProtection(enabled: settings.protectConfigFiles)
+        let keyStore = protectionKeyStore ?? ChumenConfigProtectionKeyStore(ageIdentityURL: paths.ageIdentityURL)
+        let protection = ChumenConfigProtection(
+            enabled: settings.protectConfigFiles,
+            keyStore: keyStore,
+            corePath: settings.corePath
+        )
 
         let profileYAML: String?
         if let profilePath = settings.profilePath, !profilePath.isEmpty {
@@ -62,14 +57,26 @@ public enum ChumenConfigurationBuilder {
             return paths.runtimeConfigURL
         }
 
-        // Store the reproducible runtime YAML encrypted at the stable path for inspection/migration,
-        // then hand the caller a short-lived plaintext URL for mihomo -f / controller reload.
-        let protectedRuntime = try ChumenConfigProtection.encrypt(Data(yaml.utf8), key: runtimeSessionKey)
-        try ChumenConfigProtection.writePlainData(protectedRuntime, to: paths.runtimeConfigURL)
+        // Runtime config must be encrypted in a format mihomo itself understands. Using mihomo's
+        // built-in age command keeps Chumen out of the parser/decryptor path and removes the old
+        // plaintext temp-file bridge: the stable -f path is now the encrypted file mihomo consumes.
+        let encryptedRuntime: Data
+        if let ageProtection {
+            encryptedRuntime = try ageProtection.encryptRuntimeConfig(Data(yaml.utf8), corePath: settings.corePath)
+        } else {
+            // Production runtime encryption uses the same persistent/unlocked age key pair as
+            // config-at-rest protection. The same secret is later passed through CLASH_AGE_SECRET_KEY,
+            // so mihomo receives a matching identity for the recipient block in this file.
+            let keyPair = try keyStore.loadOrCreateAgeKeyPair(corePath: settings.corePath)
+            encryptedRuntime = try MihomoAgeRuntimeProtection.encrypt(
+                Data(yaml.utf8),
+                publicKey: keyPair.publicKey,
+                corePath: settings.corePath
+            )
+        }
+        try ChumenConfigProtection.writePlainData(encryptedRuntime, to: paths.runtimeConfigURL)
         try cleanupRuntimePlaintextFiles(paths: paths)
-        let runtimeURL = try runtimePlaintextURL(paths: paths)
-        try ChumenConfigProtection.writePlainData(Data(yaml.utf8), to: runtimeURL)
-        return runtimeURL
+        return paths.runtimeConfigURL
     }
 
     public static func cleanupRuntimePlaintextFiles(paths: ChumenPaths) throws {
@@ -130,13 +137,6 @@ public enum ChumenConfigurationBuilder {
         let directoryPath = directory.standardizedFileURL.path
         let filePath = url.standardizedFileURL.path
         return filePath == directoryPath || filePath.hasPrefix(directoryPath + "/")
-    }
-
-    private static func runtimePlaintextURL(paths: ChumenPaths) throws -> URL {
-        let directory = paths.makeRuntimePlaintextSessionDirectoryURL()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-        return directory.appendingPathComponent("config.yaml")
     }
 
     public static func runtimeYAML(

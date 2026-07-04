@@ -209,7 +209,8 @@ final class ProfileRepositoryTests: XCTestCase {
         let second = try repository.importExternalProfiles(candidates, into: &library)
 
         XCTAssertEqual(first.imported.count, 1)
-        XCTAssertEqual(first.imported.first?.name, "~/.config/clash.meta - config")
+        XCTAssertEqual(first.imported.first?.name, "config")
+        XCTAssertEqual(first.imported.first?.sourceClient, "~/.config/clash.meta")
         XCTAssertEqual(second.imported.count, 0)
         XCTAssertEqual(second.skipped.count, 1)
         XCTAssertEqual(library.profiles.count, 1)
@@ -246,7 +247,39 @@ final class ProfileRepositoryTests: XCTestCase {
         let summary = try repository.importExternalProfiles(candidates, into: &library)
 
         XCTAssertEqual(summary.imported.first?.remoteURL, "https://example.com/remote-one.yaml?token=abc")
+        XCTAssertEqual(summary.imported.first?.name, "Remote One")
+        XCTAssertEqual(summary.imported.first?.sourceClient, "Clash Verge Rev")
         XCTAssertEqual(repository.load().profiles.first?.remoteURL, "https://example.com/remote-one.yaml?token=abc")
+    }
+
+    func testLoadMigratesExternalProfileNamesAwayFromSourcePrefix() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("chumen-external-name-migration-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let paths = ChumenPaths(appHome: root.appendingPathComponent("app", isDirectory: true))
+        try paths.ensureDirectories()
+        let profileURL = paths.profilesDirectoryURL.appendingPathComponent("profile.yaml")
+        try "proxies: []\nproxy-groups: []\nrules:\n  - MATCH,DIRECT\n"
+            .write(to: profileURL, atomically: true, encoding: .utf8)
+
+        let repository = ProfileRepository(paths: paths)
+        try repository.save(ProfileLibrary(profiles: [
+            ProxyProfile(
+                id: "imported",
+                name: "Clash Verge Rev - us",
+                filePath: profileURL.path,
+                sourceClient: "Clash Verge Rev"
+            )
+        ]))
+
+        let migrated = repository.load()
+
+        XCTAssertEqual(migrated.profiles.first?.name, "us")
+        XCTAssertEqual(migrated.profiles.first?.sourceClient, "Clash Verge Rev")
+        XCTAssertEqual(repository.load().profiles.first?.name, "us")
     }
 
     func testLoadMigratesLegacyProfileFilePaths() throws {
@@ -275,8 +308,117 @@ final class ProfileRepositoryTests: XCTestCase {
         let loaded = ProfileRepository(paths: paths).load()
 
         XCTAssertEqual(loaded.profiles.first?.filePath, migratedFile.path)
-        let storedLibrary = try ChumenConfigProtection().readText(at: paths.profileLibraryURL)
+        let protection = ChumenConfigProtection(
+            keyStore: ChumenConfigProtectionKeyStore(ageIdentityURL: paths.ageIdentityURL)
+        )
+        let storedLibrary = try protection.readText(at: paths.profileLibraryURL)
         XCTAssertFalse(storedLibrary.contains(previousAppSupportDirectoryName))
+    }
+
+    func testLoadRecoversEmptyLibraryFromLegacyMetadataWhenProfileFilesExist() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("chumen-profile-library-recovery-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let paths = ChumenPaths(appHome: root.appendingPathComponent("io.github.chumen.native-macos", isDirectory: true))
+        try paths.ensureDirectories()
+        let legacyHome = root.appendingPathComponent(previousAppSupportDirectoryName, isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyHome, withIntermediateDirectories: true)
+
+        let profileID = "imported"
+        let legacyProfilePath = legacyHome.appendingPathComponent("profiles/\(profileID).yaml").path
+        let currentProfileURL = paths.profilesDirectoryURL.appendingPathComponent("\(profileID).yaml")
+        let protection = ChumenConfigProtection(
+            keyStore: ChumenConfigProtectionKeyStore(ageIdentityURL: paths.ageIdentityURL)
+        )
+        try protection.writeText("proxies: []\n", to: currentProfileURL)
+        try ProfileRepository(paths: paths).save(ProfileLibrary())
+
+        let legacyLibrary = ProfileLibrary(
+            activeProfileID: profileID,
+            profiles: [
+                ProxyProfile(id: profileID, name: "Recovered", filePath: legacyProfilePath)
+            ]
+        )
+        try JSONEncoder().encode(legacyLibrary).write(
+            to: legacyHome.appendingPathComponent("profiles.json"),
+            options: .atomic
+        )
+
+        let loaded = ProfileRepository(paths: paths).load()
+
+        XCTAssertEqual(loaded.activeProfileID, profileID)
+        XCTAssertEqual(loaded.profiles.first?.name, "Recovered")
+        XCTAssertEqual(loaded.profiles.first?.filePath, currentProfileURL.path)
+        XCTAssertEqual(try ProfileRepository(paths: paths).profileContent(loaded.profiles[0]), "proxies: []\n")
+    }
+
+    func testLoadRecoversUnreadableLibraryFromLegacyMetadataWhenProfileFilesExist() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("chumen-profile-unreadable-library-recovery-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let paths = ChumenPaths(appHome: root.appendingPathComponent("io.github.chumen.native-macos", isDirectory: true))
+        try paths.ensureDirectories()
+        let legacyHome = root.appendingPathComponent(previousAppSupportDirectoryName, isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyHome, withIntermediateDirectories: true)
+
+        let profileID = "imported"
+        let legacyProfilePath = legacyHome.appendingPathComponent("profiles/\(profileID).yaml").path
+        let currentProfileURL = paths.profilesDirectoryURL.appendingPathComponent("\(profileID).yaml")
+        let protection = ChumenConfigProtection(
+            keyStore: ChumenConfigProtectionKeyStore(ageIdentityURL: paths.ageIdentityURL)
+        )
+        try protection.writeText("proxies: []\n", to: currentProfileURL)
+        try Data([0, 1, 2, 3]).write(to: paths.profileLibraryURL, options: .atomic)
+
+        let legacyLibrary = ProfileLibrary(
+            activeProfileID: profileID,
+            profiles: [
+                ProxyProfile(id: profileID, name: "Recovered", filePath: legacyProfilePath)
+            ]
+        )
+        try JSONEncoder().encode(legacyLibrary).write(
+            to: legacyHome.appendingPathComponent("profiles.json"),
+            options: .atomic
+        )
+
+        let loaded = ProfileRepository(paths: paths).load()
+
+        XCTAssertEqual(loaded.activeProfileID, profileID)
+        XCTAssertEqual(loaded.profiles.first?.name, "Recovered")
+        XCTAssertEqual(loaded.profiles.first?.filePath, currentProfileURL.path)
+    }
+
+    func testLoadRecoversEmptyLibraryFromProfileDirectory() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("chumen-profile-directory-recovery-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let paths = ChumenPaths(appHome: root.appendingPathComponent("io.github.chumen.native-macos", isDirectory: true))
+        try paths.ensureDirectories()
+        let profileURL = paths.profilesDirectoryURL.appendingPathComponent("orphan.yaml")
+        let protection = ChumenConfigProtection(
+            keyStore: ChumenConfigProtectionKeyStore(ageIdentityURL: paths.ageIdentityURL)
+        )
+        try protection.writeText("rules: []\n", to: profileURL)
+        try ProfileRepository(paths: paths).save(ProfileLibrary())
+
+        let loaded = ProfileRepository(paths: paths).load()
+
+        XCTAssertEqual(loaded.activeProfileID, "orphan")
+        XCTAssertEqual(loaded.profiles.first?.name, "orphan")
+        XCTAssertEqual(
+            loaded.profiles.first.map { URL(fileURLWithPath: $0.filePath).standardizedFileURL.path },
+            profileURL.standardizedFileURL.path
+        )
+        XCTAssertEqual(try ProfileRepository(paths: paths).profileContent(loaded.profiles[0]), "rules: []\n")
     }
 
     private var previousAppToken: String {

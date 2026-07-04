@@ -52,6 +52,9 @@ enum L10n {
         case running
         case stopped
         case activeProfile
+        case activeProfileDisabled
+        case activeProfileDisabledBody
+        case profileRecoveryEditorReady
         case configUpdated
         case mode
         case outboundMode
@@ -75,6 +78,10 @@ enum L10n {
         case subscriptionEditHint
         case importSubscription
         case importFromClients
+        case importedFromClient
+        case startupImportTitle
+        case startupImportSubtitle
+        case startupImportLater
         case importOne
         case scanClients
         case externalImportHint
@@ -104,6 +111,51 @@ enum L10n {
         case topLevelKey
         case content
         case applyToCode
+        case largeConfig
+        case entries
+        case loadingPreview
+        case noPreviewItems
+        case previewLimited
+        case formEditor
+        case selectSectionToEdit
+        case mixedPort
+        case processMode
+        case enabled
+        case portNumber
+        case controlAddress
+        case apiSecret
+        case quickAddRule
+        case ruleType
+        case matchValue
+        case targetPolicy
+        case noResolve
+        case addRule
+        case quickAddNode
+        case name
+        case nodeType
+        case server
+        case username
+        case password
+        case cipher
+        case addNode
+        case quickAddGroup
+        case groupType
+        case groupMembers
+        case testURL
+        case intervalSeconds
+        case strategy
+        case addGroup
+        case dnsSettings
+        case listenAddress
+        case enhancedMode
+        case nameserver
+        case fallback
+        case applySettings
+        case quickAddHost
+        case domain
+        case address
+        case addHost
+        case advancedYAML
         case openFile
         case save
         case cancel
@@ -148,6 +200,7 @@ enum L10n {
         case frequentMessages
         case aiAnalysisReady
         case clear
+        case clearLogs
         case executable
         case useDetectedCore
         case secret
@@ -206,6 +259,38 @@ enum L10n {
         case statusBarModeTraffic
         case statusBarModeStatusAndSpeed
         case statusBarModeCustom
+        case pinProtection
+        case pinDescription
+        case pinInfoConfigEncrypted
+        case pinInfoPINProtectsKey
+        case pinInfoSkipTradeoff
+        case pinStorage
+        case pinStorageLocal
+        case pinStorageKeychain
+        case pinProtectAgeKey
+        case pinSetupRequired
+        case pinRequired
+        case pinGeneratedPIN
+        case pinValue
+        case pinConfirm
+        case pinShow
+        case pinHide
+        case pinUnlock
+        case pinEnable
+        case pinRegenerate
+        case pinContinueWithoutPIN
+        case pinUnlockAndDisable
+        case pinSkip
+        case pinDisable
+        case pinLockAppOnLaunch
+        case pinLockAppOnLaunchHint
+        case pinLockNow
+        case pinIncorrect
+        case pinMismatch
+        case pinEnabled
+        case pinDisabled
+        case pinUnlocked
+        case pinLocked
         case networkOptions
         case allowLAN
         case ipv6
@@ -226,6 +311,7 @@ enum L10n {
         case files
         case openDataDirectory
         case more
+        case restartApplication
         case quit
         case saveSettings
         case language
@@ -262,6 +348,7 @@ enum L10n {
         case connectionsClosed
         case systemProxyEnabled
         case systemProxyDisabled
+        case systemProxyFailed
         case tunEnabled
         case tunDisabled
         case tunFailed
@@ -390,6 +477,9 @@ enum L10n {
         .running: "运行中",
         .stopped: "已停止",
         .activeProfile: "当前配置",
+        .activeProfileDisabled: "配置已停用",
+        .activeProfileDisabledBody: "配置无法解密，已使用默认 DIRECT 配置启动：",
+        .profileRecoveryEditorReady: "已打开恢复编辑模板",
         .configUpdated: "配置更新",
         .mode: "模式",
         .outboundMode: "出站模式",
@@ -413,6 +503,10 @@ enum L10n {
         .subscriptionEditHint: "保存后，配置名称会立即更新；订阅地址用于后续“更新”重新下载，清空则转为本地 YAML 配置。",
         .importSubscription: "导入订阅",
         .importFromClients: "从其他客户端导入",
+        .importedFromClient: "导入自",
+        .startupImportTitle: "还没有代理配置",
+        .startupImportSubtitle: "先导入一个 YAML 或从其他客户端扫描配置。导入后 Chumen 会自动加密保存。",
+        .startupImportLater: "稍后再说",
         .importOne: "导入",
         .scanClients: "扫描客户端",
         .externalImportHint: "扫描 Clash Verge、ClashX、Mihomo Party 和常见 .config 目录，只复制可识别的 YAML 配置。",
@@ -442,6 +536,51 @@ enum L10n {
         .topLevelKey: "顶层键",
         .content: "内容",
         .applyToCode: "应用到代码",
+        .largeConfig: "大文件",
+        .entries: "条目",
+        .loadingPreview: "正在分析",
+        .noPreviewItems: "没有可展示条目",
+        .previewLimited: "仅展示前 360 条",
+        .formEditor: "表单",
+        .selectSectionToEdit: "选择左侧项目开始编辑",
+        .mixedPort: "混合端口",
+        .processMode: "进程匹配",
+        .enabled: "启用",
+        .portNumber: "端口",
+        .controlAddress: "控制地址",
+        .apiSecret: "API 密钥",
+        .quickAddRule: "快捷新增规则",
+        .ruleType: "规则类型",
+        .matchValue: "匹配内容",
+        .targetPolicy: "目标策略",
+        .noResolve: "不解析域名",
+        .addRule: "新增规则",
+        .quickAddNode: "快捷新增节点",
+        .name: "名称",
+        .nodeType: "节点类型",
+        .server: "服务器",
+        .username: "用户名",
+        .password: "密码",
+        .cipher: "加密",
+        .addNode: "新增节点",
+        .quickAddGroup: "快捷新增代理组",
+        .groupType: "组类型",
+        .groupMembers: "成员节点",
+        .testURL: "测速地址",
+        .intervalSeconds: "间隔秒数",
+        .strategy: "策略",
+        .addGroup: "新增代理组",
+        .dnsSettings: "DNS 设置",
+        .listenAddress: "监听地址",
+        .enhancedMode: "增强模式",
+        .nameserver: "DNS 服务器",
+        .fallback: "备用 DNS",
+        .applySettings: "应用设置",
+        .quickAddHost: "快捷新增 host",
+        .domain: "域名",
+        .address: "地址",
+        .addHost: "新增 host",
+        .advancedYAML: "高级 YAML",
         .openFile: "打开文件",
         .save: "保存",
         .cancel: "取消",
@@ -486,6 +625,7 @@ enum L10n {
         .frequentMessages: "高频问题",
         .aiAnalysisReady: "AI 分析上下文已准备",
         .clear: "清空",
+        .clearLogs: "清空日志",
         .executable: "内核程序",
         .useDetectedCore: "使用检测到的内核",
         .secret: "密钥",
@@ -544,6 +684,38 @@ enum L10n {
         .statusBarModeTraffic: "累计流量",
         .statusBarModeStatusAndSpeed: "状态和速度",
         .statusBarModeCustom: "自定义",
+        .pinProtection: "保护配置解密密钥",
+        .pinDescription: "默认用 age 加密保存配置；PIN 只保护 age 私钥，不等于应用锁屏。",
+        .pinInfoConfigEncrypted: "配置始终加密，避免订阅和节点明文被扫描。",
+        .pinInfoPINProtectsKey: "PIN 只保护 age 私钥；默认不锁应用。",
+        .pinInfoSkipTradeoff: "不用 PIN 也会加密配置，但私钥直接保存。",
+        .pinStorage: "age 私钥保存到",
+        .pinStorageLocal: "本地文件",
+        .pinStorageKeychain: "Keychain",
+        .pinProtectAgeKey: "使用 PIN 加密 age 私钥",
+        .pinSetupRequired: "默认启用 PIN 保护 age 私钥；应用锁屏是独立选项，默认关闭。",
+        .pinRequired: "需要 PIN 读取 age 私钥",
+        .pinGeneratedPIN: "自动生成的 4 位 PIN",
+        .pinValue: "PIN / 密码",
+        .pinConfirm: "确认 PIN",
+        .pinShow: "显示",
+        .pinHide: "隐藏",
+        .pinUnlock: "解锁",
+        .pinEnable: "启用 PIN 加密",
+        .pinRegenerate: "重新生成",
+        .pinContinueWithoutPIN: "不用 PIN，继续",
+        .pinUnlockAndDisable: "解锁并关闭 PIN",
+        .pinSkip: "跳过 PIN 加密",
+        .pinDisable: "关闭 PIN 加密",
+        .pinLockAppOnLaunch: "打开应用时锁屏",
+        .pinLockAppOnLaunchHint: "可选；开启后启动时也要输入这个 PIN。",
+        .pinLockNow: "立即锁屏",
+        .pinIncorrect: "PIN 不正确",
+        .pinMismatch: "两次 PIN 不一致",
+        .pinEnabled: "PIN 加密已启用",
+        .pinDisabled: "PIN 加密已关闭",
+        .pinUnlocked: "已解锁",
+        .pinLocked: "已锁定",
         .networkOptions: "网络选项",
         .allowLAN: "允许局域网连接",
         .ipv6: "IPv6",
@@ -564,6 +736,7 @@ enum L10n {
         .files: "文件",
         .openDataDirectory: "打开数据目录",
         .more: "更多",
+        .restartApplication: "重启应用",
         .quit: "退出",
         .saveSettings: "保存设置",
         .language: "语言",
@@ -600,6 +773,7 @@ enum L10n {
         .connectionsClosed: "连接已关闭",
         .systemProxyEnabled: "系统代理已开启",
         .systemProxyDisabled: "系统代理已关闭",
+        .systemProxyFailed: "系统代理失败",
         .tunEnabled: "TUN 模式已开启",
         .tunDisabled: "TUN 模式已关闭",
         .tunFailed: "TUN 启动失败",
@@ -719,6 +893,9 @@ enum L10n {
         .running: "Running",
         .stopped: "Stopped",
         .activeProfile: "Active Profile",
+        .activeProfileDisabled: "Profile disabled",
+        .activeProfileDisabledBody: "The profile could not be decrypted; started with the default DIRECT config:",
+        .profileRecoveryEditorReady: "Recovery editor template opened",
         .configUpdated: "Config Updated",
         .mode: "Mode",
         .outboundMode: "Outbound Mode",
@@ -742,6 +919,10 @@ enum L10n {
         .subscriptionEditHint: "After saving, the display name updates immediately. The subscription URL is used by Update; clear it to keep this as a local YAML profile.",
         .importSubscription: "Import Subscription",
         .importFromClients: "Import From Other Clients",
+        .importedFromClient: "Imported from",
+        .startupImportTitle: "No proxy config yet",
+        .startupImportSubtitle: "Import a YAML file or scan other clients first. Chumen encrypts imported configs automatically.",
+        .startupImportLater: "Later",
         .importOne: "Import",
         .scanClients: "Scan Clients",
         .externalImportHint: "Scans Clash Verge, ClashX, Mihomo Party, and common .config folders. Only recognized YAML configs are copied.",
@@ -771,6 +952,51 @@ enum L10n {
         .topLevelKey: "Top-level Key",
         .content: "Content",
         .applyToCode: "Apply to Code",
+        .largeConfig: "Large File",
+        .entries: "items",
+        .loadingPreview: "Analyzing",
+        .noPreviewItems: "No preview items",
+        .previewLimited: "Showing first 360 items",
+        .formEditor: "Form",
+        .selectSectionToEdit: "Select an item on the left",
+        .mixedPort: "Mixed Port",
+        .processMode: "Process Mode",
+        .enabled: "Enabled",
+        .portNumber: "Port",
+        .controlAddress: "Controller Address",
+        .apiSecret: "API Secret",
+        .quickAddRule: "Quick Add Rule",
+        .ruleType: "Rule Type",
+        .matchValue: "Match Value",
+        .targetPolicy: "Target Policy",
+        .noResolve: "No Resolve",
+        .addRule: "Add Rule",
+        .quickAddNode: "Quick Add Node",
+        .name: "Name",
+        .nodeType: "Node Type",
+        .server: "Server",
+        .username: "Username",
+        .password: "Password",
+        .cipher: "Cipher",
+        .addNode: "Add Node",
+        .quickAddGroup: "Quick Add Group",
+        .groupType: "Group Type",
+        .groupMembers: "Members",
+        .testURL: "Test URL",
+        .intervalSeconds: "Interval Seconds",
+        .strategy: "Strategy",
+        .addGroup: "Add Group",
+        .dnsSettings: "DNS Settings",
+        .listenAddress: "Listen Address",
+        .enhancedMode: "Enhanced Mode",
+        .nameserver: "DNS Servers",
+        .fallback: "Fallback DNS",
+        .applySettings: "Apply Settings",
+        .quickAddHost: "Quick Add Host",
+        .domain: "Domain",
+        .address: "Address",
+        .addHost: "Add Host",
+        .advancedYAML: "Advanced YAML",
         .openFile: "Open File",
         .save: "Save",
         .cancel: "Cancel",
@@ -815,6 +1041,7 @@ enum L10n {
         .frequentMessages: "Frequent Issues",
         .aiAnalysisReady: "AI analysis context ready",
         .clear: "Clear",
+        .clearLogs: "Clear Logs",
         .executable: "Executable",
         .useDetectedCore: "Use Detected Core",
         .secret: "Secret",
@@ -873,6 +1100,38 @@ enum L10n {
         .statusBarModeTraffic: "Total Traffic",
         .statusBarModeStatusAndSpeed: "Status and Speed",
         .statusBarModeCustom: "Custom",
+        .pinProtection: "Protect Config Decryption Key",
+        .pinDescription: "Configs are encrypted with age by default; PIN only protects the age private key.",
+        .pinInfoConfigEncrypted: "Configs stay encrypted to avoid plaintext proxy scans.",
+        .pinInfoPINProtectsKey: "PIN only protects the age private key; app lock stays off.",
+        .pinInfoSkipTradeoff: "Without PIN, configs are still encrypted, but the key is saved directly.",
+        .pinStorage: "Save age private key in",
+        .pinStorageLocal: "Local File",
+        .pinStorageKeychain: "Keychain",
+        .pinProtectAgeKey: "Encrypt age private key with PIN",
+        .pinSetupRequired: "PIN protects the age private key by default; app lock is separate and defaults off.",
+        .pinRequired: "PIN required to read the age private key",
+        .pinGeneratedPIN: "Generated 4-digit PIN",
+        .pinValue: "PIN / Password",
+        .pinConfirm: "Confirm PIN",
+        .pinShow: "Show",
+        .pinHide: "Hide",
+        .pinUnlock: "Unlock",
+        .pinEnable: "Enable PIN Encryption",
+        .pinRegenerate: "Regenerate",
+        .pinContinueWithoutPIN: "Continue without PIN",
+        .pinUnlockAndDisable: "Unlock and disable PIN",
+        .pinSkip: "Skip PIN Encryption",
+        .pinDisable: "Disable PIN Encryption",
+        .pinLockAppOnLaunch: "Lock app on launch",
+        .pinLockAppOnLaunchHint: "Optional; when enabled, launch also asks for this PIN.",
+        .pinLockNow: "Lock Now",
+        .pinIncorrect: "Incorrect PIN",
+        .pinMismatch: "PIN values do not match",
+        .pinEnabled: "PIN encryption enabled",
+        .pinDisabled: "PIN encryption disabled",
+        .pinUnlocked: "Unlocked",
+        .pinLocked: "Locked",
         .networkOptions: "Network Options",
         .allowLAN: "Allow LAN",
         .ipv6: "IPv6",
@@ -893,6 +1152,7 @@ enum L10n {
         .files: "Files",
         .openDataDirectory: "Open Data Directory",
         .more: "More",
+        .restartApplication: "Restart App",
         .quit: "Quit",
         .saveSettings: "Save Settings",
         .language: "Language",
@@ -929,6 +1189,7 @@ enum L10n {
         .connectionsClosed: "Connections closed",
         .systemProxyEnabled: "System proxy enabled",
         .systemProxyDisabled: "System proxy disabled",
+        .systemProxyFailed: "System proxy failed",
         .tunEnabled: "TUN mode enabled",
         .tunDisabled: "TUN mode disabled",
         .tunFailed: "TUN failed to start",

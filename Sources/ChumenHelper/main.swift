@@ -173,6 +173,7 @@ private final class HelperServer: @unchecked Sendable {
             "-f", runtimeConfigPath,
             "-ext-ctl-unix", controllerSocketPath
         ]
+        process.environment = coreEnvironment(ageSecretKey: request.ageSecretKey)
         process.standardOutput = logHandle
         process.standardError = logHandle
         process.terminationHandler = { [weak self, weak process] terminated in
@@ -304,6 +305,16 @@ private final class HelperServer: @unchecked Sendable {
 
     private func processExists(pid: Int32) -> Bool {
         kill(pid, 0) == 0
+    }
+
+    private func coreEnvironment(ageSecretKey: String?) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        if let ageSecretKey, !ageSecretKey.isEmpty {
+            environment["CLASH_AGE_SECRET_KEY"] = ageSecretKey
+        } else {
+            environment.removeValue(forKey: "CLASH_AGE_SECRET_KEY")
+        }
+        return environment
     }
 }
 

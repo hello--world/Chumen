@@ -306,7 +306,7 @@ struct ChumenCLI {
             let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: context.paths)
             print(runtimeConfigURL.path)
         case "print":
-            let protection = ChumenConfigProtection(enabled: settings.protectConfigFiles)
+            let protection = ChumenConfigProtection(enabled: settings.protectConfigFiles, corePath: settings.corePath)
             let profile = settings.profilePath.flatMap { try? protection.readText(at: URL(fileURLWithPath: $0)) }
             print(ChumenConfigurationBuilder.runtimeYAML(profileYAML: profile, settings: settings, socketPath: context.paths.externalControllerSocketURL.path))
         default:
@@ -358,27 +358,36 @@ struct ChumenCLI {
             print("config patched")
         case "reload-config":
             let path: String
-            let generatedRuntimeConfigURL: URL?
+            let payload: String
             if arguments.count >= 2 {
                 path = arguments[1]
-                generatedRuntimeConfigURL = nil
+                payload = ""
             } else {
                 var settings = context.settingsStore.load()
                 if let active = context.profileRepository.load().activeProfile {
                     settings.activeProfileID = active.id
                     settings.profilePath = active.filePath
                 }
-                let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: context.paths)
-                path = runtimeConfigURL.path
-                generatedRuntimeConfigURL = runtimeConfigURL
-            }
-            defer {
-                if let generatedRuntimeConfigURL {
-                    ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(generatedRuntimeConfigURL, paths: context.paths)
+                // Intent: chumenctl is often a separate process from the GUI that started mihomo,
+                // so it does not own that process-local age secret. For no-path reloads we keep the
+                // generated YAML in memory and send it through mihomo's controller payload instead
+                // of writing a plaintext temp file or producing an undecryptable age file.
+                let protection = ChumenConfigProtection(enabled: settings.protectConfigFiles, corePath: settings.corePath)
+                let profileYAML: String?
+                if let profilePath = settings.profilePath, !profilePath.isEmpty {
+                    profileYAML = try protection.readText(at: URL(fileURLWithPath: profilePath))
+                } else {
+                    profileYAML = nil
                 }
+                payload = ChumenConfigurationBuilder.runtimeYAML(
+                    profileYAML: profileYAML,
+                    settings: settings,
+                    socketPath: context.paths.externalControllerSocketURL.path
+                )
+                path = ""
             }
             let force = arguments.count >= 3 ? try parseBool(arguments[2]) : true
-            try await client.reloadConfig(path: path, force: force)
+            try await client.reloadConfig(path: path, payload: payload, force: force)
             print("config reloaded")
         case "restart-kernel":
             let path = arguments.count >= 2 ? arguments[1] : ""
@@ -598,14 +607,24 @@ struct ChumenCLI {
             settings.profilePath = nil
         }
         try context.settingsStore.save(settings)
-        let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: context.paths)
-        defer {
-            ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeConfigURL, paths: context.paths)
-        }
         guard let url = settings.controllerBaseURL else { return }
+        // Keep CLI-triggered hot reloads fileless. The running core may have been started by the GUI
+        // with a process-local age secret that this chumenctl invocation cannot recover.
+        let protection = ChumenConfigProtection(enabled: settings.protectConfigFiles, corePath: settings.corePath)
+        let profileYAML: String?
+        if let profilePath = settings.profilePath, !profilePath.isEmpty {
+            profileYAML = try protection.readText(at: URL(fileURLWithPath: profilePath))
+        } else {
+            profileYAML = nil
+        }
+        let payload = ChumenConfigurationBuilder.runtimeYAML(
+            profileYAML: profileYAML,
+            settings: settings,
+            socketPath: context.paths.externalControllerSocketURL.path
+        )
         do {
             try await MihomoClient(baseURL: url, secret: settings.secret)
-                .reloadConfig(path: runtimeConfigURL.path, force: true)
+                .reloadConfig(payload: payload, force: true)
         } catch {
             let nsError = error as NSError
             if nsError.domain == NSURLErrorDomain,
@@ -809,7 +828,7 @@ private struct CLIContext {
         self.paths = paths
         self.settingsStore = ChumenSettingsStore(paths: paths)
         self.settings = settingsStore.load()
-        self.profileRepository = ProfileRepository(paths: paths, protectConfigFiles: settings.protectConfigFiles)
+        self.profileRepository = ProfileRepository(paths: paths, protectConfigFiles: settings.protectConfigFiles, corePath: settings.corePath)
     }
 
     func client() throws -> MihomoClient {

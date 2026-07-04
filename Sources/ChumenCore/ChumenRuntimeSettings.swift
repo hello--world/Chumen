@@ -91,6 +91,13 @@ public enum StatusBarDisplayMode: String, CaseIterable, Codable, Identifiable, S
     public var id: String { rawValue }
 }
 
+public enum ChumenAgeKeyStorageKind: String, CaseIterable, Codable, Identifiable, Sendable {
+    case local
+    case keychain
+
+    public var id: String { rawValue }
+}
+
 public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
     public static let placeholderSecret = "set-your-secret"
     public static let defaultMixedPort = 19881
@@ -180,6 +187,9 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
     public var hostsYAML: String
     public var configAppendixYAML: String
     public var protectConfigFiles: Bool
+    public var protectAgeKeyWithPIN: Bool
+    public var securitySetupCompleted: Bool
+    public var ageKeyStorage: ChumenAgeKeyStorageKind
     public var ai: ChumenAISettings
 
     public init(
@@ -250,6 +260,9 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         hostsYAML: String = "",
         configAppendixYAML: String = "",
         protectConfigFiles: Bool = true,
+        protectAgeKeyWithPIN: Bool = true,
+        securitySetupCompleted: Bool = false,
+        ageKeyStorage: ChumenAgeKeyStorageKind = .local,
         ai: ChumenAISettings = ChumenAISettings()
     ) {
         self.corePath = corePath
@@ -319,6 +332,9 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         self.hostsYAML = hostsYAML
         self.configAppendixYAML = configAppendixYAML
         self.protectConfigFiles = protectConfigFiles
+        self.protectAgeKeyWithPIN = protectAgeKeyWithPIN
+        self.securitySetupCompleted = securitySetupCompleted
+        self.ageKeyStorage = ageKeyStorage
         self.ai = ai
     }
 
@@ -413,6 +429,9 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         case hostsYAML
         case configAppendixYAML
         case protectConfigFiles
+        case protectAgeKeyWithPIN
+        case securitySetupCompleted
+        case ageKeyStorage
         case ai
     }
 
@@ -490,6 +509,13 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
             hostsYAML: try container.decodeIfPresent(String.self, forKey: .hostsYAML) ?? "",
             configAppendixYAML: try container.decodeIfPresent(String.self, forKey: .configAppendixYAML) ?? "",
             protectConfigFiles: try container.decodeIfPresent(Bool.self, forKey: .protectConfigFiles) ?? true,
+            // Existing settings files from before this flag existed should not suddenly require a
+            // PIN on upgrade. Brand-new installs still use the initializer default of true.
+            protectAgeKeyWithPIN: try container.decodeIfPresent(Bool.self, forKey: .protectAgeKeyWithPIN) ?? false,
+            // Missing means "existing install before the onboarding marker existed". Treat it as
+            // completed so upgrades do not unexpectedly block on a first-run screen.
+            securitySetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .securitySetupCompleted) ?? true,
+            ageKeyStorage: try container.decodeIfPresent(ChumenAgeKeyStorageKind.self, forKey: .ageKeyStorage) ?? .local,
             ai: try container.decodeIfPresent(ChumenAISettings.self, forKey: .ai) ?? ChumenAISettings()
         )
     }

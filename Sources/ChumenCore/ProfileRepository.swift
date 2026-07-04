@@ -64,30 +64,53 @@ public final class ProfileRepository {
     public init(
         paths: ChumenPaths,
         protectConfigFiles: Bool = true,
-        protectionKeyStore: ChumenConfigProtectionKeyStore = ChumenConfigProtectionKeyStore(),
+        protectionKeyStore: ChumenConfigProtectionKeyStore? = nil,
+        corePath: String? = nil,
         fileManager: FileManager = .default,
         session: URLSession = .shared
     ) {
         self.paths = paths
         self.fileManager = fileManager
         self.session = session
-        self.protection = ChumenConfigProtection(enabled: protectConfigFiles, keyStore: protectionKeyStore)
+        self.protection = ChumenConfigProtection(
+            enabled: protectConfigFiles,
+            keyStore: protectionKeyStore ?? ChumenConfigProtectionKeyStore(ageIdentityURL: paths.ageIdentityURL),
+            corePath: corePath
+        )
     }
 
     public func load() -> ProfileLibrary {
         guard let storedData = try? Data(contentsOf: paths.profileLibraryURL),
               let plainData = try? protection.dataForReading(storedData),
               var library = try? JSONDecoder().decode(ProfileLibrary.self, from: plainData) else {
+            if let recoveredLibrary = recoverLibraryFromExistingProfileFiles() {
+                try? save(recoveredLibrary)
+                try? rewriteProfileFilesIfNeeded(in: recoveredLibrary)
+                return recoveredLibrary
+            }
             return ProfileLibrary()
         }
         // 配置库也保存绝对路径，改名/迁移后需要在读取时修正并写回。
-        var changed = protection.enabled && !ChumenConfigProtection.isProtected(storedData)
+        var changed = protection.enabled && !ChumenConfigProtection.isAgeProtected(storedData)
         for index in library.profiles.indices {
             let migratedPath = paths.rewriteLegacyAppHomePath(library.profiles[index].filePath)
             if migratedPath != library.profiles[index].filePath {
                 library.profiles[index].filePath = migratedPath
                 changed = true
             }
+            if let sourceClient = library.profiles[index].sourceClient {
+                let migratedName = stripSourceClientPrefix(from: library.profiles[index].name, sourceClient: sourceClient)
+                if migratedName != library.profiles[index].name {
+                    library.profiles[index].name = migratedName
+                    changed = true
+                }
+            }
+        }
+        if library.profiles.isEmpty,
+           let recoveredLibrary = recoverLibraryFromExistingProfileFiles() {
+            try? save(recoveredLibrary)
+            try? rewriteProfileFilesIfNeeded(in: recoveredLibrary)
+            return recoveredLibrary
         }
         if changed {
             try? save(library)
@@ -186,8 +209,11 @@ public final class ProfileRepository {
 
                 let profile = ProxyProfile(
                     id: id,
+                    // Imported profile names should mirror the user's actual subscription/profile
+                    // name. The source client is stored separately so UI can show it as provenance
+                    // without polluting the primary display name.
                     name: uniqueName(
-                        "\(candidate.sourceName) - \(candidate.name)",
+                        candidate.name,
                         existingNames: Set(library.profiles.map(\.name))
                     ),
                     filePath: targetURL.path,
@@ -396,6 +422,62 @@ public final class ProfileRepository {
         }
     }
 
+    private func recoverLibraryFromExistingProfileFiles() -> ProfileLibrary? {
+        let profileFileURLs = existingProfileFileURLs()
+        guard !profileFileURLs.isEmpty else { return nil }
+
+        if var legacyLibrary = loadLegacyProfileLibrary() {
+            var recoveredProfiles: [ProxyProfile] = []
+            for var profile in legacyLibrary.profiles {
+                profile.filePath = paths.rewriteLegacyAppHomePath(profile.filePath)
+                guard fileManager.fileExists(atPath: profile.filePath) else { continue }
+                recoveredProfiles.append(profile)
+            }
+            if !recoveredProfiles.isEmpty {
+                legacyLibrary.profiles = recoveredProfiles
+                if let activeProfileID = legacyLibrary.activeProfileID,
+                   !recoveredProfiles.contains(where: { $0.id == activeProfileID }) {
+                    legacyLibrary.activeProfileID = recoveredProfiles.first?.id
+                } else if legacyLibrary.activeProfileID == nil {
+                    legacyLibrary.activeProfileID = recoveredProfiles.first?.id
+                }
+                return legacyLibrary
+            }
+        }
+
+        let profiles = profileFileURLs.map { url in
+            let id = url.deletingPathExtension().lastPathComponent
+            return ProxyProfile(
+                id: id,
+                name: cleanName(id, fallback: "Recovered Profile"),
+                filePath: url.path
+            )
+        }
+        return ProfileLibrary(activeProfileID: profiles.first?.id, profiles: profiles)
+    }
+
+    private func loadLegacyProfileLibrary() -> ProfileLibrary? {
+        let legacyURL = paths.legacyAppHome.appendingPathComponent("profiles.json")
+        guard let storedData = try? Data(contentsOf: legacyURL),
+              let plainData = try? protection.dataForReading(storedData) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(ProfileLibrary.self, from: plainData)
+    }
+
+    private func existingProfileFileURLs() -> [URL] {
+        guard let urls = try? fileManager.contentsOfDirectory(
+            at: paths.profilesDirectoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return urls
+            .filter { ["yaml", "yml"].contains($0.pathExtension.lowercased()) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
     private func uniqueName(_ raw: String, existingNames: Set<String>) -> String {
         let base = cleanName(raw, fallback: "External Profile")
         guard existingNames.contains(base) else { return base }
@@ -428,5 +510,12 @@ public final class ProfileRepository {
     private func cleanName(_ raw: String, fallback: String) -> String {
         let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? fallback : name
+    }
+
+    private func stripSourceClientPrefix(from name: String, sourceClient: String) -> String {
+        let prefix = "\(sourceClient) - "
+        guard name.hasPrefix(prefix) else { return name }
+        let stripped = String(name.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return stripped.isEmpty ? name : stripped
     }
 }
