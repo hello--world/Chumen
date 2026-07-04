@@ -54,6 +54,26 @@ enum ProfileAppendixEditorTarget: Identifiable, Equatable {
     }
 }
 
+struct ConnectionReportSample: Identifiable, Equatable, Sendable {
+    let timestamp: Date
+    let activeCount: Int
+    let proxyCount: Int
+    let directCount: Int
+    let uploadSpeed: Int64
+    let downloadSpeed: Int64
+
+    var id: Date { timestamp }
+}
+
+struct LogReportSample: Identifiable, Equatable, Sendable {
+    let timestamp: Date
+    let errorCount: Int
+    let warningCount: Int
+    let totalLines: Int
+
+    var id: Date { timestamp }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     // AppModel 是 GUI 的单一状态源：窗口、状态栏菜单和异步内核任务都从这里读写状态。
@@ -88,6 +108,8 @@ final class AppModel: ObservableObject {
     @Published var ruleProviders: [MihomoProvider] = []
     @Published var proxyDelays: [String: Int] = [:]
     @Published var connections: [MihomoConnection] = []
+    @Published var connectionReportSamples: [ConnectionReportSample] = []
+    @Published var logReportSamples: [LogReportSample] = []
     @Published var rules: [MihomoRule] = []
     @Published var uploadTotal: Int64 = 0
     @Published var downloadTotal: Int64 = 0
@@ -136,6 +158,8 @@ final class AppModel: ObservableObject {
     private var lastConnectionTelemetryDate: Date?
     private var lastConnectionUploadTotal: Int64?
     private var lastConnectionDownloadTotal: Int64?
+    private var lastConnectionReportSampleDate: Date?
+    private var lastLogReportSampleDate: Date?
     private var autoRefreshTask: Task<Void, Never>?
     private var profileEditorLoadTask: Task<Void, Never>?
     private var profileSectionEditorLoadTask: Task<Void, Never>?
@@ -390,6 +414,14 @@ final class AppModel: ObservableObject {
 
     var activeProfileAppendixYAML: String {
         activeProfile?.configAppendixYAML ?? ""
+    }
+
+    var connectionAnalysisSnapshot: ConnectionAnalysisSnapshot {
+        ConnectionAnalyzer.analyze(connections)
+    }
+
+    var logAnalysisSnapshot: LogAnalysisSnapshot {
+        LogAnalyzer.analyze(processLog: logs, runtimeLog: runtimeLogs)
     }
 
     var activeProfileConfigUpdateText: String {
@@ -872,6 +904,8 @@ final class AppModel: ObservableObject {
         let profiles = profileLibrary.profiles.map { profile in
             "- \(profile.name): \(profile.remoteURL ?? profile.filePath)"
         }.joined(separator: "\n")
+        let connectionAnalysis = connectionAnalysisSnapshot.aiContext
+        let logAnalysis = logAnalysisSnapshot.aiContext
         return """
         \(ChumenAIKnowledgeBase.text)
 
@@ -888,6 +922,10 @@ final class AppModel: ObservableObject {
 
         Profiles:
         \(profiles.isEmpty ? "-" : profiles)
+
+        \(connectionAnalysis)
+
+        \(logAnalysis)
 
         Never claim a proposed change has been applied. Say it is waiting for review.
         Do not propose destructive delete operations.
@@ -1763,7 +1801,7 @@ final class AppModel: ObservableObject {
     }
 
     private func handleCoreLog(_ text: String) {
-        logs.append(text)
+        appendProcessLog(text)
         guard settings.enableTun else { return }
 
         // TUN 初始化失败通常只出现在 mihomo 日志里，这里提取成 UI 可读状态。
@@ -1787,6 +1825,66 @@ final class AppModel: ObservableObject {
     func clearLogs() {
         logs.removeAll()
         runtimeLogs.removeAll()
+        logReportSamples.removeAll()
+        lastLogReportSampleDate = nil
+    }
+
+    private func appendProcessLog(_ text: String) {
+        logs.append(text)
+        appendLogReportSample()
+    }
+
+    private func appendRuntimeLog(_ text: String) {
+        runtimeLogs.append(text)
+        appendLogReportSample()
+    }
+
+    private func appendLogReportSample(now: Date = Date()) {
+        if let lastLogReportSampleDate,
+           now.timeIntervalSince(lastLogReportSampleDate) < 2 {
+            return
+        }
+
+        let snapshot = logAnalysisSnapshot
+        appendBounded(
+            LogReportSample(
+                timestamp: now,
+                errorCount: snapshot.errorCount,
+                warningCount: snapshot.warningCount,
+                totalLines: snapshot.totalLines
+            ),
+            to: &logReportSamples,
+            limit: 240
+        )
+        lastLogReportSampleDate = now
+    }
+
+    private func appendConnectionReportSample(from snapshot: ConnectionAnalysisSnapshot, now: Date = Date()) {
+        if let lastConnectionReportSampleDate,
+           now.timeIntervalSince(lastConnectionReportSampleDate) < 1 {
+            return
+        }
+
+        appendBounded(
+            ConnectionReportSample(
+                timestamp: now,
+                activeCount: snapshot.activeCount,
+                proxyCount: snapshot.routeBuckets.first { $0.label == "proxy" }?.count ?? 0,
+                directCount: snapshot.routeBuckets.first { $0.label == "direct" }?.count ?? 0,
+                uploadSpeed: uploadSpeed,
+                downloadSpeed: downloadSpeed
+            ),
+            to: &connectionReportSamples,
+            limit: 360
+        )
+        lastConnectionReportSampleDate = now
+    }
+
+    private func appendBounded<T>(_ value: T, to values: inout [T], limit: Int) {
+        values.append(value)
+        if values.count > limit {
+            values.removeFirst(values.count - limit)
+        }
     }
 
     private func orderSingleMainWindowFront() {
@@ -2022,7 +2120,7 @@ final class AppModel: ObservableObject {
         guard let url = settings.controllerBaseURL else { return }
         logStream.start(baseURL: url, secret: settings.secret) { [weak self] text in
             Task { @MainActor in
-                self?.runtimeLogs.append(text)
+                self?.appendRuntimeLog(text)
             }
         }
     }
@@ -2041,7 +2139,7 @@ final class AppModel: ObservableObject {
                 self.downloadTotal = event.downTotal ?? self.downloadTotal
             }
         } onError: { [weak self] text in
-            Task { @MainActor in self?.runtimeLogs.append(text + "\n") }
+            Task { @MainActor in self?.appendRuntimeLog(text + "\n") }
         }
 
         memoryStream.start(baseURL: url, secret: settings.secret, path: "/memory") { [weak self] event in
@@ -2054,7 +2152,7 @@ final class AppModel: ObservableObject {
                 }
             }
         } onError: { [weak self] text in
-            Task { @MainActor in self?.runtimeLogs.append(text + "\n") }
+            Task { @MainActor in self?.appendRuntimeLog(text + "\n") }
         }
 
         connectionsStream.start(
@@ -2067,7 +2165,7 @@ final class AppModel: ObservableObject {
                 self?.applyConnectionTelemetry(event)
             }
         } onError: { [weak self] text in
-            Task { @MainActor in self?.runtimeLogs.append(text + "\n") }
+            Task { @MainActor in self?.appendRuntimeLog(text + "\n") }
         }
     }
 
@@ -2102,6 +2200,7 @@ final class AppModel: ObservableObject {
         directRoutedDownloadTotal = connectionTrafficAccumulator.directDownloadTotal
         unknownRoutedUploadTotal = connectionTrafficAccumulator.unknownUploadTotal
         unknownRoutedDownloadTotal = connectionTrafficAccumulator.unknownDownloadTotal
+        appendConnectionReportSample(from: connectionAnalysisSnapshot)
     }
 
     private func applyConnectionSpeedFallback(uploadTotal: Int64, downloadTotal: Int64, at now: Date = Date()) {
@@ -2145,6 +2244,8 @@ final class AppModel: ObservableObject {
         directRoutedDownloadTotal = 0
         unknownRoutedUploadTotal = 0
         unknownRoutedDownloadTotal = 0
+        connectionReportSamples.removeAll()
+        lastConnectionReportSampleDate = nil
     }
 
     private static func connectionTrafficTotals(_ connections: [MihomoConnection]) -> (upload: Int64, download: Int64) {

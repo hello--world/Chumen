@@ -123,9 +123,30 @@ enum L10n {
         case closeAll
         case activeConnections
         case close
+        case networkReport
+        case activeTraffic
+        case routeDistribution
+        case topHosts
+        case topProcesses
+        case topRules
+        case topChains
+        case proxyRoute
+        case directRoute
+        case unknownRoute
+        case historyTrend
         case refreshRules
         case processLog
         case runtimeLog
+        case logReport
+        case logLevels
+        case totalLines
+        case errorLogs
+        case warningLogs
+        case infoLogs
+        case debugLogs
+        case recentIssues
+        case frequentMessages
+        case aiAnalysisReady
         case clear
         case executable
         case useDetectedCore
@@ -394,9 +415,30 @@ enum L10n {
         .closeAll: "全部关闭",
         .activeConnections: "活跃连接",
         .close: "关闭",
+        .networkReport: "网络报表",
+        .activeTraffic: "活跃流量",
+        .routeDistribution: "路由分布",
+        .topHosts: "Top 主机",
+        .topProcesses: "Top 进程",
+        .topRules: "Top 规则",
+        .topChains: "Top 链路",
+        .proxyRoute: "代理",
+        .directRoute: "直连",
+        .unknownRoute: "未知",
+        .historyTrend: "历史曲线",
         .refreshRules: "刷新规则",
         .processLog: "进程日志",
         .runtimeLog: "运行日志",
+        .logReport: "日志报表",
+        .logLevels: "日志级别",
+        .totalLines: "总行数",
+        .errorLogs: "错误",
+        .warningLogs: "警告",
+        .infoLogs: "信息",
+        .debugLogs: "调试",
+        .recentIssues: "最近问题",
+        .frequentMessages: "高频问题",
+        .aiAnalysisReady: "AI 分析上下文已准备",
         .clear: "清空",
         .executable: "内核程序",
         .useDetectedCore: "使用检测到的内核",
@@ -656,9 +698,30 @@ enum L10n {
         .closeAll: "Close All",
         .activeConnections: "active",
         .close: "Close",
+        .networkReport: "Network Report",
+        .activeTraffic: "Active Traffic",
+        .routeDistribution: "Route Distribution",
+        .topHosts: "Top Hosts",
+        .topProcesses: "Top Processes",
+        .topRules: "Top Rules",
+        .topChains: "Top Chains",
+        .proxyRoute: "Proxy",
+        .directRoute: "Direct",
+        .unknownRoute: "Unknown",
+        .historyTrend: "History",
         .refreshRules: "Refresh Rules",
         .processLog: "Process",
         .runtimeLog: "Runtime",
+        .logReport: "Log Report",
+        .logLevels: "Log Levels",
+        .totalLines: "Total Lines",
+        .errorLogs: "Errors",
+        .warningLogs: "Warnings",
+        .infoLogs: "Info",
+        .debugLogs: "Debug",
+        .recentIssues: "Recent Issues",
+        .frequentMessages: "Frequent Issues",
+        .aiAnalysisReady: "AI analysis context ready",
         .clear: "Clear",
         .executable: "Executable",
         .useDetectedCore: "Use Detected Core",
