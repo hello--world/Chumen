@@ -23,8 +23,8 @@
 
 ## Information architecture
 - Primary navigation: top tab bar.
-- Core routes/screens: dashboard, profiles, proxies, providers, connections, rules, logs, core tools, settings.
-- Content hierarchy: current runtime state first, then a compact global search launcher, then actions, metrics, and lists. Activating search opens a Spotlight-style top overlay that fully covers the header/search launcher, supports category scopes, and prioritizes settings results before runtime data.
+- Core routes/screens: dashboard, profiles, proxies, providers, connections, rules, core, core tools, logs, settings.
+- Content hierarchy: current runtime state first, then global search, then actions, metrics, and lists; the header is a single compact row with app/running state on the left, a modest-width search launcher, and a persistent status strip for API, system proxy, mode, speed, traffic, and TUN. Activating search opens a larger Spotlight-style top search layer with a near full-width input and results panel; the active layer fully covers the header/search launcher so no duplicate search field or header status leaks through. Search results include category scopes and rank settings/core matches before rules, connections, logs, or provider data. Header status may scroll horizontally in narrow windows, but it must not disappear as a width workaround. A bottom-right assistant affordance opens a compact floating panel; the primary AI path is local Ollama at `http://127.0.0.1:11434/v1`, which needs no Key, while remote OpenAI-compatible endpoints require a saved Key. Without a usable model endpoint it behaves as a local search surface. The `内核` tab owns mihomo/runtime configuration and keeps a fixed left quick navigation, while the `设置` tab owns Chumen preferences such as menu bar, language, system proxy behavior, and local files; settings edits persist automatically, while applying saved core changes to a running core remains an explicit action.
 
 ## Design principles
 - Principle 1: use low-contrast grouped surfaces with hairline borders instead of prominent floating cards.
@@ -37,24 +37,24 @@
 - Spacing/layout rhythm: compact utility spacing with grouped rows and consistent 8 px radius.
 - Shape/radius/elevation: max 8 px radius for cards/panels; no heavy shadows on routine dashboard surfaces.
 - Motion: system-default only.
-- Imagery/iconography: SF Symbols and the app icon; no copied system app iconography beyond platform conventions.
+- Imagery/iconography: SF Symbols and the app icon; the menu bar status icon uses tiny app-icon-style white door variants where a closed door means traffic is not being captured, a half-open door means system proxy is active, and a fully open white door means effective TUN routing is active. No copied system app iconography beyond platform conventions.
 
 ## Components
 - Existing components to reuse: header, command panel, metric tile, settings form, tab navigation.
-- New/changed components: native grouped dashboard surfaces and localized status error copy.
-- Variants and states: running/stopped, API reachable/unreachable, proxy on/off, TUN on/off, empty metrics.
+- New/changed components: centered global search field with dropdown results, compact header status pills, native grouped dashboard surfaces, localized status error copy, `内核` quick navigation sidebar, separate `设置` form, review-first AI assistant panel, and closed/half-open/open door variants for the menu bar status icon.
+- Variants and states: running/stopped, API reachable/unreachable, proxy on/off, TUN on/off, empty metrics, local Ollama ready, remote AI key missing/search-only, AI pending diff review, menu bar closed/half-open/open door network capture state.
 - Token/component ownership: `ChumenStyle` in `ContentView.swift`.
 
 ## Accessibility
 - Target standard: clear contrast and readable text at default macOS sizes.
-- Keyboard/focus behavior: use system controls so focus rings and shortcuts remain native; global search accepts Return to open the first result, closes on outside click or Esc, debounces result generation, and avoids full search during single-letter IME composition.
+- Keyboard/focus behavior: use system controls so focus rings and shortcuts remain native; global search should accept Return to open the first result, close on outside click or Esc, debounce result generation, avoid full search during single-letter IME composition, scan proxy/rule/connection/log snapshots off the main thread, let users constrain results by scope, and render its result panel as a top-level overlay that does not participate in header layout. The assistant input must not apply changes on Return; it either searches locally when no AI key is configured or sends a request that only creates pending diff review items.
 - Contrast/readability: avoid low-contrast text over material blur.
 - Screen-reader semantics: keep labels on buttons and status values.
 - Reduced motion and sensory considerations: avoid nonessential animation.
 
 ## Responsive behavior
 - Supported breakpoints/devices: resizable macOS app window.
-- Layout adaptations: dashboard metrics wrap via adaptive grid.
+- Layout adaptations: dashboard metrics wrap via adaptive grid; header search and status information stay in one row under window resizing, with horizontal status scrolling preferred over hidden status chips.
 - Touch/hover differences: pointer-first macOS interactions.
 
 ## Interaction states
@@ -64,6 +64,7 @@
 - Success: concise status text.
 - Disabled: use native disabled controls.
 - Offline/slow network, if applicable: API status should indicate unreachable controller without visually dominating the dashboard.
+- AI draft review: every AI-suggested operation is a temporary proposed change with a git-like diff. The user must explicitly apply each item; no model response may directly mutate settings, import profiles, toggle proxy/TUN, or reload runtime config.
 
 ## Content voice
 - Tone: concise utility language.
@@ -73,9 +74,10 @@
 ## Implementation constraints
 - Framework/styling system: SwiftUI/AppKit native controls.
 - Design-token constraints: keep style tokens in `ChumenStyle`; no new theming layer.
-- Performance constraints: dashboard updates must remain cheap during traffic/connection streams.
+- Performance constraints: dashboard updates must remain cheap during traffic/connection streams; assistant search uses the same debounced/off-main-thread snapshot search as global search.
 - Compatibility constraints: macOS native Swift Package app.
+- Security constraints: AI API keys are stored in Keychain, not in `settings.json`; local Ollama does not require a key; model calls use user-configured OpenAI-compatible endpoints.
 - Test/screenshot expectations: run Swift build/tests after style changes; inspect visible app state when possible.
 
 ## Open questions
-- [ ] Final icon direction is still subject to user preference after the UI shell stabilizes.
+- None currently.

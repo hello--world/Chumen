@@ -173,6 +173,47 @@ final class ChumenConfigurationBuilderTests: XCTestCase {
         XCTAssertTrue(yaml.contains("profile:\n  store-selected: true"))
     }
 
+    func testRuntimeYamlAppliesGlobalAndProfileAppendixYAMLInOrder() {
+        let profile = """
+        proxies:
+          - name: Base
+            type: direct
+        rules:
+          - MATCH,DIRECT
+        """
+        let settings = ChumenRuntimeSettings(
+            configAppendixYAML: """
+            rules:
+              - DOMAIN,global.example,DIRECT
+            proxy-providers:
+              remote:
+                type: http
+            """
+        )
+
+        let yaml = ChumenConfigurationBuilder.runtimeYAML(
+            profileYAML: profile,
+            settings: settings,
+            socketPath: nil,
+            profileAppendixYAML: """
+            rules:
+              - DOMAIN,profile.example,PROXY
+            proxy-groups:
+              - name: Auto
+                type: select
+                proxies:
+                  - DIRECT
+            """
+        )
+
+        XCTAssertTrue(yaml.contains("proxies:\n  - name: Base\n    type: direct"))
+        XCTAssertTrue(yaml.contains("proxy-providers:\n  remote:\n    type: http"))
+        XCTAssertTrue(yaml.contains("rules:\n  - DOMAIN,profile.example,PROXY"))
+        XCTAssertTrue(yaml.contains("proxy-groups:\n  - name: Auto"))
+        XCTAssertFalse(yaml.contains("MATCH,DIRECT"))
+        XCTAssertFalse(yaml.contains("global.example"))
+    }
+
     func testRemoveTopLevelBlock() {
         let yaml = """
         secret:

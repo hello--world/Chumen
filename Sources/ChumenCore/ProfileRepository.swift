@@ -8,6 +8,7 @@ public struct ProxyProfile: Codable, Identifiable, Equatable, Sendable {
     public var sourceClient: String?
     public var sourcePath: String?
     public var sourceFingerprint: String?
+    public var configAppendixYAML: String?
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -19,6 +20,7 @@ public struct ProxyProfile: Codable, Identifiable, Equatable, Sendable {
         sourceClient: String? = nil,
         sourcePath: String? = nil,
         sourceFingerprint: String? = nil,
+        configAppendixYAML: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -29,6 +31,7 @@ public struct ProxyProfile: Codable, Identifiable, Equatable, Sendable {
         self.sourceClient = sourceClient
         self.sourcePath = sourcePath
         self.sourceFingerprint = sourceFingerprint
+        self.configAppendixYAML = configAppendixYAML
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -292,10 +295,59 @@ public final class ProfileRepository {
         return updated
     }
 
-    private func downloadProfile(url: URL) async throws -> Data {
+    public func update(
+        _ profile: ProxyProfile,
+        usingHTTPProxyHost host: String,
+        port: Int,
+        in library: inout ProfileLibrary
+    ) async throws -> ProxyProfile {
+        guard let remoteURL = profile.remoteURL, let url = URL(string: remoteURL) else {
+            throw ChumenError.commandFailed("This profile has no remote subscription URL.")
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.connectionProxyDictionary = [
+            "HTTPEnable": true,
+            "HTTPProxy": host,
+            "HTTPPort": port,
+            "HTTPSEnable": true,
+            "HTTPSProxy": host,
+            "HTTPSPort": port
+        ]
+        let proxySession = URLSession(configuration: configuration)
+        let data = try await downloadProfile(url: url, sessionOverride: proxySession)
+        try data.write(to: URL(fileURLWithPath: profile.filePath), options: .atomic)
+
+        var updated = profile
+        updated.updatedAt = Date()
+        if let index = library.profiles.firstIndex(where: { $0.id == profile.id }) {
+            library.profiles[index] = updated
+        }
+        try save(library)
+        return updated
+    }
+
+    public func updateConfigAppendix(
+        _ profile: ProxyProfile,
+        yaml: String,
+        in library: inout ProfileLibrary
+    ) throws -> ProxyProfile {
+        var updated = profile
+        let trimmed = yaml.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.configAppendixYAML = trimmed.isEmpty ? nil : yaml
+        updated.updatedAt = Date()
+        if let index = library.profiles.firstIndex(where: { $0.id == profile.id }) {
+            library.profiles[index] = updated
+        }
+        try save(library)
+        return updated
+    }
+
+    private func downloadProfile(url: URL, sessionOverride: URLSession? = nil) async throws -> Data {
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
         request.setValue("Chumen/1.0", forHTTPHeaderField: "User-Agent")
+        let session = sessionOverride ?? self.session
         let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw ChumenError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")

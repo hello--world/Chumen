@@ -60,7 +60,7 @@ public final class CoreProcessManager: @unchecked Sendable {
         return totalKilobytes > 0 ? totalKilobytes * 1024 : nil
     }
 
-    public func start(settings: ChumenRuntimeSettings) throws {
+    public func start(settings: ChumenRuntimeSettings, profileAppendixYAML: String = "") throws {
         guard !isRunning else { throw ChumenError.processAlreadyRunning }
         guard !settings.corePath.isEmpty else { throw ChumenError.missingCorePath }
         guard fileManager.isExecutableFile(atPath: settings.corePath) else {
@@ -69,7 +69,11 @@ public final class CoreProcessManager: @unchecked Sendable {
 
         // 每次启动都重新生成并测试 runtime YAML，确保 GUI 设置和订阅内容同步到 mihomo。
         try terminateManagedSidecars(waitForExit: true)
-        try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: paths)
+        try ChumenConfigurationBuilder.writeRuntimeConfig(
+            settings: settings,
+            paths: paths,
+            profileAppendixYAML: profileAppendixYAML
+        )
         try prepareLogFile()
         try validateRuntimeConfig(settings: settings)
 
@@ -143,9 +147,9 @@ public final class CoreProcessManager: @unchecked Sendable {
         }
     }
 
-    public func restart(settings: ChumenRuntimeSettings) throws {
+    public func restart(settings: ChumenRuntimeSettings, profileAppendixYAML: String = "") throws {
         stop(waitForExit: true)
-        try start(settings: settings)
+        try start(settings: settings, profileAppendixYAML: profileAppendixYAML)
     }
 
     deinit {

@@ -22,6 +22,28 @@ public enum AppLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
         }
         return first.hasPrefix("zh") ? .zhHans : .en
     }
+
+    public var metaCubeXDLocaleCode: String {
+        switch resolved {
+        case .zhHans:
+            "zh"
+        case .en, .system:
+            "en"
+        }
+    }
+
+    public var zashboardLocaleCode: String {
+        switch resolved {
+        case .zhHans:
+            "zh-CN"
+        case .en, .system:
+            "en-US"
+        }
+    }
+
+    private var resolved: Self {
+        self == .system ? Self.defaultLanguage() : self
+    }
 }
 
 public enum CoreLogLevel: String, CaseIterable, Codable, Identifiable, Sendable {
@@ -157,6 +179,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
     public var nameserverPolicyYAML: String
     public var hostsYAML: String
     public var configAppendixYAML: String
+    public var ai: ChumenAISettings
 
     public init(
         corePath: String = "",
@@ -224,7 +247,8 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         fallbackFilterDomains: [String] = ["+.google.com", "+.facebook.com", "+.youtube.com"],
         nameserverPolicyYAML: String = "",
         hostsYAML: String = "",
-        configAppendixYAML: String = ""
+        configAppendixYAML: String = "",
+        ai: ChumenAISettings = ChumenAISettings()
     ) {
         self.corePath = corePath
         self.profilePath = profilePath
@@ -292,6 +316,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         self.nameserverPolicyYAML = nameserverPolicyYAML
         self.hostsYAML = hostsYAML
         self.configAppendixYAML = configAppendixYAML
+        self.ai = ai
     }
 
     public var usesPlaceholderSecret: Bool {
@@ -384,6 +409,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         case nameserverPolicyYAML
         case hostsYAML
         case configAppendixYAML
+        case ai
     }
 
     public init(from decoder: Decoder) throws {
@@ -458,7 +484,8 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
             fallbackFilterDomains: try container.decodeIfPresent([String].self, forKey: .fallbackFilterDomains) ?? ["+.google.com", "+.facebook.com", "+.youtube.com"],
             nameserverPolicyYAML: try container.decodeIfPresent(String.self, forKey: .nameserverPolicyYAML) ?? "",
             hostsYAML: try container.decodeIfPresent(String.self, forKey: .hostsYAML) ?? "",
-            configAppendixYAML: try container.decodeIfPresent(String.self, forKey: .configAppendixYAML) ?? ""
+            configAppendixYAML: try container.decodeIfPresent(String.self, forKey: .configAppendixYAML) ?? "",
+            ai: try container.decodeIfPresent(ChumenAISettings.self, forKey: .ai) ?? ChumenAISettings()
         )
     }
 

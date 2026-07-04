@@ -40,14 +40,15 @@ private final class StackedSpeedStatusView: NSView {
         let blockHeight = rowHeight * 2 + rowGap
         let blockY = floor((height - blockHeight) / 2)
         let iconY = floor((height - iconSize) / 2)
-        let textX: CGFloat = 32
+        let textX: CGFloat = 31
         let arrowWidth: CGFloat = 9
+        let valueWidth: CGFloat = 76
 
         iconView.frame = NSRect(x: 5, y: iconY, width: iconSize, height: iconSize)
         upArrowLabel.frame = NSRect(x: textX, y: blockY + rowHeight + rowGap, width: arrowWidth, height: rowHeight)
         downArrowLabel.frame = NSRect(x: textX, y: blockY, width: arrowWidth, height: rowHeight)
-        upValueLabel.frame = NSRect(x: textX + arrowWidth + 2, y: blockY + rowHeight + rowGap, width: 58, height: rowHeight)
-        downValueLabel.frame = NSRect(x: textX + arrowWidth + 2, y: blockY, width: 58, height: rowHeight)
+        upValueLabel.frame = NSRect(x: textX + arrowWidth + 2, y: blockY + rowHeight + rowGap, width: valueWidth, height: rowHeight)
+        downValueLabel.frame = NSRect(x: textX + arrowWidth + 2, y: blockY, width: valueWidth, height: rowHeight)
     }
 
     private func configure() {
@@ -168,7 +169,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         stackedSpeedView?.removeFromSuperview()
         stackedSpeedView = nil
-        button.image = statusIcon()
+        button.image = statusIcon(for: model)
         button.imageScaling = .scaleProportionallyDown
         button.imagePosition = title.isEmpty ? .imageOnly : .imageLeading
         button.alignment = .left
@@ -202,25 +203,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
 
         view.frame = button.bounds
-        view.update(icon: statusIcon(), up: model.uploadSpeed, down: model.downloadSpeed)
+        view.update(icon: statusIcon(for: model), up: model.uploadSpeed, down: model.downloadSpeed)
     }
 
-    private func statusIcon() -> NSImage? {
-        let source: NSImage
-        if let bundledIcon = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
-                  let image = NSImage(contentsOf: bundledIcon),
-                  image.isValid {
-            source = image
-        } else if let applicationIcon = NSApp.applicationIconImage, applicationIcon.isValid {
-            source = applicationIcon
-        } else {
-            source = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
-        }
+    private func statusIcon(for model: AppModel) -> NSImage {
+        StatusBarIconFactory.image(for: statusDoorIconState(for: model))
+    }
 
-        guard let icon = source.copy() as? NSImage else { return nil }
-        icon.size = NSSize(width: 18, height: 18)
-        icon.isTemplate = false
-        return icon
+    private func statusDoorIconState(for model: AppModel) -> StatusBarDoorIconState {
+        let tunIsActivelyRouting = model.isRunning && model.settings.enableTun && !model.tunRuntimeFailed
+        if tunIsActivelyRouting {
+            return .open
+        }
+        if model.systemProxyEnabled {
+            return .proxy
+        }
+        return .closed
     }
 
     private func attributedStatusTitle(_ title: String) -> NSAttributedString {
@@ -241,7 +239,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             // 速率文本使用固定宽度，避免流量变化时菜单栏左右抖动。
             return 156
         case .stackedSpeed:
-            return 106
+            return 126
         case .custom:
             return 160
         case .statusAndSpeed:

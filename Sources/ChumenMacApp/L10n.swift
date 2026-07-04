@@ -11,14 +11,48 @@ enum L10n {
         case providers
         case logs
         case settings
+        case coreSettings
+        case appSettings
+        case quickSettings
         case all
+        case globalSearch
         case globalSearchPlaceholder
         case searchResults
+        case displayedResults
         case noSearchResults
+        case aiAssistant
+        case aiOpenAssistant
+        case aiCloseAssistant
+        case aiModelSettings
+        case aiBaseURL
+        case aiModel
+        case aiAPIKey
+        case aiSaveKey
+        case aiClearKey
+        case aiKeyStored
+        case aiKeyMissing
+        case aiSearchOnly
+        case aiUseLocalOllama
+        case aiOllamaReady
+        case aiOllamaNoKeyRequired
+        case aiRemoteAPI
+        case aiAskPlaceholder
+        case aiSend
+        case aiThinking
+        case aiPendingChanges
+        case aiApplyChange
+        case aiDismissChange
+        case aiClearChat
+        case aiNoMessages
+        case aiChangeApplied
+        case aiReviewBeforeApply
+        case aiDiff
+        case aiUseAsSearch
         case runtime
         case running
         case stopped
         case activeProfile
+        case configUpdated
         case mode
         case outboundMode
         case traffic
@@ -48,22 +82,44 @@ enum L10n {
         case noExternalProfilesFound
         case externalProfilesFound
         case subscriptionURLFound
+        case useProfile
         case activate
         case active
         case currentActive
         case update
         case edit
+        case editInfo
+        case editFile
+        case editRules
+        case editNodes
+        case editProxyGroups
+        case extendOverrideConfig
+        case globalExtendOverrideConfig
+        case extendScript
+        case updateViaProxy
+        case visualEditor
+        case codeEditor
+        case addSection
+        case deleteSection
+        case topLevelKey
+        case content
+        case applyToCode
         case openFile
         case save
         case cancel
         case delete
+        case unsupportedFeature
         case refreshProxies
         case refreshProviders
         case groups
         case node
         case delay
         case delayTest
+        case groupDelayTest
         case refreshConnections
+        case searchConnections
+        case noConnections
+        case noMatchingConnections
         case closeAll
         case activeConnections
         case close
@@ -186,6 +242,7 @@ enum L10n {
         case upgradeUI
         case debugGC
         case reloadRuntimeConfig
+        case applySettingsToCore
         case restartKernelAPI
         case dnsQuery
         case storage
@@ -198,6 +255,8 @@ enum L10n {
         case read
         case write
         case openDashboard
+        case dashboardPreset
+        case dashboardSelected
         case configAppendix
         case externalUI
         case corsOrigins
@@ -223,14 +282,48 @@ enum L10n {
         .providers: "Provider",
         .logs: "日志",
         .settings: "设置",
+        .coreSettings: "内核",
+        .appSettings: "设置",
+        .quickSettings: "快捷设置",
         .all: "全部",
+        .globalSearch: "搜索",
         .globalSearchPlaceholder: "搜索任意内容",
         .searchResults: "搜索结果",
+        .displayedResults: "显示",
         .noSearchResults: "没有匹配结果",
+        .aiAssistant: "智能体",
+        .aiOpenAssistant: "打开智能体",
+        .aiCloseAssistant: "关闭智能体",
+        .aiModelSettings: "模型配置",
+        .aiBaseURL: "Base URL",
+        .aiModel: "模型",
+        .aiAPIKey: "API Key",
+        .aiSaveKey: "保存 Key",
+        .aiClearKey: "清除 Key",
+        .aiKeyStored: "Key 已保存",
+        .aiKeyMissing: "请先配置 API Key",
+        .aiSearchOnly: "未接入 AI，当前作为搜索使用",
+        .aiUseLocalOllama: "本地 Ollama",
+        .aiOllamaReady: "本地 Ollama 就绪",
+        .aiOllamaNoKeyRequired: "本地无需 Key",
+        .aiRemoteAPI: "远程接口需要 Key",
+        .aiAskPlaceholder: "搜索，或让智能体生成配置变更",
+        .aiSend: "发送",
+        .aiThinking: "正在生成建议...",
+        .aiPendingChanges: "待审核变更",
+        .aiApplyChange: "应用",
+        .aiDismissChange: "忽略",
+        .aiClearChat: "清空对话",
+        .aiNoMessages: "输入需求后，智能体只会生成待审核变更。",
+        .aiChangeApplied: "变更已应用",
+        .aiReviewBeforeApply: "所有变更都需要先审核 diff，再手动应用。",
+        .aiDiff: "Diff",
+        .aiUseAsSearch: "搜索",
         .runtime: "运行状态",
         .running: "运行中",
         .stopped: "已停止",
         .activeProfile: "当前配置",
+        .configUpdated: "配置更新",
         .mode: "模式",
         .outboundMode: "出站模式",
         .traffic: "流量",
@@ -260,22 +353,44 @@ enum L10n {
         .noExternalProfilesFound: "未发现可导入配置",
         .externalProfilesFound: "发现可导入配置",
         .subscriptionURLFound: "订阅 URL 已读取",
+        .useProfile: "使用",
         .activate: "启用",
         .active: "已启用",
         .currentActive: "当前启用",
         .update: "更新",
         .edit: "编辑",
+        .editInfo: "编辑信息",
+        .editFile: "编辑文件",
+        .editRules: "编辑规则",
+        .editNodes: "编辑节点",
+        .editProxyGroups: "编辑代理组",
+        .extendOverrideConfig: "扩展覆写配置",
+        .globalExtendOverrideConfig: "全局扩展覆写配置",
+        .extendScript: "扩展脚本",
+        .updateViaProxy: "更新（代理）",
+        .visualEditor: "可视化",
+        .codeEditor: "代码",
+        .addSection: "新增",
+        .deleteSection: "删除",
+        .topLevelKey: "顶层键",
+        .content: "内容",
+        .applyToCode: "应用到代码",
         .openFile: "打开文件",
         .save: "保存",
         .cancel: "取消",
         .delete: "删除",
+        .unsupportedFeature: "暂未支持",
         .refreshProxies: "刷新代理",
         .refreshProviders: "刷新 Provider",
         .groups: "个代理组",
         .node: "节点",
         .delay: "延迟",
         .delayTest: "测速",
+        .groupDelayTest: "组测速",
         .refreshConnections: "刷新连接",
+        .searchConnections: "搜索连接",
+        .noConnections: "暂无连接",
+        .noMatchingConnections: "无匹配连接",
         .closeAll: "全部关闭",
         .activeConnections: "活跃连接",
         .close: "关闭",
@@ -398,6 +513,7 @@ enum L10n {
         .upgradeUI: "升级 Web UI",
         .debugGC: "触发 GC",
         .reloadRuntimeConfig: "重新加载配置",
+        .applySettingsToCore: "应用到内核",
         .restartKernelAPI: "API 重启内核",
         .dnsQuery: "DNS 查询",
         .storage: "Storage",
@@ -410,6 +526,8 @@ enum L10n {
         .read: "读取",
         .write: "写入",
         .openDashboard: "打开 Dashboard",
+        .dashboardPreset: "Dashboard 面板",
+        .dashboardSelected: "已选中",
         .configAppendix: "附加 YAML",
         .externalUI: "External UI",
         .corsOrigins: "CORS 来源",
@@ -426,14 +544,48 @@ enum L10n {
         .providers: "Providers",
         .logs: "Logs",
         .settings: "Settings",
+        .coreSettings: "Core",
+        .appSettings: "Settings",
+        .quickSettings: "Quick Settings",
         .all: "All",
+        .globalSearch: "Search",
         .globalSearchPlaceholder: "Search anything",
         .searchResults: "Search Results",
+        .displayedResults: "Showing",
         .noSearchResults: "No matching results",
+        .aiAssistant: "Assistant",
+        .aiOpenAssistant: "Open Assistant",
+        .aiCloseAssistant: "Close Assistant",
+        .aiModelSettings: "Model Settings",
+        .aiBaseURL: "Base URL",
+        .aiModel: "Model",
+        .aiAPIKey: "API Key",
+        .aiSaveKey: "Save Key",
+        .aiClearKey: "Clear Key",
+        .aiKeyStored: "Key saved",
+        .aiKeyMissing: "Configure API key first",
+        .aiSearchOnly: "AI is not connected; using local search",
+        .aiUseLocalOllama: "Local Ollama",
+        .aiOllamaReady: "Local Ollama ready",
+        .aiOllamaNoKeyRequired: "No key needed locally",
+        .aiRemoteAPI: "Remote API requires a key",
+        .aiAskPlaceholder: "Search, or ask the assistant to draft changes",
+        .aiSend: "Send",
+        .aiThinking: "Drafting suggestions...",
+        .aiPendingChanges: "Pending Changes",
+        .aiApplyChange: "Apply",
+        .aiDismissChange: "Dismiss",
+        .aiClearChat: "Clear Chat",
+        .aiNoMessages: "Ask for a change; the assistant only creates reviewable drafts.",
+        .aiChangeApplied: "Change applied",
+        .aiReviewBeforeApply: "Review the diff before applying any change.",
+        .aiDiff: "Diff",
+        .aiUseAsSearch: "Search",
         .runtime: "Runtime",
         .running: "Running",
         .stopped: "Stopped",
         .activeProfile: "Active Profile",
+        .configUpdated: "Config Updated",
         .mode: "Mode",
         .outboundMode: "Outbound Mode",
         .traffic: "Traffic",
@@ -463,22 +615,44 @@ enum L10n {
         .noExternalProfilesFound: "No importable configs found",
         .externalProfilesFound: "Importable configs found",
         .subscriptionURLFound: "Subscription URL found",
+        .useProfile: "Use",
         .activate: "Activate",
         .active: "Active",
         .currentActive: "Current",
         .update: "Update",
         .edit: "Edit",
+        .editInfo: "Edit Info",
+        .editFile: "Edit File",
+        .editRules: "Edit Rules",
+        .editNodes: "Edit Nodes",
+        .editProxyGroups: "Edit Proxy Groups",
+        .extendOverrideConfig: "Extend Override Config",
+        .globalExtendOverrideConfig: "Global Extend Override Config",
+        .extendScript: "Extend Script",
+        .updateViaProxy: "Update via Proxy",
+        .visualEditor: "Visual",
+        .codeEditor: "Code",
+        .addSection: "Add",
+        .deleteSection: "Delete",
+        .topLevelKey: "Top-level Key",
+        .content: "Content",
+        .applyToCode: "Apply to Code",
         .openFile: "Open File",
         .save: "Save",
         .cancel: "Cancel",
         .delete: "Delete",
+        .unsupportedFeature: "Not supported yet",
         .refreshProxies: "Refresh Proxies",
         .refreshProviders: "Refresh Providers",
         .groups: "groups",
         .node: "Node",
         .delay: "Delay",
         .delayTest: "Test Delay",
+        .groupDelayTest: "Test Group",
         .refreshConnections: "Refresh Connections",
+        .searchConnections: "Search Connections",
+        .noConnections: "No Connections",
+        .noMatchingConnections: "No Matching Connections",
         .closeAll: "Close All",
         .activeConnections: "active",
         .close: "Close",
@@ -601,6 +775,7 @@ enum L10n {
         .upgradeUI: "Upgrade Web UI",
         .debugGC: "Run GC",
         .reloadRuntimeConfig: "Reload Config",
+        .applySettingsToCore: "Apply to Core",
         .restartKernelAPI: "API Restart Kernel",
         .dnsQuery: "DNS Query",
         .storage: "Storage",
@@ -613,6 +788,8 @@ enum L10n {
         .read: "Read",
         .write: "Write",
         .openDashboard: "Open Dashboard",
+        .dashboardPreset: "Dashboard Panel",
+        .dashboardSelected: "selected",
         .configAppendix: "Append YAML",
         .externalUI: "External UI",
         .corsOrigins: "CORS Origins",

@@ -23,7 +23,11 @@ public enum ChumenConfigurationBuilder {
         "tun"
     ]
 
-    public static func writeRuntimeConfig(settings: ChumenRuntimeSettings, paths: ChumenPaths) throws {
+    public static func writeRuntimeConfig(
+        settings: ChumenRuntimeSettings,
+        paths: ChumenPaths,
+        profileAppendixYAML: String = ""
+    ) throws {
         try paths.ensureDirectories()
 
         let profileYAML: String?
@@ -36,7 +40,8 @@ public enum ChumenConfigurationBuilder {
         let yaml = runtimeYAML(
             profileYAML: profileYAML,
             settings: settings,
-            socketPath: paths.externalControllerSocketURL.path
+            socketPath: paths.externalControllerSocketURL.path,
+            profileAppendixYAML: profileAppendixYAML
         )
         try yaml.write(to: paths.runtimeConfigURL, atomically: true, encoding: .utf8)
     }
@@ -44,19 +49,21 @@ public enum ChumenConfigurationBuilder {
     public static func runtimeYAML(
         profileYAML: String?,
         settings: ChumenRuntimeSettings,
-        socketPath: String?
+        socketPath: String?,
+        profileAppendixYAML: String = ""
     ) -> String {
         let base = normalizedBaseYAML(profileYAML)
-        // 保留订阅中的代理、规则和 provider，只移除 Chumen 明确负责的运行时键。
-        let stripped = removeTopLevelKeys(overwrittenTopLevelKeys(settings: settings), from: base)
+        let globallyExtended = applyingAppendixYAML(settings.configAppendixYAML, to: base)
+        let profileExtended = applyingAppendixYAML(profileAppendixYAML, to: globallyExtended)
+        // 保留订阅和扩展中的代理、规则和 provider，只移除 Chumen 明确负责的运行时键。
+        let stripped = removeTopLevelKeys(overwrittenTopLevelKeys(settings: settings), from: profileExtended)
         let overrides = topLevelOverrides(settings: settings, socketPath: socketPath)
-        let appendix = normalizedAppendixYAML(settings.configAppendixYAML)
 
         if stripped.isEmpty {
-            return [overrides, appendix].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            return overrides
         }
 
-        return [stripped, overrides, appendix].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        return [stripped, overrides].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
     private static func overwrittenTopLevelKeys(settings: ChumenRuntimeSettings) -> Set<String> {
@@ -293,6 +300,24 @@ public enum ChumenConfigurationBuilder {
 
     private static func normalizedAppendixYAML(_ yaml: String) -> String {
         yaml.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func applyingAppendixYAML(_ appendixYAML: String, to yaml: String) -> String {
+        let appendix = normalizedAppendixYAML(appendixYAML)
+        guard !appendix.isEmpty else {
+            return yaml.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let keys = topLevelKeys(in: appendix)
+        let stripped = keys.isEmpty ? yaml : removeTopLevelKeys(keys, from: yaml)
+        return [stripped, appendix]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+    }
+
+    private static func topLevelKeys(in yaml: String) -> Set<String> {
+        Set(yaml.components(separatedBy: .newlines).compactMap { topLevelKey(in: $0) })
     }
 }
 

@@ -1,5 +1,10 @@
+import AppKit
 import ChumenCore
 import SwiftUI
+
+private enum ChumenWindowMetrics {
+    static let contentSize = NSSize(width: 1080, height: 570)
+}
 
 @main
 struct ChumenMacApp: App {
@@ -18,10 +23,61 @@ struct ChumenMacApp: App {
                 ContentView()
                 StatusBarInstaller()
                     .frame(width: 0, height: 0)
+                FixedMainWindowConfigurator(size: ChumenWindowMetrics.contentSize)
+                    .frame(width: 0, height: 0)
             }
                 .environmentObject(model)
-                .frame(minWidth: 920, minHeight: 620)
+                .frame(
+                    width: ChumenWindowMetrics.contentSize.width,
+                    height: ChumenWindowMetrics.contentSize.height
+                )
         }
+        .defaultSize(
+            width: ChumenWindowMetrics.contentSize.width,
+            height: ChumenWindowMetrics.contentSize.height
+        )
+        .windowResizability(.contentSize)
+    }
+}
+
+private struct FixedMainWindowConfigurator: NSViewRepresentable {
+    let size: NSSize
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            configure(window: view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            configure(window: view.window)
+        }
+    }
+
+    private func configure(window: NSWindow?) {
+        guard let window else { return }
+
+        let fixedFrameSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: size)).size
+        window.contentMinSize = size
+        window.contentMaxSize = size
+        window.minSize = fixedFrameSize
+        window.maxSize = fixedFrameSize
+
+        if window.contentView?.bounds.size != size {
+            let frame = window.frame
+            let targetFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+            let origin = NSPoint(
+                x: frame.midX - targetFrame.width / 2,
+                y: frame.midY - targetFrame.height / 2
+            )
+            window.setFrame(NSRect(origin: origin, size: targetFrame.size), display: true)
+        }
+
+        window.styleMask.remove(.resizable)
+        window.standardWindowButton(.zoomButton)?.isEnabled = false
     }
 }
 

@@ -28,7 +28,7 @@ public struct ConnectionTrafficAccumulator: Sendable, Equatable {
         samples.removeAll()
     }
 
-    public mutating func apply(connections: [MihomoConnection]) {
+    public mutating func apply(connections: [MihomoConnection], includeInitialSamples: Bool = false) {
         var activeIDs = Set<String>()
         for connection in connections {
             activeIDs.insert(connection.id)
@@ -42,6 +42,8 @@ public struct ConnectionTrafficAccumulator: Sendable, Equatable {
                     download: max(0, currentDownload - previous.download),
                     routeKind: routeKind
                 )
+            } else if includeInitialSamples {
+                add(upload: currentUpload, download: currentDownload, routeKind: routeKind)
             }
 
             samples[connection.id] = ConnectionTrafficSample(

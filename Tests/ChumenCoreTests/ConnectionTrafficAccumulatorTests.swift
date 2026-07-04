@@ -48,6 +48,33 @@ final class ConnectionTrafficAccumulatorTests: XCTestCase {
         XCTAssertEqual(accumulator.directDownloadTotal, 0)
     }
 
+    func testCanIncludeInitialSamplesAfterTelemetryReset() {
+        var accumulator = ConnectionTrafficAccumulator()
+
+        accumulator.apply(
+            connections: [
+                connection(id: "direct", upload: 10, download: 20, chains: ["DIRECT"]),
+                connection(id: "proxy", upload: 30, download: 40, chains: ["Auto"])
+            ],
+            includeInitialSamples: true
+        )
+
+        XCTAssertEqual(accumulator.directUploadTotal, 10)
+        XCTAssertEqual(accumulator.directDownloadTotal, 20)
+        XCTAssertEqual(accumulator.proxyUploadTotal, 30)
+        XCTAssertEqual(accumulator.proxyDownloadTotal, 40)
+
+        accumulator.apply(connections: [
+            connection(id: "direct", upload: 15, download: 26, chains: ["DIRECT"]),
+            connection(id: "proxy", upload: 38, download: 45, chains: ["Auto"])
+        ])
+
+        XCTAssertEqual(accumulator.directUploadTotal, 15)
+        XCTAssertEqual(accumulator.directDownloadTotal, 26)
+        XCTAssertEqual(accumulator.proxyUploadTotal, 38)
+        XCTAssertEqual(accumulator.proxyDownloadTotal, 45)
+    }
+
     private func connection(id: String, upload: Int64, download: Int64, chains: [String]?) -> MihomoConnection {
         MihomoConnection(
             id: id,

@@ -3,6 +3,57 @@ import Combine
 import Foundation
 import ChumenCore
 
+enum ProfileSectionEditorKind: String, CaseIterable, Identifiable {
+    case rules
+    case proxies
+    case proxyGroups
+
+    var id: String { rawValue }
+
+    var yamlKey: String {
+        switch self {
+        case .rules: "rules"
+        case .proxies: "proxies"
+        case .proxyGroups: "proxy-groups"
+        }
+    }
+
+    var titleKey: L10n.Key {
+        switch self {
+        case .rules: .editRules
+        case .proxies: .editNodes
+        case .proxyGroups: .editProxyGroups
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .rules: "list.bullet.rectangle"
+        case .proxies: "point.3.connected.trianglepath.dotted"
+        case .proxyGroups: "rectangle.3.group"
+        }
+    }
+}
+
+struct ProfileSectionEditorState: Identifiable, Equatable {
+    let profile: ProxyProfile
+    let kind: ProfileSectionEditorKind
+
+    var id: String { "\(profile.id)-\(kind.rawValue)" }
+}
+
+enum ProfileAppendixEditorTarget: Identifiable, Equatable {
+    case global
+    case profile(ProxyProfile)
+
+    var id: String {
+        switch self {
+        case .global: "global"
+        case let .profile(profile): "profile-\(profile.id)"
+        }
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     // AppModel 是 GUI 的单一状态源：窗口、状态栏菜单和异步内核任务都从这里读写状态。
@@ -18,10 +69,18 @@ final class AppModel: ObservableObject {
     @Published var remoteProfileURL = ""
     @Published var remoteProfileName = ""
     @Published var editingProfile: ProxyProfile?
+    @Published var editingProfileMetadata: ProxyProfile?
+    @Published var profileMetadataEditorName = ""
+    @Published var profileMetadataEditorRemoteURL = ""
     @Published var profileEditorName = ""
     @Published var profileEditorRemoteURL = ""
     @Published var profileEditorText = ""
     @Published var profileEditorIsLoading = false
+    @Published var editingProfileSection: ProfileSectionEditorState?
+    @Published var profileSectionEditorText = ""
+    @Published var profileSectionEditorIsLoading = false
+    @Published var editingProfileAppendix: ProfileAppendixEditorTarget?
+    @Published var profileAppendixEditorText = ""
     @Published var externalProfileCandidates: [ExternalProfileCandidate] = []
     @Published var externalProfileScanCompleted = false
     @Published var proxyGroups: [ProxyGroupSnapshot] = []
@@ -46,7 +105,6 @@ final class AppModel: ObservableObject {
     @Published var systemProxyStateText = ""
     @Published var tunRuntimeFailed = false
     @Published var tunRuntimeFailureMessage = ""
-    @Published var lastRefreshText = "-"
     @Published var coreToolResult = ""
     @Published var dnsQueryName = "example.com"
     @Published var dnsQueryType = "A"
@@ -55,6 +113,13 @@ final class AppModel: ObservableObject {
     @Published var rawAPIMethod = "GET"
     @Published var rawAPIPath = "/version"
     @Published var rawAPIBody = ""
+    @Published var aiMessages: [ChumenAIChatMessage] = []
+    @Published var aiInputText = ""
+    @Published var aiAPIKeyInput = ""
+    @Published var aiAPIKeyStored = false
+    @Published var aiIsSending = false
+    @Published var aiPendingChanges: [ChumenAIProposedChange] = []
+    @Published var aiStatusText = ""
 
     let paths: ChumenPaths
 
@@ -66,18 +131,39 @@ final class AppModel: ObservableObject {
     private let memoryStream = MihomoEventStream<MihomoMemory>()
     private let connectionsStream = MihomoEventStream<MihomoConnectionsResponse>()
     private var connectionTrafficAccumulator = ConnectionTrafficAccumulator()
+    private var shouldSeedConnectionTrafficSnapshot = true
+    private var lastTrafficEventDate: Date?
+    private var lastConnectionTelemetryDate: Date?
+    private var lastConnectionUploadTotal: Int64?
+    private var lastConnectionDownloadTotal: Int64?
     private var autoRefreshTask: Task<Void, Never>?
     private var profileEditorLoadTask: Task<Void, Never>?
+    private var profileSectionEditorLoadTask: Task<Void, Never>?
     private var profileEditorOriginalText = ""
     private var coreTransitionTask: Task<Void, Never>?
+    private var settingsAutosaveTask: Task<Void, Never>?
+    private var aiTask: Task<Void, Never>?
+    private var lastSavedSettings: ChumenRuntimeSettings
     private var isPreparingForQuit = false
+    private let aiKeychainStore = ChumenAIKeychainStore()
+    private let aiClient = ChumenAIClient()
 
     init() {
         let paths = (try? ChumenPaths.defaultPaths()) ?? ChumenPaths(appHome: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("chumen"))
         let settingsStore = ChumenSettingsStore(paths: paths)
         self.paths = paths
         self.settingsStore = settingsStore
-        let loadedSettings = settingsStore.load()
+        try? paths.ensureDirectories()
+        let installedDashboards = Self.installBundledDashboards(paths: paths)
+        var loadedSettings = settingsStore.load()
+        let defaultDashboard: BundledDashboard? = installedDashboards.contains(.metacubexd)
+            ? .metacubexd
+            : installedDashboards.first
+        if loadedSettings.externalUI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let defaultDashboard {
+            loadedSettings.useBundledDashboard(defaultDashboard, paths: paths)
+            try? settingsStore.save(loadedSettings)
+        }
         self.settings = loadedSettings
         self.profileRepository = ProfileRepository(paths: paths)
         var library = profileRepository.load()
@@ -86,6 +172,11 @@ final class AppModel: ObservableObject {
         }
         self.profileLibrary = library
         self.manager = CoreProcessManager(paths: paths)
+        self.lastSavedSettings = loadedSettings
+        self.aiAPIKeyStored = aiKeychainStore.hasAPIKey()
+        self.aiStatusText = loadedSettings.ai.usesLocalOllama
+            ? L10n.text(.aiOllamaReady, language: loadedSettings.language ?? .system)
+            : (self.aiAPIKeyStored ? L10n.text(.aiKeyStored, language: loadedSettings.language ?? .system) : L10n.text(.aiSearchOnly, language: loadedSettings.language ?? .system))
 
         manager.onLog = { [weak self] text in
             Task { @MainActor in
@@ -103,7 +194,6 @@ final class AppModel: ObservableObject {
             }
         }
 
-        try? paths.ensureDirectories()
         statusText = t(.stopped)
         apiText = t(.apiNotTested)
         refreshSystemProxyState()
@@ -113,6 +203,14 @@ final class AppModel: ObservableObject {
             if settings.autoStartCoreOnLaunch, !isRunning {
                 start()
             }
+        }
+    }
+
+    private static func installBundledDashboards(paths: ChumenPaths) -> [BundledDashboard] {
+        do {
+            return try BundledDashboardInstaller(paths: paths).installAvailableDashboards()
+        } catch {
+            return []
         }
     }
 
@@ -203,6 +301,55 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func isDashboardPresetActive(_ dashboard: BundledDashboard) -> Bool {
+        dashboard.matches(settings: settings, paths: paths)
+    }
+
+    func useDashboardPreset(_ dashboard: BundledDashboard) {
+        Task {
+            await activateDashboardPreset(dashboard, openAfterActivation: false)
+        }
+    }
+
+    func openDashboardURL(_ dashboard: BundledDashboard) {
+        Task {
+            await activateDashboardPreset(dashboard, openAfterActivation: true)
+        }
+    }
+
+    private func activateDashboardPreset(_ dashboard: BundledDashboard, openAfterActivation: Bool) async {
+        do {
+            let wasActive = dashboard.matches(settings: settings, paths: paths)
+            try BundledDashboardInstaller(paths: paths).install(dashboard)
+            var launch = settings
+            launch.useBundledDashboard(dashboard, paths: paths)
+
+            if !wasActive {
+                settings = launch
+                saveSettings()
+            }
+
+            if isRunning, !wasActive {
+                try ChumenConfigurationBuilder.writeRuntimeConfig(
+                    settings: launch,
+                    paths: paths,
+                    profileAppendixYAML: activeProfileAppendixYAML
+                )
+                try await mihomoClient().reloadConfig(path: paths.runtimeConfigURL.path, force: true)
+                await refreshAll()
+            }
+
+            statusText = "\(dashboard.displayName) \(t(.dashboardSelected))"
+
+            if openAfterActivation,
+               let url = dashboard.launchURL(settings: launch, language: language) {
+                NSWorkspace.shared.open(url)
+            }
+        } catch {
+            statusText = displayError(error)
+        }
+    }
+
     var statusBarTitleText: String {
         statusBarTitle(for: settings.statusBarDisplayMode)
     }
@@ -239,6 +386,18 @@ final class AppModel: ObservableObject {
 
     var activeProfile: ProxyProfile? {
         profileLibrary.activeProfile
+    }
+
+    var activeProfileAppendixYAML: String {
+        activeProfile?.configAppendixYAML ?? ""
+    }
+
+    var activeProfileConfigUpdateText: String {
+        guard let activeProfile else { return "-" }
+        let fileURL = URL(fileURLWithPath: activeProfile.filePath)
+        let modificationDate = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.modificationDate] as? Date)
+            ?? activeProfile.updatedAt
+        return modificationDate.formatted(date: .omitted, time: .standard)
     }
 
     var totalTrafficText: String {
@@ -402,6 +561,339 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var aiReady: Bool {
+        settings.ai.isEnabled &&
+            (!settings.ai.requiresAPIKey || aiAPIKeyStored) &&
+            !settings.ai.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !settings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func useLocalOllamaAI() {
+        settings.ai.useLocalOllamaDefaults()
+        saveSettings()
+        aiStatusText = t(.aiOllamaReady)
+    }
+
+    func saveAIAPIKey() {
+        let key = aiAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            aiStatusText = t(.aiKeyMissing)
+            return
+        }
+
+        do {
+            try aiKeychainStore.saveAPIKey(key)
+            aiAPIKeyInput = ""
+            aiAPIKeyStored = true
+            aiStatusText = t(.aiKeyStored)
+        } catch {
+            aiStatusText = displayError(error)
+        }
+    }
+
+    func clearAIAPIKey() {
+        do {
+            try aiKeychainStore.deleteAPIKey()
+            aiAPIKeyInput = ""
+            aiAPIKeyStored = false
+            aiStatusText = settings.ai.usesLocalOllama ? t(.aiOllamaReady) : t(.aiSearchOnly)
+        } catch {
+            aiStatusText = displayError(error)
+        }
+    }
+
+    func clearAIMessages() {
+        aiTask?.cancel()
+        aiTask = nil
+        aiMessages = []
+        aiPendingChanges = []
+        aiStatusText = aiReady ? "" : t(.aiSearchOnly)
+    }
+
+    func sendAIMessage() {
+        let prompt = aiInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else { return }
+        guard settings.ai.isEnabled else {
+            aiStatusText = t(.aiSearchOnly)
+            return
+        }
+        let apiKey: String
+        if settings.ai.requiresAPIKey {
+            guard let storedKey = try? aiKeychainStore.loadAPIKey(),
+                  !storedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                aiAPIKeyStored = false
+                aiStatusText = t(.aiKeyMissing)
+                return
+            }
+            apiKey = storedKey
+        } else {
+            apiKey = "ollama"
+        }
+
+        aiTask?.cancel()
+        aiInputText = ""
+        let userMessage = ChumenAIChatMessage(role: .user, content: prompt)
+        aiMessages.append(userMessage)
+        aiIsSending = true
+        aiStatusText = t(.aiThinking)
+        let requestMessages = Array(aiMessages.suffix(16))
+        let aiSettings = settings.ai
+        let systemPrompt = aiSystemPrompt()
+
+        aiTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let response = try await aiClient.complete(
+                    settings: aiSettings,
+                    apiKey: apiKey,
+                    systemPrompt: systemPrompt,
+                    messages: requestMessages
+                )
+                guard !Task.isCancelled else { return }
+                aiMessages.append(ChumenAIChatMessage(role: .assistant, content: response.reply))
+                let normalizedChanges = response.changes.map { normalizeAIProposedChange($0) }
+                if !normalizedChanges.isEmpty {
+                    aiPendingChanges.append(contentsOf: normalizedChanges)
+                    aiStatusText = "\(t(.aiPendingChanges)) \(normalizedChanges.count)"
+                } else {
+                    aiStatusText = ""
+                }
+                aiIsSending = false
+                aiTask = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                aiMessages.append(ChumenAIChatMessage(role: .assistant, content: displayError(error)))
+                aiStatusText = displayError(error)
+                aiIsSending = false
+                aiTask = nil
+            }
+        }
+    }
+
+    func dismissAIProposedChange(_ change: ChumenAIProposedChange) {
+        aiPendingChanges.removeAll { $0.id == change.id }
+    }
+
+    func applyAIProposedChange(_ change: ChumenAIProposedChange) {
+        switch change.kind {
+        case .importSubscription:
+            applyAIImportSubscription(change)
+        case .setMode:
+            guard let mode = change.mode else {
+                aiStatusText = t(.unsupportedFeature)
+                return
+            }
+            applyMode(mode)
+            dismissAIProposedChange(change)
+            aiStatusText = t(.aiChangeApplied)
+        case .setTun:
+            guard let enabled = change.enabled else {
+                aiStatusText = t(.unsupportedFeature)
+                return
+            }
+            setTunEnabled(enabled)
+            dismissAIProposedChange(change)
+            aiStatusText = t(.aiChangeApplied)
+        case .setSystemProxy:
+            guard let enabled = change.enabled else {
+                aiStatusText = t(.unsupportedFeature)
+                return
+            }
+            if enabled != systemProxyEnabled {
+                toggleSystemProxy()
+            }
+            dismissAIProposedChange(change)
+            aiStatusText = t(.aiChangeApplied)
+        case .setConfigAppendix:
+            guard let yaml = change.configAppendixYAML else {
+                aiStatusText = t(.unsupportedFeature)
+                return
+            }
+            settings.configAppendixYAML = yaml
+            saveSettings()
+            reloadRunningCoreAfterProfileChange()
+            dismissAIProposedChange(change)
+            aiStatusText = t(.aiChangeApplied)
+        case .reloadRuntimeConfig:
+            reloadRuntimeConfigViaAPI()
+            dismissAIProposedChange(change)
+            aiStatusText = t(.aiChangeApplied)
+        }
+    }
+
+    private func applyAIImportSubscription(_ change: ChumenAIProposedChange) {
+        guard let urlString = change.subscriptionURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !urlString.isEmpty else {
+            aiStatusText = t(.subscriptionURLEmpty)
+            return
+        }
+
+        Task {
+            do {
+                let profile = try await importRemoteProfileFromAI(
+                    urlString: urlString,
+                    name: change.profileName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+                dismissAIProposedChange(change)
+                aiStatusText = "\(t(.imported)) \(profile.name)"
+            } catch {
+                aiStatusText = displayError(error)
+            }
+        }
+    }
+
+    private func importRemoteProfileFromAI(urlString: String, name: String?) async throws -> ProxyProfile {
+        var library = profileLibrary
+        let profile = try await profileRepository.importRemoteProfile(
+            urlString: urlString,
+            name: name?.isEmpty == false ? name : nil,
+            into: &library
+        )
+        profileLibrary = library
+        activateProfile(profile)
+        return profile
+    }
+
+    private func normalizeAIProposedChange(_ change: ChumenAIProposedChange) -> ChumenAIProposedChange {
+        var normalized = change
+        if normalized.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            normalized.title = aiTitle(for: normalized)
+        }
+        if normalized.detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            normalized.detail = aiDetail(for: normalized)
+        }
+        if normalized.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            normalized.diff = aiDiff(for: normalized)
+        }
+        return normalized
+    }
+
+    private func aiTitle(for change: ChumenAIProposedChange) -> String {
+        switch change.kind {
+        case .importSubscription:
+            t(.importSubscription)
+        case .setMode:
+            t(.mode)
+        case .setTun:
+            t(.tunMode)
+        case .setSystemProxy:
+            t(.systemProxy)
+        case .setConfigAppendix:
+            t(.configAppendix)
+        case .reloadRuntimeConfig:
+            t(.reloadRuntimeConfig)
+        }
+    }
+
+    private func aiDetail(for change: ChumenAIProposedChange) -> String {
+        switch change.kind {
+        case .importSubscription:
+            change.subscriptionURL ?? ""
+        case .setMode:
+            change.mode?.rawValue ?? ""
+        case .setTun, .setSystemProxy:
+            (change.enabled ?? false) ? t(.on) : t(.off)
+        case .setConfigAppendix:
+            change.configAppendixYAML ?? ""
+        case .reloadRuntimeConfig:
+            t(.applySettingsToCore)
+        }
+    }
+
+    private func aiDiff(for change: ChumenAIProposedChange) -> String {
+        switch change.kind {
+        case .importSubscription:
+            return """
+            diff --chumen a/profiles b/profiles
+            --- a/profiles
+            +++ b/profiles
+            @@
+            + \(t(.importSubscription)): \(change.subscriptionURL ?? "")
+            + \(t(.displayName)): \(change.profileName ?? t(.unknown))
+            """
+        case .setMode:
+            return aiSettingsDiff(label: t(.mode), oldValue: settings.mode.rawValue, newValue: change.mode?.rawValue ?? t(.unknown))
+        case .setTun:
+            return aiSettingsDiff(label: t(.tunMode), oldValue: settings.enableTun ? t(.on) : t(.off), newValue: (change.enabled ?? false) ? t(.on) : t(.off))
+        case .setSystemProxy:
+            return aiSettingsDiff(label: t(.systemProxy), oldValue: systemProxyEnabled ? t(.on) : t(.off), newValue: (change.enabled ?? false) ? t(.on) : t(.off))
+        case .setConfigAppendix:
+            return aiTextDiff(
+                path: "settings/configAppendixYAML",
+                oldText: settings.configAppendixYAML,
+                newText: change.configAppendixYAML ?? ""
+            )
+        case .reloadRuntimeConfig:
+            return """
+            diff --chumen a/runtime b/runtime
+            --- a/runtime
+            +++ b/runtime
+            @@
+            + \(t(.reloadRuntimeConfig))
+            """
+        }
+    }
+
+    private func aiSettingsDiff(label: String, oldValue: String, newValue: String) -> String {
+        """
+        diff --chumen a/settings b/settings
+        --- a/settings
+        +++ b/settings
+        @@
+        - \(label): \(oldValue)
+        + \(label): \(newValue)
+        """
+    }
+
+    private func aiTextDiff(path: String, oldText: String, newText: String) -> String {
+        let oldLines = oldText.trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .newlines)
+        let newLines = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .newlines)
+        let removed = oldLines
+            .filter { !$0.isEmpty }
+            .prefix(80)
+            .map { "- \($0)" }
+        let added = newLines
+            .filter { !$0.isEmpty }
+            .prefix(120)
+            .map { "+ \($0)" }
+        let body = (removed + added).joined(separator: "\n")
+        return """
+        diff --chumen a/\(path) b/\(path)
+        --- a/\(path)
+        +++ b/\(path)
+        @@
+        \(body.isEmpty ? "+ <empty>" : body)
+        """
+    }
+
+    private func aiSystemPrompt() -> String {
+        let profiles = profileLibrary.profiles.map { profile in
+            "- \(profile.name): \(profile.remoteURL ?? profile.filePath)"
+        }.joined(separator: "\n")
+        return """
+        \(ChumenAIKnowledgeBase.text)
+
+        Current Chumen state:
+        - running: \(isRunning)
+        - mode: \(settings.mode.rawValue)
+        - active profile: \(activeProfile?.name ?? "-")
+        - system proxy enabled: \(systemProxyEnabled)
+        - tun enabled: \(settings.enableTun)
+        - mixed port: \(settings.mixedPort)
+        - controller: \(settings.externalControllerHost):\(settings.externalControllerPort)
+        - global append YAML:
+        \(settings.configAppendixYAML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "-" : settings.configAppendixYAML)
+
+        Profiles:
+        \(profiles.isEmpty ? "-" : profiles)
+
+        Never claim a proposed change has been applied. Say it is waiting for review.
+        Do not propose destructive delete operations.
+        """
+    }
+
     func scanExternalProfiles() {
         externalProfileCandidates = profileRepository.discoverExternalProfiles()
         externalProfileScanCompleted = true
@@ -443,6 +935,60 @@ final class AppModel: ObservableObject {
     func updateActiveProfile() {
         guard let activeProfile else { return }
         updateProfile(activeProfile)
+    }
+
+    func updateProfileViaProxy(_ profile: ProxyProfile) {
+        Task {
+            do {
+                var library = profileLibrary
+                _ = try await profileRepository.update(
+                    profile,
+                    usingHTTPProxyHost: settings.systemProxyHost,
+                    port: settings.mixedPort,
+                    in: &library
+                )
+                profileLibrary = library
+                statusText = "\(t(.updated)) \(profile.name)"
+                if isRunning, profile.id == settings.activeProfileID {
+                    restart()
+                }
+            } catch {
+                statusText = displayError(error)
+            }
+        }
+    }
+
+    func beginEditProfileMetadata(_ profile: ProxyProfile) {
+        profileMetadataEditorName = profile.name
+        profileMetadataEditorRemoteURL = profile.remoteURL ?? ""
+        editingProfileMetadata = profile
+    }
+
+    func saveProfileMetadataEditor() {
+        guard let editingProfileMetadata else { return }
+
+        do {
+            var library = profileLibrary
+            let updated = try profileRepository.updateMetadata(
+                editingProfileMetadata,
+                name: profileMetadataEditorName,
+                remoteURL: profileMetadataEditorRemoteURL,
+                in: &library
+            )
+            profileLibrary = library
+            self.editingProfileMetadata = nil
+            profileMetadataEditorName = ""
+            profileMetadataEditorRemoteURL = ""
+            statusText = "\(t(.saved)) \(updated.name)"
+        } catch {
+            statusText = displayError(error)
+        }
+    }
+
+    func cancelProfileMetadataEditor() {
+        editingProfileMetadata = nil
+        profileMetadataEditorName = ""
+        profileMetadataEditorRemoteURL = ""
     }
 
     func beginEditProfile(_ profile: ProxyProfile) {
@@ -508,6 +1054,110 @@ final class AppModel: ObservableObject {
         profileEditorIsLoading = false
     }
 
+    func beginEditProfileSection(_ profile: ProxyProfile, kind: ProfileSectionEditorKind) {
+        profileSectionEditorLoadTask?.cancel()
+        profileSectionEditorText = "\(kind.yamlKey):\n"
+        profileSectionEditorIsLoading = true
+        editingProfileSection = ProfileSectionEditorState(profile: profile, kind: kind)
+
+        let filePath = profile.filePath
+        let yamlKey = kind.yamlKey
+        profileSectionEditorLoadTask = Task { [weak self] in
+            do {
+                let yaml = try await Task.detached(priority: .userInitiated) {
+                    try String(contentsOfFile: filePath, encoding: .utf8)
+                }.value
+                guard !Task.isCancelled else { return }
+                self?.profileSectionEditorText = Self.extractTopLevelBlock(yamlKey, from: yaml)
+                self?.profileSectionEditorIsLoading = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.profileSectionEditorIsLoading = false
+                self?.editingProfileSection = nil
+                self?.statusText = self?.displayError(error) ?? error.localizedDescription
+            }
+        }
+    }
+
+    func saveProfileSectionEditor() {
+        guard let editingProfileSection else { return }
+        guard !profileSectionEditorIsLoading else { return }
+
+        do {
+            let current = try String(contentsOfFile: editingProfileSection.profile.filePath, encoding: .utf8)
+            let content = Self.replacingTopLevelBlock(
+                editingProfileSection.kind.yamlKey,
+                in: current,
+                with: profileSectionEditorText
+            )
+            var library = profileLibrary
+            let updated = try profileRepository.saveContent(editingProfileSection.profile, content: content, in: &library)
+            profileLibrary = library
+            self.editingProfileSection = nil
+            profileSectionEditorText = ""
+            profileSectionEditorIsLoading = false
+            statusText = "\(t(.saved)) \(t(editingProfileSection.kind.titleKey))"
+            if isRunning, updated.id == settings.activeProfileID {
+                reloadRunningCoreAfterProfileChange()
+            }
+        } catch {
+            statusText = displayError(error)
+        }
+    }
+
+    func cancelProfileSectionEditor() {
+        profileSectionEditorLoadTask?.cancel()
+        profileSectionEditorLoadTask = nil
+        editingProfileSection = nil
+        profileSectionEditorText = ""
+        profileSectionEditorIsLoading = false
+    }
+
+    func beginEditProfileAppendix(_ profile: ProxyProfile) {
+        profileAppendixEditorText = profile.configAppendixYAML ?? ""
+        editingProfileAppendix = .profile(profile)
+    }
+
+    func beginEditGlobalProfileAppendix() {
+        profileAppendixEditorText = settings.configAppendixYAML
+        editingProfileAppendix = .global
+    }
+
+    func saveProfileAppendixEditor() {
+        guard let editingProfileAppendix else { return }
+
+        do {
+            switch editingProfileAppendix {
+            case .global:
+                settings.configAppendixYAML = profileAppendixEditorText
+                saveSettings()
+                statusText = "\(t(.saved)) \(t(.configAppendix))"
+                reloadRunningCoreAfterProfileChange()
+            case let .profile(profile):
+                var library = profileLibrary
+                let updated = try profileRepository.updateConfigAppendix(profile, yaml: profileAppendixEditorText, in: &library)
+                profileLibrary = library
+                statusText = "\(t(.saved)) \(updated.name)"
+                if isRunning, updated.id == settings.activeProfileID {
+                    reloadRunningCoreAfterProfileChange()
+                }
+            }
+            self.editingProfileAppendix = nil
+            profileAppendixEditorText = ""
+        } catch {
+            statusText = displayError(error)
+        }
+    }
+
+    func cancelProfileAppendixEditor() {
+        editingProfileAppendix = nil
+        profileAppendixEditorText = ""
+    }
+
+    func noteProfileScriptUnsupported() {
+        statusText = "\(t(.extendScript)) \(t(.unsupportedFeature))"
+    }
+
     func openProfileFile(_ profile: ProxyProfile) {
         NSWorkspace.shared.open(URL(fileURLWithPath: profile.filePath))
     }
@@ -544,6 +1194,67 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private nonisolated static func extractTopLevelBlock(_ key: String, from yaml: String) -> String {
+        let lines = yaml.components(separatedBy: .newlines)
+        var block: [String] = []
+        var isCapturing = false
+
+        for line in lines {
+            if isCapturing {
+                if !line.isEmpty, indentation(of: line) == 0 {
+                    break
+                }
+                block.append(line)
+                continue
+            }
+
+            if ChumenConfigurationBuilder.topLevelKey(in: line) == key {
+                isCapturing = true
+                block.append(line)
+            }
+        }
+
+        let text = block.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "\(key):\n" : text
+    }
+
+    private nonisolated static func replacingTopLevelBlock(_ key: String, in yaml: String, with editedBlock: String) -> String {
+        let stripped = ChumenConfigurationBuilder.removeTopLevelKeys([key], from: yaml)
+        let normalizedBlock = normalizedTopLevelBlock(key, editedBlock)
+        return [stripped, normalizedBlock]
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n\n")
+    }
+
+    private nonisolated static func normalizedTopLevelBlock(_ key: String, _ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "\(key): []" }
+
+        if let firstLine = trimmed.components(separatedBy: .newlines).first,
+           ChumenConfigurationBuilder.topLevelKey(in: firstLine) == key {
+            return trimmed
+        }
+
+        let nested = trimmed.components(separatedBy: .newlines)
+            .map { $0.isEmpty ? "" : "  \($0)" }
+            .joined(separator: "\n")
+        return "\(key):\n\(nested)"
+    }
+
+    private nonisolated static func indentation(of line: String) -> Int {
+        var count = 0
+        for character in line {
+            if character == " " {
+                count += 1
+            } else if character == "\t" {
+                count += 4
+            } else {
+                break
+            }
+        }
+        return count
+    }
+
     private func importExternalProfiles(_ candidates: [ExternalProfileCandidate]) {
         do {
             var library = profileLibrary
@@ -570,7 +1281,11 @@ final class AppModel: ObservableObject {
             do {
                 let launch = launchSettings()
                 // profile 改动后不重启内核，优先通过 controller 热重载生成后的 runtime YAML。
-                try ChumenConfigurationBuilder.writeRuntimeConfig(settings: launch, paths: paths)
+                try ChumenConfigurationBuilder.writeRuntimeConfig(
+                    settings: launch,
+                    paths: paths,
+                    profileAppendixYAML: activeProfileAppendixYAML
+                )
                 settings = launch
                 saveSettings()
                 try await mihomoClient().reloadConfig(path: paths.runtimeConfigURL.path, force: true)
@@ -603,6 +1318,7 @@ final class AppModel: ObservableObject {
     func start() {
         guard !isCoreTransitioning else { return }
         let launch = launchSettings()
+        let profileAppendixYAML = activeProfileAppendixYAML
         resetTunRuntimeState(for: launch)
         resetConnectionTrafficBreakdown()
         resetMemoryTelemetry()
@@ -613,7 +1329,7 @@ final class AppModel: ObservableObject {
             do {
                 // Process.run / helper 安装可能阻塞，放到 detached task，避免 SwiftUI 主线程卡住。
                 try await Task.detached(priority: .userInitiated) {
-                    try manager.start(settings: launch)
+                    try manager.start(settings: launch, profileAppendixYAML: profileAppendixYAML)
                 }.value
 
                 guard let self, !Task.isCancelled else { return }
@@ -686,6 +1402,7 @@ final class AppModel: ObservableObject {
     func restart() {
         guard !isCoreTransitioning else { return }
         let launch = launchSettings()
+        let profileAppendixYAML = activeProfileAppendixYAML
         resetTunRuntimeState(for: launch)
         resetConnectionTrafficBreakdown()
         resetMemoryTelemetry()
@@ -698,7 +1415,7 @@ final class AppModel: ObservableObject {
         coreTransitionTask = Task { [weak self, manager] in
             do {
                 try await Task.detached(priority: .userInitiated) {
-                    try manager.restart(settings: launch)
+                    try manager.restart(settings: launch, profileAppendixYAML: profileAppendixYAML)
                 }.value
                 guard let self, !Task.isCancelled else { return }
                 self.settings = launch
@@ -733,7 +1450,6 @@ final class AppModel: ObservableObject {
         await refreshProviders()
         await refreshConnections()
         await refreshRules()
-        lastRefreshText = Date().formatted(date: .omitted, time: .standard)
     }
 
     func detectRunningCore() async {
@@ -753,6 +1469,8 @@ final class AppModel: ObservableObject {
                 isRunning = false
                 statusText = t(.externalCoreDetected)
                 apiText = t(.externalCoreDetectedHint)
+                startControllerStreams()
+                await refreshAll()
             }
         } catch {
             isRunning = ownsCore
@@ -1029,6 +1747,7 @@ final class AppModel: ObservableObject {
     func prepareForQuit() {
         guard !isPreparingForQuit else { return }
         isPreparingForQuit = true
+        saveSettings()
         coreTransitionTask?.cancel()
         coreTransitionTask = nil
         stopControllerStreams()
@@ -1088,7 +1807,11 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let launch = launchSettings()
-                try ChumenConfigurationBuilder.writeRuntimeConfig(settings: launch, paths: paths)
+                try ChumenConfigurationBuilder.writeRuntimeConfig(
+                    settings: launch,
+                    paths: paths,
+                    profileAppendixYAML: activeProfileAppendixYAML
+                )
                 try await mihomoClient().reloadConfig(path: paths.runtimeConfigURL.path, force: true)
                 settings = launch
                 saveSettings()
@@ -1213,16 +1936,32 @@ final class AppModel: ObservableObject {
     }
 
     func openDashboardURL() {
-        guard let url = URL(string: "http://\(settings.externalControllerHost):\(settings.externalControllerPort)/ui") else { return }
+        guard let url = settings.dashboardLaunchURL(paths: paths, language: language) else { return }
         NSWorkspace.shared.open(url)
     }
 
     func saveSettings() {
+        settingsAutosaveTask?.cancel()
+        settingsAutosaveTask = nil
+        guard settings != lastSavedSettings else { return }
         do {
             try paths.ensureDirectories()
             try settingsStore.save(settings)
+            lastSavedSettings = settings
         } catch {
             statusText = displayError(error)
+        }
+    }
+
+    func scheduleSettingsAutosave() {
+        guard settings != lastSavedSettings else { return }
+        settingsAutosaveTask?.cancel()
+        settingsAutosaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.saveSettings()
+            }
         }
     }
 
@@ -1292,10 +2031,14 @@ final class AppModel: ObservableObject {
         guard let url = settings.controllerBaseURL else { return }
         trafficStream.start(baseURL: url, secret: settings.secret, path: "/traffic") { [weak self] event in
             Task { @MainActor in
-                self?.uploadSpeed = event.up ?? self?.uploadSpeed ?? 0
-                self?.downloadSpeed = event.down ?? self?.downloadSpeed ?? 0
-                self?.uploadTotal = event.upTotal ?? self?.uploadTotal ?? 0
-                self?.downloadTotal = event.downTotal ?? self?.downloadTotal ?? 0
+                guard let self else { return }
+                if event.up != nil || event.down != nil || event.upTotal != nil || event.downTotal != nil {
+                    self.lastTrafficEventDate = Date()
+                }
+                self.uploadSpeed = event.up ?? self.uploadSpeed
+                self.downloadSpeed = event.down ?? self.downloadSpeed
+                self.uploadTotal = event.upTotal ?? self.uploadTotal
+                self.downloadTotal = event.downTotal ?? self.downloadTotal
             }
         } onError: { [weak self] text in
             Task { @MainActor in self?.runtimeLogs.append(text + "\n") }
@@ -1330,9 +2073,29 @@ final class AppModel: ObservableObject {
 
     private func applyConnectionTelemetry(_ response: MihomoConnectionsResponse) {
         connections = response.connections
-        uploadTotal = response.uploadTotal ?? uploadTotal
-        downloadTotal = response.downloadTotal ?? downloadTotal
-        connectionTrafficAccumulator.apply(connections: response.connections)
+        let connectionTotals = Self.connectionTrafficTotals(response.connections)
+        let nextUploadTotal = Self.resolvedTrafficTotal(
+            reported: response.uploadTotal,
+            current: uploadTotal,
+            activeConnectionTotal: connectionTotals.upload
+        )
+        let nextDownloadTotal = Self.resolvedTrafficTotal(
+            reported: response.downloadTotal,
+            current: downloadTotal,
+            activeConnectionTotal: connectionTotals.download
+        )
+        applyConnectionSpeedFallback(uploadTotal: nextUploadTotal, downloadTotal: nextDownloadTotal)
+        uploadTotal = nextUploadTotal
+        downloadTotal = nextDownloadTotal
+
+        let includeInitialSamples = shouldSeedConnectionTrafficSnapshot && !response.connections.isEmpty
+        connectionTrafficAccumulator.apply(
+            connections: response.connections,
+            includeInitialSamples: includeInitialSamples
+        )
+        if !response.connections.isEmpty {
+            shouldSeedConnectionTrafficSnapshot = false
+        }
         proxyRoutedUploadTotal = connectionTrafficAccumulator.proxyUploadTotal
         proxyRoutedDownloadTotal = connectionTrafficAccumulator.proxyDownloadTotal
         directRoutedUploadTotal = connectionTrafficAccumulator.directUploadTotal
@@ -1341,14 +2104,66 @@ final class AppModel: ObservableObject {
         unknownRoutedDownloadTotal = connectionTrafficAccumulator.unknownDownloadTotal
     }
 
+    private func applyConnectionSpeedFallback(uploadTotal: Int64, downloadTotal: Int64, at now: Date = Date()) {
+        defer {
+            lastConnectionTelemetryDate = now
+            lastConnectionUploadTotal = uploadTotal
+            lastConnectionDownloadTotal = downloadTotal
+        }
+
+        guard shouldUseConnectionSpeedFallback(at: now),
+              let previousDate = lastConnectionTelemetryDate,
+              let previousUploadTotal = lastConnectionUploadTotal,
+              let previousDownloadTotal = lastConnectionDownloadTotal else {
+            return
+        }
+
+        let elapsed = now.timeIntervalSince(previousDate)
+        guard elapsed >= 0.25 else { return }
+
+        uploadSpeed = Int64(Double(max(0, uploadTotal - previousUploadTotal)) / elapsed)
+        downloadSpeed = Int64(Double(max(0, downloadTotal - previousDownloadTotal)) / elapsed)
+    }
+
+    private func shouldUseConnectionSpeedFallback(at now: Date) -> Bool {
+        guard let lastTrafficEventDate else { return true }
+        return now.timeIntervalSince(lastTrafficEventDate) > 2.5
+    }
+
     private func resetConnectionTrafficBreakdown() {
         connectionTrafficAccumulator.reset()
+        shouldSeedConnectionTrafficSnapshot = true
+        lastTrafficEventDate = nil
+        lastConnectionTelemetryDate = nil
+        lastConnectionUploadTotal = nil
+        lastConnectionDownloadTotal = nil
+        uploadSpeed = 0
+        downloadSpeed = 0
         proxyRoutedUploadTotal = 0
         proxyRoutedDownloadTotal = 0
         directRoutedUploadTotal = 0
         directRoutedDownloadTotal = 0
         unknownRoutedUploadTotal = 0
         unknownRoutedDownloadTotal = 0
+    }
+
+    private static func connectionTrafficTotals(_ connections: [MihomoConnection]) -> (upload: Int64, download: Int64) {
+        connections.reduce(into: (upload: Int64(0), download: Int64(0))) { totals, connection in
+            totals.upload += max(0, connection.upload ?? 0)
+            totals.download += max(0, connection.download ?? 0)
+        }
+    }
+
+    private static func resolvedTrafficTotal(
+        reported: Int64?,
+        current: Int64,
+        activeConnectionTotal: Int64
+    ) -> Int64 {
+        let activeTotal = max(0, activeConnectionTotal)
+        guard let reported else {
+            return max(max(0, current), activeTotal)
+        }
+        return max(max(0, reported), activeTotal)
     }
 
     private func refreshManagedMemoryFallback() async {

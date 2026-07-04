@@ -108,6 +108,37 @@ final class ProfileRepositoryTests: XCTestCase {
         XCTAssertNil(repository.load().profiles.first?.remoteURL)
     }
 
+    func testUpdateConfigAppendixPersistsProfileExtension() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("chumen-profile-appendix-test-\(UUID().uuidString)", isDirectory: true)
+        let source = root.appendingPathComponent("editable.yaml")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "proxies: []\n".write(to: source, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let paths = ChumenPaths(appHome: root.appendingPathComponent("app", isDirectory: true))
+        let repository = ProfileRepository(paths: paths)
+        var library = ProfileLibrary()
+        let profile = try repository.importLocalProfile(from: source, into: &library)
+        let appendix = """
+        rules:
+          - DOMAIN,example.com,DIRECT
+        """
+
+        let updated = try repository.updateConfigAppendix(profile, yaml: appendix, in: &library)
+
+        XCTAssertEqual(updated.configAppendixYAML, appendix)
+        XCTAssertEqual(library.profiles.first?.configAppendixYAML, appendix)
+        XCTAssertEqual(repository.load().profiles.first?.configAppendixYAML, appendix)
+
+        let cleared = try repository.updateConfigAppendix(updated, yaml: "  \n", in: &library)
+
+        XCTAssertNil(cleared.configAppendixYAML)
+        XCTAssertNil(repository.load().profiles.first?.configAppendixYAML)
+    }
+
     func testDiscoverExternalProfilesUsesClientMetadataAndFiltersNonRuntimeFiles() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("chumen-external-discover-test-\(UUID().uuidString)", isDirectory: true)
