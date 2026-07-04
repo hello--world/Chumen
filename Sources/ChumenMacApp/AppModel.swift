@@ -1772,8 +1772,13 @@ final class AppModel: ObservableObject {
         importExternalProfiles(externalProfileCandidates)
     }
 
+    func importExternalProfiles(_ candidates: [ExternalProfileCandidate]) {
+        guard !candidates.isEmpty else { return }
+        performExternalProfileImport(candidates)
+    }
+
     func importExternalProfile(_ candidate: ExternalProfileCandidate) {
-        importExternalProfiles([candidate])
+        performExternalProfileImport([candidate])
     }
 
     func dismissStartupImportPrompt() {
@@ -2196,7 +2201,7 @@ final class AppModel: ObservableObject {
         return textView.text ?? ""
     }
 
-    private func importExternalProfiles(_ candidates: [ExternalProfileCandidate]) {
+    private func performExternalProfileImport(_ candidates: [ExternalProfileCandidate]) {
         do {
             var library = profileLibrary
             let summary = try profileRepository.importExternalProfiles(candidates, into: &library)

@@ -7,47 +7,53 @@ struct ConnectionsView: View {
     @State private var searchText = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Button {
-                    Task { await model.refreshConnections() }
-                } label: {
-                    Label(model.t(.refreshConnections), systemImage: "arrow.triangle.2.circlepath")
-                }
-                Button(role: .destructive) {
-                    model.closeAllConnections()
-                } label: {
-                    Label(model.t(.closeAll), systemImage: "xmark.circle")
-                }
-                .disabled(model.connections.isEmpty)
-
-                TextField(model.t(.searchConnections), text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 320)
-
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(ChumenStyle.mutedText)
-                    .help(model.t(.clear))
-                }
-
-                Spacer()
-                Text(connectionsSummary)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                controlsBar
+                connectionReport
+                connectionsList
             }
-            .controlSize(.large)
-
-            connectionReport
-
-            connectionsList
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(18)
+        .background(ChumenStyle.pageBackground)
+    }
+
+    private var controlsBar: some View {
+        HStack(spacing: 10) {
+            Button {
+                Task { await model.refreshConnections() }
+            } label: {
+                Label(model.t(.refreshConnections), systemImage: "arrow.triangle.2.circlepath")
+            }
+            Button(role: .destructive) {
+                model.closeAllConnections()
+            } label: {
+                Label(model.t(.closeAll), systemImage: "xmark.circle")
+            }
+            .disabled(model.connections.isEmpty)
+
+            TextField(model.t(.searchConnections), text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 320)
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(ChumenStyle.mutedText)
+                .help(model.t(.clear))
+            }
+
+            Spacer()
+            Text(connectionsSummary)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .controlSize(.large)
     }
 
     private var filteredConnections: [MihomoConnection] {
@@ -224,18 +230,16 @@ struct ConnectionsView: View {
         } else if filteredConnections.isEmpty {
             connectionEmptyState(title: model.t(.noMatchingConnections))
         } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(filteredConnections) { connection in
-                        connectionRow(connection)
-                        if connection.id != filteredConnections.last?.id {
-                            Divider()
-                                .padding(.leading, 12)
-                        }
+            LazyVStack(spacing: 0) {
+                ForEach(filteredConnections) { connection in
+                    connectionRow(connection)
+                    if connection.id != filteredConnections.last?.id {
+                        Divider()
+                            .padding(.leading, 12)
                     }
                 }
-                .padding(.trailing, 18)
             }
+            .padding(.trailing, 18)
             .background(
                 RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                     .fill(ChumenStyle.surface)
@@ -244,7 +248,7 @@ struct ConnectionsView: View {
                 RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                     .strokeBorder(ChumenStyle.border)
             )
-            .frame(minHeight: 260)
+            .frame(minHeight: 260, alignment: .top)
         }
     }
 

@@ -323,7 +323,7 @@ struct ContentView: View {
                 value: headerTunStateText,
                 icon: "shield.lefthalf.filled",
                 accent: headerTunAccent,
-                width: 70,
+                width: 84,
                 help: "\(model.t(.tunMode)): \(headerTunStateText)"
             )
         }
@@ -361,7 +361,7 @@ struct ContentView: View {
                 .foregroundStyle(accent)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .minimumScaleFactor(0.58)
+                .minimumScaleFactor(0.50)
                 .allowsTightening(true)
         }
         .padding(.horizontal, 7)

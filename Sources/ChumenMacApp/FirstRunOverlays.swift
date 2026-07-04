@@ -373,6 +373,7 @@ private struct RevealablePINField: View {
 
 struct StartupImportOverlay: View {
     @EnvironmentObject private var model: AppModel
+    @State private var importSearchText = ""
     let openLocalImport: () -> Void
 
     var body: some View {
@@ -410,13 +411,13 @@ struct StartupImportOverlay: View {
                     .controlSize(.large)
 
                     Button {
-                        model.importExternalProfiles()
+                        model.importExternalProfiles(displayedImportCandidates)
                     } label: {
                         Label(model.t(.importAllFound), systemImage: "tray.and.arrow.down")
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(model.externalProfileCandidates.isEmpty)
+                    .disabled(displayedImportCandidates.isEmpty)
 
                     Spacer()
 
@@ -443,9 +444,27 @@ struct StartupImportOverlay: View {
                             .fill(ChumenStyle.groupedSurface.opacity(0.65))
                     )
                 } else {
+                    importSearchField
+
                     ScrollView {
                         VStack(alignment: .leading, spacing: 10) {
-                            ForEach(model.externalProfileCandidates) { candidate in
+                            if displayedImportCandidates.isEmpty {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "magnifyingglass")
+                                        .foregroundStyle(ChumenStyle.mutedText)
+                                    Text(model.t(.noSearchResults))
+                                        .font(.callout)
+                                        .foregroundStyle(ChumenStyle.mutedText)
+                                }
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(ChumenStyle.groupedSurface.opacity(0.65))
+                                )
+                            }
+
+                            ForEach(displayedImportCandidates) { candidate in
                                 HStack(alignment: .center, spacing: 12) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(candidate.name)
@@ -492,6 +511,68 @@ struct StartupImportOverlay: View {
                     .strokeBorder(ChumenStyle.border)
             )
             .shadow(color: Color.black.opacity(0.14), radius: 30, x: 0, y: 18)
+        }
+    }
+
+    private var importSearchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(ChumenStyle.mutedText)
+
+            TextField(model.t(.importSearchPlaceholder), text: $importSearchText)
+                .textFieldStyle(.plain)
+
+            if !importSearchText.isEmpty {
+                Button {
+                    importSearchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(ChumenStyle.mutedText)
+                }
+                .buttonStyle(.plain)
+                .help(model.t(.clear))
+            }
+
+            Divider()
+                .frame(height: 18)
+
+            Text("\(displayedImportCandidates.count) / \(model.externalProfileCandidates.count)")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(ChumenStyle.mutedText)
+                .frame(minWidth: 56, alignment: .trailing)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(PINOverlayStyle.field)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(ChumenStyle.border)
+        )
+    }
+
+    private var displayedImportCandidates: [ExternalProfileCandidate] {
+        let query = importSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return model.externalProfileCandidates }
+
+        // First-run import search is intentionally local and synchronous: the candidate list is
+        // small after scanner de-duplication, and keeping it in this overlay prevents AppModel from
+        // growing UI-only filtering state.
+        let tokens = query
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+        return model.externalProfileCandidates.filter { candidate in
+            let searchable = [
+                candidate.name,
+                candidate.sourceName,
+                candidate.filePath,
+                candidate.rootPath,
+                candidate.remoteURL ?? ""
+            ].joined(separator: "\n")
+            return tokens.allSatisfy { searchable.localizedCaseInsensitiveContains($0) }
         }
     }
 }

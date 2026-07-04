@@ -10,25 +10,39 @@ struct DashboardView: View {
                 commandPanel
                 metricsGrid
             }
-            .padding(20)
-            .frame(maxWidth: 1280, alignment: .topLeading)
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 18)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(ChumenStyle.pageBackground)
     }
 
     private var commandPanel: some View {
-        HStack(alignment: .center, spacing: 12) {
-            commandSummary
-                .frame(width: 330, alignment: .leading)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 12) {
+                commandSummary
+                    .frame(width: 330, alignment: .leading)
 
-            Spacer(minLength: 12)
+                Spacer(minLength: 12)
 
-            VStack(alignment: .trailing, spacing: 9) {
-                commandActions
-                modeControl
+                VStack(alignment: .trailing, spacing: 9) {
+                    commandActions
+                    modeControl
+                }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+
+            VStack(alignment: .leading, spacing: 14) {
+                commandSummary
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    commandActions
+                    modeControl
+                }
+            }
         }
         .padding(14)
         .background(

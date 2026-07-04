@@ -151,6 +151,9 @@ The import prompt appears after security setup when no profile exists.
 - Keep the title direct: no proxy config exists.
 - Primary action: scan/import existing configs.
 - Secondary action: import local YAML or continue later.
+- The scanned candidate list must provide search by profile name, source client, and path.
+- During search, "Import All" applies only to currently filtered results so hidden items are not
+  imported by surprise.
 - Imported profiles must not keep the original app name in the display title; source app belongs in
   metadata or notes.
 

@@ -86,6 +86,7 @@ enum L10n {
         case scanClients
         case externalImportHint
         case importAllFound
+        case importSearchPlaceholder
         case noExternalProfilesFound
         case externalProfilesFound
         case subscriptionURLFound
@@ -200,6 +201,9 @@ enum L10n {
         case frequentMessages
         case aiAnalysisReady
         case clear
+        case clearProxySelectionAction
+        case clearProxySelectionHelpTitle
+        case clearProxySelectionHelpBody
         case clearLogs
         case executable
         case useDetectedCore
@@ -511,6 +515,7 @@ enum L10n {
         .scanClients: "扫描客户端",
         .externalImportHint: "扫描 Clash Verge、ClashX、Mihomo Party 和常见 .config 目录，只复制可识别的 YAML 配置。",
         .importAllFound: "导入全部",
+        .importSearchPlaceholder: "搜索配置名称、来源或路径",
         .noExternalProfilesFound: "未发现可导入配置",
         .externalProfilesFound: "发现可导入配置",
         .subscriptionURLFound: "订阅 URL 已读取",
@@ -625,6 +630,9 @@ enum L10n {
         .frequentMessages: "高频问题",
         .aiAnalysisReady: "AI 分析上下文已准备",
         .clear: "清空",
+        .clearProxySelectionAction: "取消固定",
+        .clearProxySelectionHelpTitle: "取消固定选择",
+        .clearProxySelectionHelpBody: "清除本组手动固定的代理选择，恢复配置默认或自动选择；不会删除节点、订阅、测速结果、DNS 或缓存。",
         .clearLogs: "清空日志",
         .executable: "内核程序",
         .useDetectedCore: "使用检测到的内核",
@@ -927,6 +935,7 @@ enum L10n {
         .scanClients: "Scan Clients",
         .externalImportHint: "Scans Clash Verge, ClashX, Mihomo Party, and common .config folders. Only recognized YAML configs are copied.",
         .importAllFound: "Import All",
+        .importSearchPlaceholder: "Search name, source, or path",
         .noExternalProfilesFound: "No importable configs found",
         .externalProfilesFound: "Importable configs found",
         .subscriptionURLFound: "Subscription URL found",
@@ -1041,6 +1050,9 @@ enum L10n {
         .frequentMessages: "Frequent Issues",
         .aiAnalysisReady: "AI analysis context ready",
         .clear: "Clear",
+        .clearProxySelectionAction: "Unpin",
+        .clearProxySelectionHelpTitle: "Unpin selection",
+        .clearProxySelectionHelpBody: "Clears the proxy manually pinned for this group and returns it to the config default or auto-selection behavior. It does not delete nodes, subscriptions, delay results, DNS, or cache.",
         .clearLogs: "Clear Logs",
         .executable: "Executable",
         .useDetectedCore: "Use Detected Core",

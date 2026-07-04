@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ProxiesView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var proxySelectionHelpGroupID: String?
 
     private enum Layout {
         static let rowSpacing: CGFloat = 12
@@ -11,6 +12,7 @@ struct ProxiesView: View {
         static let selectionColumnWidth: CGFloat = 320
         static let controlHeight: CGFloat = 34
         static let actionButtonWidth: CGFloat = 92
+        static let helpButtonWidth: CGFloat = 30
         static let identityHeight: CGFloat = 44
         static let rowMinHeight: CGFloat = 54
     }
@@ -155,14 +157,61 @@ struct ProxiesView: View {
             }
 
             proxyActionButton(
-                title: model.t(.clear),
+                title: model.t(.clearProxySelectionAction),
                 systemImage: "pin.slash",
-                help: model.t(.clear)
+                help: model.t(.clearProxySelectionHelpTitle)
             ) {
                 model.clearProxySelection(group)
             }
+
+            proxySelectionHelpButton(for: group)
         }
         .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func proxySelectionHelpButton(for group: ProxyGroupSnapshot) -> some View {
+        Button {
+            proxySelectionHelpGroupID = group.id
+        } label: {
+            Image(systemName: "exclamationmark.circle")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(ChumenStyle.mutedText)
+                .frame(width: Layout.helpButtonWidth, height: Layout.controlHeight)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(ChumenStyle.controlFill)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(ChumenStyle.border.opacity(0.55))
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(model.t(.clearProxySelectionHelpTitle))
+        .help(model.t(.clearProxySelectionHelpTitle))
+        .popover(
+            isPresented: Binding(
+                get: { proxySelectionHelpGroupID == group.id },
+                set: { isPresented in
+                    if !isPresented {
+                        proxySelectionHelpGroupID = nil
+                    }
+                }
+            ),
+            arrowEdge: .top
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(model.t(.clearProxySelectionHelpTitle))
+                    .font(.headline)
+                Text(model.t(.clearProxySelectionHelpBody))
+                    .font(.callout)
+                    .foregroundStyle(ChumenStyle.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(width: 280, alignment: .leading)
+            .padding(14)
+        }
     }
 
     private func proxyActionButton(

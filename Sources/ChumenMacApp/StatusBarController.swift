@@ -440,7 +440,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 representedObject: group.name
             ))
             groupMenu.addItem(menuItem(
-                title: model.t(.clear),
+                title: model.t(.clearProxySelectionAction),
                 symbol: "pin.slash",
                 action: #selector(clearProxySelection),
                 representedObject: group.name
