@@ -358,15 +358,24 @@ struct ChumenCLI {
             print("config patched")
         case "reload-config":
             let path: String
+            let generatedRuntimeConfigURL: URL?
             if arguments.count >= 2 {
                 path = arguments[1]
+                generatedRuntimeConfigURL = nil
             } else {
                 var settings = context.settingsStore.load()
                 if let active = context.profileRepository.load().activeProfile {
                     settings.activeProfileID = active.id
                     settings.profilePath = active.filePath
                 }
-                path = try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: context.paths).path
+                let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: context.paths)
+                path = runtimeConfigURL.path
+                generatedRuntimeConfigURL = runtimeConfigURL
+            }
+            defer {
+                if let generatedRuntimeConfigURL {
+                    ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(generatedRuntimeConfigURL, paths: context.paths)
+                }
             }
             let force = arguments.count >= 3 ? try parseBool(arguments[2]) : true
             try await client.reloadConfig(path: path, force: force)
@@ -590,6 +599,9 @@ struct ChumenCLI {
         }
         try context.settingsStore.save(settings)
         let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: context.paths)
+        defer {
+            ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeConfigURL, paths: context.paths)
+        }
         guard let url = settings.controllerBaseURL else { return }
         do {
             try await MihomoClient(baseURL: url, secret: settings.secret)

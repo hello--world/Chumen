@@ -34,10 +34,19 @@ public struct ChumenPaths: Sendable {
         appHome.appendingPathComponent("chumen-runtime.yaml")
     }
 
+    public var runtimePlaintextRootDirectoryURL: URL {
+        FileManager.default.temporaryDirectory
+    }
+
     public var runtimePlaintextDirectoryURL: URL {
-        // A dedicated runtime directory lets cleanup target only Chumen-generated plaintext YAML
-        // without touching user-imported profiles or durable encrypted state.
-        appHome.appendingPathComponent("runtime", isDirectory: true)
+        runtimePlaintextRootDirectoryURL
+    }
+
+    public func makeRuntimePlaintextSessionDirectoryURL() -> URL {
+        // mihomo 目前只能读取明文 YAML 文件；每次生成都放进新的随机临时目录，
+        // 而不是 Application Support 或固定 runtime 目录，避免代理订阅内容长期可扫描。
+        runtimePlaintextRootDirectoryURL
+            .appendingPathComponent("chumen-runtime-session-\(UUID().uuidString)", isDirectory: true)
     }
 
     public var settingsURL: URL {
@@ -99,8 +108,6 @@ public struct ChumenPaths: Sendable {
         try fileManager.createDirectory(at: profilesDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: logsDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: socketDirectoryURL, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: runtimePlaintextDirectoryURL, withIntermediateDirectories: true)
-        try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: runtimePlaintextDirectoryURL.path)
     }
 
     static func migrateLegacyAppHomeIfNeeded(
@@ -158,7 +165,11 @@ public struct ChumenPaths: Sendable {
 
     private static func rewriteLegacyPathReferences(in fileURL: URL, oldPath: String, newPath: String) throws {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
-        let text = try String(contentsOf: fileURL, encoding: .utf8)
+        let data = try Data(contentsOf: fileURL)
+        guard !ChumenConfigProtection.isProtected(data),
+              let text = String(data: data, encoding: .utf8) else {
+            return
+        }
         // JSONEncoder 默认会把斜杠写成 \/，迁移时需要同时处理未转义和 JSON 转义两种路径。
         let rewritten = [
             (oldPath, newPath),

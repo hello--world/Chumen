@@ -37,7 +37,14 @@ final class ChumenConfigProtectionTests: XCTestCase {
 
         XCTAssertNotEqual(runtimeURL.path, paths.runtimeConfigURL.path)
         XCTAssertTrue(runtimeURL.path.hasPrefix(paths.runtimePlaintextDirectoryURL.path))
+        XCTAssertFalse(runtimeURL.path.hasPrefix(paths.appHome.path))
+        XCTAssertNotEqual(runtimeURL.deletingLastPathComponent().path, paths.runtimePlaintextDirectoryURL.path)
+        XCTAssertTrue(runtimeURL.deletingLastPathComponent().lastPathComponent.hasPrefix("chumen-runtime-session-"))
         XCTAssertTrue(ChumenConfigProtection.isProtected(try Data(contentsOf: paths.runtimeConfigURL)))
         XCTAssertTrue(try String(contentsOf: runtimeURL, encoding: .utf8).contains("MATCH,DIRECT"))
+
+        ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeURL, paths: paths)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: runtimeURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: runtimeURL.deletingLastPathComponent().path))
     }
 }

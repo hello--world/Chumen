@@ -3,9 +3,9 @@ import Foundation
 public enum ChumenConfigurationBuilder {
     // mihomo can only consume plaintext YAML. The canonical runtime file is encrypted with this
     // process-local session key, while the temporary plaintext file returned by writeRuntimeConfig
-    // is chmod 0600 and cleaned before the next generation/stop. This keeps persistent disk state
-    // protected without pretending the core can read encrypted config directly.
-    private static let runtimeSessionID = UUID().uuidString
+    // lives under the user's temp directory, is chmod 0600, and is deleted right after reload or
+    // shortly after process start. This keeps persistent disk state protected without pretending
+    // the core can read encrypted config directly.
     private static let runtimeSessionKey: Data = {
         if let key = try? ChumenConfigProtectionKeyStore.randomBytes(count: 32) {
             return key
@@ -67,16 +67,41 @@ public enum ChumenConfigurationBuilder {
         let protectedRuntime = try ChumenConfigProtection.encrypt(Data(yaml.utf8), key: runtimeSessionKey)
         try ChumenConfigProtection.writePlainData(protectedRuntime, to: paths.runtimeConfigURL)
         try cleanupRuntimePlaintextFiles(paths: paths)
-        let runtimeURL = runtimePlaintextURL(paths: paths)
+        let runtimeURL = try runtimePlaintextURL(paths: paths)
         try ChumenConfigProtection.writePlainData(Data(yaml.utf8), to: runtimeURL)
         return runtimeURL
     }
 
     public static func cleanupRuntimePlaintextFiles(paths: ChumenPaths) throws {
+        // 清理同时覆盖当前 temp 会话目录和旧版 Application Support/runtime 目录，
+        // 这样升级后一旦重新生成配置，就能补偿清掉之前已经落盘的明文文件。
+        for directory in runtimePlaintextCleanupDirectories(paths: paths) {
+            try cleanupRuntimePlaintextFiles(in: directory)
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    public static func cleanupRuntimePlaintextFile(_ url: URL, paths: ChumenPaths) {
+        // 只删除 Chumen 自己生成的 runtime 明文，避免误删用户传给 CLI reload-config 的文件。
+        let parentDirectory = url.deletingLastPathComponent()
+        let isCurrentRandomTempFile = parentDirectory.lastPathComponent.hasPrefix("chumen-runtime-session-")
+            && isDescendant(parentDirectory, of: paths.runtimePlaintextRootDirectoryURL)
+        let isLegacyAppSupportFile = url.lastPathComponent.hasPrefix("chumen-runtime-")
+            && isDescendant(url, of: paths.appHome.appendingPathComponent("runtime", isDirectory: true))
+        guard isCurrentRandomTempFile || isLegacyAppSupportFile else {
+            return
+        }
+        try? FileManager.default.removeItem(at: url)
+        if isCurrentRandomTempFile {
+            try? FileManager.default.removeItem(at: parentDirectory)
+        }
+    }
+
+    private static func cleanupRuntimePlaintextFiles(in directory: URL) throws {
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: paths.runtimePlaintextDirectoryURL.path) else { return }
+        guard fileManager.fileExists(atPath: directory.path) else { return }
         let files = try fileManager.contentsOfDirectory(
-            at: paths.runtimePlaintextDirectoryURL,
+            at: directory,
             includingPropertiesForKeys: nil
         )
         for file in files where file.lastPathComponent.hasPrefix("chumen-runtime-") {
@@ -84,8 +109,34 @@ public enum ChumenConfigurationBuilder {
         }
     }
 
-    private static func runtimePlaintextURL(paths: ChumenPaths) -> URL {
-        paths.runtimePlaintextDirectoryURL.appendingPathComponent("chumen-runtime-\(runtimeSessionID).yaml")
+    private static func runtimePlaintextCleanupDirectories(paths: ChumenPaths) -> [URL] {
+        var directories = [
+            paths.appHome.appendingPathComponent("runtime", isDirectory: true)
+        ]
+        if let sessionDirectories = try? FileManager.default.contentsOfDirectory(
+            at: paths.runtimePlaintextRootDirectoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey]
+        ) {
+            directories.append(contentsOf: sessionDirectories.filter { url in
+                (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                    && url.lastPathComponent.hasPrefix("chumen-runtime-session-")
+            })
+        }
+        var seen = Set<String>()
+        return directories.filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
+    private static func isDescendant(_ url: URL, of directory: URL) -> Bool {
+        let directoryPath = directory.standardizedFileURL.path
+        let filePath = url.standardizedFileURL.path
+        return filePath == directoryPath || filePath.hasPrefix(directoryPath + "/")
+    }
+
+    private static func runtimePlaintextURL(paths: ChumenPaths) throws -> URL {
+        let directory = paths.makeRuntimePlaintextSessionDirectoryURL()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        return directory.appendingPathComponent("config.yaml")
     }
 
     public static func runtimeYAML(

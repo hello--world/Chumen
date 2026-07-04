@@ -431,6 +431,9 @@ final class AppModel: ObservableObject {
                     paths: paths,
                     profileAppendixYAML: activeProfileAppendixYAML
                 )
+                defer {
+                    ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeConfigURL, paths: paths)
+                }
                 try await mihomoClient().reloadConfig(path: runtimeConfigURL.path, force: true)
                 await refreshAll()
             } catch {
@@ -1398,6 +1401,9 @@ final class AppModel: ObservableObject {
                     paths: paths,
                     profileAppendixYAML: activeProfileAppendixYAML
                 )
+                defer {
+                    ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeConfigURL, paths: paths)
+                }
                 settings = launch
                 saveSettings()
                 try await mihomoClient().reloadConfig(path: runtimeConfigURL.path, force: true)
@@ -2005,6 +2011,9 @@ final class AppModel: ObservableObject {
                     paths: paths,
                     profileAppendixYAML: activeProfileAppendixYAML
                 )
+                defer {
+                    ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeConfigURL, paths: paths)
+                }
                 try await mihomoClient().reloadConfig(path: runtimeConfigURL.path, force: true)
                 settings = launch
                 saveSettings()

@@ -77,50 +77,57 @@ public final class CoreProcessManager: @unchecked Sendable {
             paths: paths,
             profileAppendixYAML: profileAppendixYAML
         )
-        try prepareLogFile()
-        try validateRuntimeConfig(settings: settings, runtimeConfigURL: runtimeConfigURL)
+        do {
+            try prepareLogFile()
+            try validateRuntimeConfig(settings: settings, runtimeConfigURL: runtimeConfigURL)
 
-        if settings.enableTun {
-            // TUN 通常需要特权网络能力，交给 helper 以 LaunchDaemon 方式启动内核。
-            try startPrivileged(settings: settings, runtimeConfigURL: runtimeConfigURL)
+            if settings.enableTun {
+                // TUN 通常需要特权网络能力，交给 helper 以 LaunchDaemon 方式启动内核。
+                try startPrivileged(settings: settings, runtimeConfigURL: runtimeConfigURL)
+                activeRuntimeConfigURL = runtimeConfigURL
+                scheduleRuntimePlaintextCleanup(runtimeConfigURL)
+                return
+            }
+
+            // 普通代理模式用当前用户直接拉起 mihomo，并通过 Unix socket 暴露 controller。
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: settings.corePath)
+            process.currentDirectoryURL = paths.appHome
+            process.arguments = [
+                "-d",
+                paths.appHome.path,
+                "-f",
+                runtimeConfigURL.path,
+                "-ext-ctl-unix",
+                paths.externalControllerSocketURL.path
+            ]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                let data = handle.availableData
+                guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+                self?.appendLog(text)
+            }
+
+            process.terminationHandler = { [weak self] process in
+                let status = process.terminationStatus
+                self?.appendLog("\n[core exited with status \(status)]\n")
+                guard let self, self.process === process else { return }
+                self.process = nil
+                self.onExit?(status)
+            }
+
+            try process.run()
+            self.process = process
             activeRuntimeConfigURL = runtimeConfigURL
-            return
+            scheduleRuntimePlaintextCleanup(runtimeConfigURL)
+            appendLog("[core started] \(settings.corePath)\n")
+        } catch {
+            ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeConfigURL, paths: paths)
+            throw error
         }
-
-        // 普通代理模式用当前用户直接拉起 mihomo，并通过 Unix socket 暴露 controller。
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: settings.corePath)
-        process.currentDirectoryURL = paths.appHome
-        process.arguments = [
-            "-d",
-            paths.appHome.path,
-            "-f",
-            runtimeConfigURL.path,
-            "-ext-ctl-unix",
-            paths.externalControllerSocketURL.path
-        ]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            self?.appendLog(text)
-        }
-
-        process.terminationHandler = { [weak self] process in
-            let status = process.terminationStatus
-            self?.appendLog("\n[core exited with status \(status)]\n")
-            guard let self, self.process === process else { return }
-            self.process = nil
-            self.onExit?(status)
-        }
-
-        try process.run()
-        self.process = process
-        activeRuntimeConfigURL = runtimeConfigURL
-        appendLog("[core started] \(settings.corePath)\n")
     }
 
     public func stop(waitForExit: Bool = false) {
@@ -216,6 +223,14 @@ public final class CoreProcessManager: @unchecked Sendable {
         guard process.terminationStatus == 0 else {
             let message = output.trimmingCharacters(in: .whitespacesAndNewlines)
             throw ChumenError.commandFailed(message.isEmpty ? "Core rejected the generated configuration." : message)
+        }
+    }
+
+    private func scheduleRuntimePlaintextCleanup(_ url: URL) {
+        // mihomo 只需要在启动初期读取 -f 指向的 YAML。延迟几秒删除可以避开进程刚拉起
+        // 时还没打开文件的竞态，同时避免明文配置长期留在磁盘上。
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5) { [paths] in
+            ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(url, paths: paths)
         }
     }
 
