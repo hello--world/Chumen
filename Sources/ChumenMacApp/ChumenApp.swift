@@ -1,5 +1,6 @@
 import AppKit
 import ChumenCore
+import Darwin
 import SwiftUI
 
 private enum ChumenWindowMetrics {
@@ -13,6 +14,8 @@ struct ChumenMacApp: App {
     @StateObject private var notificationService: ChumenNotificationService
 
     init() {
+        ChumenSingleInstance.terminateDuplicateInstanceIfNeeded()
+
         let notificationService = ChumenNotificationService()
         let model = AppModel(notificationService: notificationService)
         _notificationService = StateObject(wrappedValue: notificationService)
@@ -112,9 +115,43 @@ private struct StatusBarInstaller: View {
     }
 }
 
+private enum ChumenSingleInstance {
+    static let bundleIdentifier = "io.github.chumen.native-macos"
+    static let reopenNotificationName = Notification.Name("\(bundleIdentifier).reopen")
+    static let reopenNotificationObject = bundleIdentifier
+
+    static func terminateDuplicateInstanceIfNeeded() {
+        let currentProcessIdentifier = getpid()
+        let identifier = Bundle.main.bundleIdentifier ?? bundleIdentifier
+        let runningPeer = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .first { application in
+                application.processIdentifier != currentProcessIdentifier && !application.isTerminated
+            }
+
+        guard let runningPeer else { return }
+        DistributedNotificationCenter.default().postNotificationName(
+            reopenNotificationName,
+            object: reopenNotificationObject,
+            userInfo: nil,
+            deliverImmediately: true
+        )
+        runningPeer.activate(options: [.activateAllWindows])
+        exit(EXIT_SUCCESS)
+    }
+}
+
 @MainActor
 private final class ChumenAppDelegate: NSObject, NSApplicationDelegate {
     static var model: AppModel?
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleDuplicateInstanceReopenRequest),
+            name: ChumenSingleInstance.reopenNotificationName,
+            object: ChumenSingleInstance.reopenNotificationObject
+        )
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -139,7 +176,16 @@ private final class ChumenAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        DistributedNotificationCenter.default().removeObserver(
+            self,
+            name: ChumenSingleInstance.reopenNotificationName,
+            object: ChumenSingleInstance.reopenNotificationObject
+        )
         Self.model?.prepareForQuit()
+    }
+
+    @objc private func handleDuplicateInstanceReopenRequest(_ notification: Notification) {
+        Self.model?.showMainWindow()
     }
 
     private func installStatusBar(replaceOpenAction: Bool) {
