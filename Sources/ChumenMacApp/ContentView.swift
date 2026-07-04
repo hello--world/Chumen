@@ -4375,12 +4375,10 @@ private struct CoreToolsView: View {
                     } label: {
                         Label(model.t(.restartKernelAPI), systemImage: "power")
                     }
-                    ForEach(BundledDashboard.allCases) { dashboard in
-                        Button {
-                            model.openDashboardURL(dashboard)
-                        } label: {
-                            Label(dashboard.displayName, systemImage: "safari")
-                        }
+                    Button {
+                        model.openDashboardURL()
+                    } label: {
+                        Label(model.t(.openDashboard), systemImage: "safari")
                     }
                 }
 
@@ -4402,7 +4400,7 @@ private struct CoreToolsView: View {
                     }
                 }
 
-                toolGroup(title: "Geo / UI") {
+                toolGroup(title: "Geo") {
                     Button {
                         model.updateConfigGeo()
                     } label: {
@@ -4412,11 +4410,6 @@ private struct CoreToolsView: View {
                         model.upgradeGeo()
                     } label: {
                         Label(model.t(.upgradeGeo), systemImage: "arrow.down.circle")
-                    }
-                    Button {
-                        model.upgradeUI()
-                    } label: {
-                        Label(model.t(.upgradeUI), systemImage: "rectangle.connected.to.line.below")
                     }
                 }
 
@@ -4562,6 +4555,7 @@ private struct CoreSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Binding var choosingCore: Bool
     @State private var selectedSettingsSection: CoreSettingsSectionID = .runtime
+    @State private var choosingExternalDashboard = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -4729,28 +4723,28 @@ private struct CoreSettingsView: View {
             .id(CoreSettingsSectionID.advancedDNS)
 
             Section(model.t(.externalUI)) {
-                HStack {
-                    Text(model.t(.dashboardPreset))
-                    Spacer()
-                    ForEach(BundledDashboard.allCases) { dashboard in
-                        if model.isDashboardPresetActive(dashboard) {
-                            Button(dashboard.displayName) {
-                                model.useDashboardPreset(dashboard)
-                            }
-                            .buttonStyle(.borderedProminent)
-                        } else {
-                            Button(dashboard.displayName) {
-                                model.useDashboardPreset(dashboard)
-                            }
-                            .buttonStyle(.bordered)
-                        }
+                HStack(spacing: 8) {
+                    settingsActionButton(title: model.t(.importDashboard), systemImage: "folder.badge.plus") {
+                        choosingExternalDashboard = true
                     }
+                    settingsActionButton(title: model.t(.openDashboard), systemImage: "safari") {
+                        model.openDashboardURL()
+                    }
+                    .disabled(model.settings.externalUI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    settingsActionButton(title: model.t(.clearDashboard), systemImage: "xmark.circle") {
+                        model.clearExternalDashboard()
+                    }
+                    .disabled(model.settings.externalUI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                TextField("external-ui", text: $model.settings.externalUI)
+                pathRow(
+                    title: model.t(.externalUIPath),
+                    value: $model.settings.externalUI,
+                    systemImage: "folder",
+                    chooseAction: { choosingExternalDashboard = true }
+                )
+                TextField(model.t(.externalUIName), text: $model.settings.externalUIName)
                     .textFieldStyle(.roundedBorder)
-                TextField("external-ui-name", text: $model.settings.externalUIName)
-                    .textFieldStyle(.roundedBorder)
-                TextField("external-ui-url", text: $model.settings.externalUIURL)
+                TextField(model.t(.externalUIURL), text: $model.settings.externalUIURL)
                     .textFieldStyle(.roundedBorder)
                 Toggle("CORS allow-private-network", isOn: $model.settings.externalControllerCORSAllowPrivateNetwork)
                 labeledEditor(model.t(.corsOrigins), text: corsOriginsText)
@@ -4773,6 +4767,15 @@ private struct CoreSettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .fileImporter(
+            isPresented: $choosingExternalDashboard,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            if case let .success(urls) = result, let url = urls.first {
+                model.importExternalDashboard(url)
+            }
         }
     }
 

@@ -182,16 +182,7 @@ final class AppModel: ObservableObject {
         self.configSync = ChumenConfigSyncService(paths: paths)
         self.settingsStore = settingsStore
         try? paths.ensureDirectories()
-        let installedDashboards = Self.installBundledDashboards(paths: paths)
-        var loadedSettings = settingsStore.load()
-        let defaultDashboard: BundledDashboard? = installedDashboards.contains(.metacubexd)
-            ? .metacubexd
-            : installedDashboards.first
-        if loadedSettings.externalUI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let defaultDashboard {
-            loadedSettings.useBundledDashboard(defaultDashboard, paths: paths)
-            try? settingsStore.save(loadedSettings)
-        }
+        let loadedSettings = settingsStore.load()
         self.settings = loadedSettings
         self.profileRepository = ProfileRepository(paths: paths, protectConfigFiles: loadedSettings.protectConfigFiles)
         var library = profileRepository.load()
@@ -234,14 +225,6 @@ final class AppModel: ObservableObject {
             if settings.autoStartCoreOnLaunch, !isRunning {
                 start()
             }
-        }
-    }
-
-    private static func installBundledDashboards(paths: ChumenPaths) -> [BundledDashboard] {
-        do {
-            return try BundledDashboardInstaller(paths: paths).installAvailableDashboards()
-        } catch {
-            return []
         }
     }
 
@@ -416,53 +399,53 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func isDashboardPresetActive(_ dashboard: BundledDashboard) -> Bool {
-        dashboard.matches(settings: settings, paths: paths)
-    }
-
-    func useDashboardPreset(_ dashboard: BundledDashboard) {
-        Task {
-            await activateDashboardPreset(dashboard, openAfterActivation: false)
+    func importExternalDashboard(_ url: URL) {
+        let dashboardURL = url.standardizedFileURL
+        guard isUsableDashboardDirectory(dashboardURL) else {
+            statusText = t(.dashboardImportInvalid)
+            return
         }
+
+        settings.useExternalDashboard(at: dashboardURL)
+        saveSettings()
+        statusText = t(.dashboardImported)
+        reloadRuntimeConfigAfterDashboardChange()
     }
 
-    func openDashboardURL(_ dashboard: BundledDashboard) {
-        Task {
-            await activateDashboardPreset(dashboard, openAfterActivation: true)
+    func clearExternalDashboard() {
+        guard !settings.externalUI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
         }
+        settings.clearExternalDashboard()
+        saveSettings()
+        statusText = t(.dashboardCleared)
+        reloadRuntimeConfigAfterDashboardChange()
     }
 
-    private func activateDashboardPreset(_ dashboard: BundledDashboard, openAfterActivation: Bool) async {
-        do {
-            let wasActive = dashboard.matches(settings: settings, paths: paths)
-            try BundledDashboardInstaller(paths: paths).install(dashboard)
-            var launch = settings
-            launch.useBundledDashboard(dashboard, paths: paths)
-
-            if !wasActive {
-                settings = launch
-                saveSettings()
-            }
-
-            if isRunning, !wasActive {
+    private func reloadRuntimeConfigAfterDashboardChange() {
+        guard isRunning else { return }
+        Task {
+            do {
                 let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(
-                    settings: launch,
+                    settings: settings,
                     paths: paths,
                     profileAppendixYAML: activeProfileAppendixYAML
                 )
                 try await mihomoClient().reloadConfig(path: runtimeConfigURL.path, force: true)
                 await refreshAll()
+            } catch {
+                statusText = displayError(error)
             }
-
-            statusText = "\(dashboard.displayName) \(t(.dashboardSelected))"
-
-            if openAfterActivation,
-               let url = dashboard.launchURL(settings: launch, language: language) {
-                NSWorkspace.shared.open(url)
-            }
-        } catch {
-            statusText = displayError(error)
         }
+    }
+
+    private func isUsableDashboardDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: url.appendingPathComponent("index.html").path)
     }
 
     var statusBarTitleText: String {
@@ -2146,7 +2129,10 @@ final class AppModel: ObservableObject {
     }
 
     func openDashboardURL() {
-        guard let url = settings.dashboardLaunchURL(paths: paths, language: language) else { return }
+        guard let url = settings.dashboardLaunchURL(paths: paths, language: language) else {
+            statusText = t(.dashboardNotConfigured)
+            return
+        }
         NSWorkspace.shared.open(url)
     }
 

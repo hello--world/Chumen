@@ -315,10 +315,17 @@ enum L10n {
         case read
         case write
         case openDashboard
-        case dashboardPreset
-        case dashboardSelected
+        case importDashboard
+        case clearDashboard
+        case dashboardImported
+        case dashboardCleared
+        case dashboardImportInvalid
+        case dashboardNotConfigured
         case configAppendix
         case externalUI
+        case externalUIPath
+        case externalUIName
+        case externalUIURL
         case corsOrigins
         case advancedTun
         case advancedDNS
@@ -646,10 +653,17 @@ enum L10n {
         .read: "读取",
         .write: "写入",
         .openDashboard: "打开 Dashboard",
-        .dashboardPreset: "Dashboard 面板",
-        .dashboardSelected: "已选中",
+        .importDashboard: "导入 Dashboard",
+        .clearDashboard: "清除 Dashboard",
+        .dashboardImported: "Dashboard 已导入",
+        .dashboardCleared: "Dashboard 已清除",
+        .dashboardImportInvalid: "请选择包含 index.html 的 Dashboard 目录",
+        .dashboardNotConfigured: "未导入 Dashboard",
         .configAppendix: "附加 YAML",
         .externalUI: "External UI",
+        .externalUIPath: "external-ui",
+        .externalUIName: "external-ui-name",
+        .externalUIURL: "external-ui-url",
         .corsOrigins: "CORS 来源",
         .advancedTun: "高级 TUN",
         .advancedDNS: "高级 DNS"
@@ -968,10 +982,17 @@ enum L10n {
         .read: "Read",
         .write: "Write",
         .openDashboard: "Open Dashboard",
-        .dashboardPreset: "Dashboard Panel",
-        .dashboardSelected: "selected",
+        .importDashboard: "Import Dashboard",
+        .clearDashboard: "Clear Dashboard",
+        .dashboardImported: "Dashboard imported",
+        .dashboardCleared: "Dashboard cleared",
+        .dashboardImportInvalid: "Choose a Dashboard directory containing index.html",
+        .dashboardNotConfigured: "No Dashboard imported",
         .configAppendix: "Append YAML",
         .externalUI: "External UI",
+        .externalUIPath: "external-ui",
+        .externalUIName: "external-ui-name",
+        .externalUIURL: "external-ui-url",
         .corsOrigins: "CORS Origins",
         .advancedTun: "Advanced TUN",
         .advancedDNS: "Advanced DNS"

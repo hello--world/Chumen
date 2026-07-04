@@ -6,3 +6,4 @@ bin/
 *.xcuserdata/
 DerivedData/
 bin/*.gz
+Packaging/Dashboards/

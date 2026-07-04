@@ -24,7 +24,6 @@ cp "$ROOT_DIR/Packaging/Assets/StatusBarDoorProxy.png" "$RESOURCES_DIR/StatusBar
 cp "$ROOT_DIR/Packaging/Assets/StatusBarDoorOpen.png" "$RESOURCES_DIR/StatusBarDoorOpen.png"
 cp "$ROOT_DIR/Packaging/Assets/StatusBarDoorOpenWithDoor.png" "$RESOURCES_DIR/StatusBarDoorOpenWithDoor.png"
 cp "$ROOT_DIR/Packaging/Assets/StatusBarDoorOpenDoorway.png" "$RESOURCES_DIR/StatusBarDoorOpenDoorway.png"
-ditto "$ROOT_DIR/Packaging/Dashboards" "$RESOURCES_DIR/Dashboards"
 printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
 chmod 755 "$MACOS_DIR/Chumen"
 chmod 755 "$RESOURCES_DIR/ChumenHelper"
