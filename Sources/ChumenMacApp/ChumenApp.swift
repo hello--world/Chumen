@@ -10,9 +10,12 @@ private enum ChumenWindowMetrics {
 struct ChumenMacApp: App {
     @NSApplicationDelegateAdaptor(ChumenAppDelegate.self) private var appDelegate
     @StateObject private var model: AppModel
+    @StateObject private var notificationService: ChumenNotificationService
 
     init() {
-        let model = AppModel()
+        let notificationService = ChumenNotificationService()
+        let model = AppModel(notificationService: notificationService)
+        _notificationService = StateObject(wrappedValue: notificationService)
         _model = StateObject(wrappedValue: model)
         ChumenAppDelegate.model = model
     }
@@ -25,12 +28,19 @@ struct ChumenMacApp: App {
                     .frame(width: 0, height: 0)
                 FixedMainWindowConfigurator(size: ChumenWindowMetrics.contentSize)
                     .frame(width: 0, height: 0)
+                ChumenNotificationHost()
+                    .zIndex(1000)
             }
                 .environmentObject(model)
+                .environmentObject(notificationService)
+                .environmentObject(model.configSync)
                 .frame(
                     width: ChumenWindowMetrics.contentSize.width,
                     height: ChumenWindowMetrics.contentSize.height
                 )
+                .task {
+                    notificationService.requestAuthorizationIfNeeded()
+                }
         }
         .defaultSize(
             width: ChumenWindowMetrics.contentSize.width,

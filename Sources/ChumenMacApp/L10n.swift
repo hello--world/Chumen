@@ -154,6 +154,45 @@ enum L10n {
         case ports
         case controllerHost
         case systemProxyHost
+        case notifications
+        case notificationPermission
+        case notificationPermissionAuthorized
+        case notificationPermissionDenied
+        case notificationPermissionNotDetermined
+        case requestNotificationPermission
+        case testNotification
+        case notificationTestTitle
+        case notificationTestBody
+        case notificationCoreStarted
+        case notificationCoreStopped
+        case notificationCoreRestarted
+        case notificationCoreFailed
+        case notificationCoreExited
+        case configSync
+        case syncBackend
+        case syncBackendDirectory
+        case syncBackendCloudKit
+        case syncDirectory
+        case chooseSyncDirectory
+        case syncDirectorySelected
+        case cloudKitContainerIdentifier
+        case checkCloudKitStatus
+        case syncUpload
+        case syncDownload
+        case syncUploaded
+        case syncDownloaded
+        case syncCompleted
+        case syncFailed
+        case lastSync
+        case syncPlaintextWarning
+        case syncDirectoryNotSelected
+        case syncMissingProfileFile
+        case syncCloudKitAvailable
+        case syncCloudKitNoAccount
+        case syncCloudKitRestricted
+        case syncCloudKitUnknown
+        case syncCloudKitTemporaryUnavailable
+        case syncCloudKitNoSnapshot
         case statusBar
         case showStatusBarItem
         case statusBarDisplayMode
@@ -446,6 +485,45 @@ enum L10n {
         .ports: "端口",
         .controllerHost: "控制地址",
         .systemProxyHost: "系统代理地址",
+        .notifications: "通知",
+        .notificationPermission: "桌面通知权限",
+        .notificationPermissionAuthorized: "已允许",
+        .notificationPermissionDenied: "已拒绝，使用应用内通知",
+        .notificationPermissionNotDetermined: "未请求",
+        .requestNotificationPermission: "请求权限",
+        .testNotification: "发送测试通知",
+        .notificationTestTitle: "Chumen 通知已就绪",
+        .notificationTestBody: "如果系统通知不可用，会显示这条应用内通知。",
+        .notificationCoreStarted: "内核已启动",
+        .notificationCoreStopped: "内核已停止",
+        .notificationCoreRestarted: "内核已重启",
+        .notificationCoreFailed: "内核运行失败",
+        .notificationCoreExited: "内核异常退出",
+        .configSync: "配置同步",
+        .syncBackend: "同步方式",
+        .syncBackendDirectory: "同步目录",
+        .syncBackendCloudKit: "iCloud CloudKit",
+        .syncDirectory: "同步目录",
+        .chooseSyncDirectory: "选择同步目录",
+        .syncDirectorySelected: "同步目录已选择",
+        .cloudKitContainerIdentifier: "CloudKit Container ID（可留空使用默认容器）",
+        .checkCloudKitStatus: "检查 iCloud 状态",
+        .syncUpload: "上传本机配置",
+        .syncDownload: "拉取同步配置",
+        .syncUploaded: "配置已上传",
+        .syncDownloaded: "配置已拉取",
+        .syncCompleted: "同步完成",
+        .syncFailed: "同步失败",
+        .lastSync: "上次同步",
+        .syncPlaintextWarning: "同步目录和 CloudKit 快照会包含订阅地址、密钥和配置内容；请选择可信目录或私有 iCloud 账户。",
+        .syncDirectoryNotSelected: "尚未选择同步目录",
+        .syncMissingProfileFile: "同步快照缺少配置文件",
+        .syncCloudKitAvailable: "iCloud 账户可用；CloudKit 仍需要应用签名包含 iCloud entitlement。",
+        .syncCloudKitNoAccount: "当前系统未登录 iCloud 账户。",
+        .syncCloudKitRestricted: "当前 iCloud 账户受限。",
+        .syncCloudKitUnknown: "无法确认 iCloud 状态。",
+        .syncCloudKitTemporaryUnavailable: "iCloud 暂时不可用。",
+        .syncCloudKitNoSnapshot: "CloudKit 中还没有 Chumen 同步快照。",
         .statusBar: "菜单栏",
         .showStatusBarItem: "显示菜单栏图标",
         .statusBarDisplayMode: "菜单栏显示",
@@ -729,6 +807,45 @@ enum L10n {
         .ports: "Ports",
         .controllerHost: "Controller host",
         .systemProxyHost: "System proxy host",
+        .notifications: "Notifications",
+        .notificationPermission: "Desktop notification permission",
+        .notificationPermissionAuthorized: "Allowed",
+        .notificationPermissionDenied: "Denied; using in-app notifications",
+        .notificationPermissionNotDetermined: "Not requested",
+        .requestNotificationPermission: "Request Permission",
+        .testNotification: "Send Test Notification",
+        .notificationTestTitle: "Chumen notifications are ready",
+        .notificationTestBody: "If desktop notifications are unavailable, this appears in the app.",
+        .notificationCoreStarted: "Core started",
+        .notificationCoreStopped: "Core stopped",
+        .notificationCoreRestarted: "Core restarted",
+        .notificationCoreFailed: "Core failed",
+        .notificationCoreExited: "Core exited unexpectedly",
+        .configSync: "Config Sync",
+        .syncBackend: "Sync backend",
+        .syncBackendDirectory: "Sync Folder",
+        .syncBackendCloudKit: "iCloud CloudKit",
+        .syncDirectory: "Sync folder",
+        .chooseSyncDirectory: "Choose Sync Folder",
+        .syncDirectorySelected: "Sync folder selected",
+        .cloudKitContainerIdentifier: "CloudKit Container ID (blank uses the default container)",
+        .checkCloudKitStatus: "Check iCloud Status",
+        .syncUpload: "Upload Local Config",
+        .syncDownload: "Pull Synced Config",
+        .syncUploaded: "Config uploaded",
+        .syncDownloaded: "Config pulled",
+        .syncCompleted: "Sync completed",
+        .syncFailed: "Sync failed",
+        .lastSync: "Last sync",
+        .syncPlaintextWarning: "The sync folder and CloudKit snapshot contain subscription URLs, secrets, and config content. Use a trusted folder or private iCloud account.",
+        .syncDirectoryNotSelected: "No sync folder selected",
+        .syncMissingProfileFile: "Sync snapshot is missing a profile file",
+        .syncCloudKitAvailable: "iCloud account is available; CloudKit still requires iCloud entitlements in the app signature.",
+        .syncCloudKitNoAccount: "No iCloud account is signed in on this Mac.",
+        .syncCloudKitRestricted: "The current iCloud account is restricted.",
+        .syncCloudKitUnknown: "Could not determine iCloud status.",
+        .syncCloudKitTemporaryUnavailable: "iCloud is temporarily unavailable.",
+        .syncCloudKitNoSnapshot: "No Chumen sync snapshot exists in CloudKit yet.",
         .statusBar: "Menu Bar",
         .showStatusBarItem: "Show menu bar item",
         .statusBarDisplayMode: "Menu bar display",

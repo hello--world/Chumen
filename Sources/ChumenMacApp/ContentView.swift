@@ -4921,9 +4921,111 @@ private struct CoreSettingsView: View {
 
 private struct AppSettingsView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var notifications: ChumenNotificationService
+    @EnvironmentObject private var configSync: ChumenConfigSyncService
+    @State private var choosingSyncDirectory = false
 
     var body: some View {
         Form {
+            Section(model.t(.notifications)) {
+                HStack {
+                    Text(model.t(.notificationPermission))
+                    Spacer()
+                    Text(notificationPermissionText)
+                        .foregroundStyle(notificationPermissionColor)
+                }
+
+                HStack {
+                    Button {
+                        notifications.requestAuthorizationIfNeeded()
+                    } label: {
+                        Label(model.t(.requestNotificationPermission), systemImage: "bell.badge")
+                    }
+
+                    Button {
+                        model.sendTestNotification()
+                    } label: {
+                        Label(model.t(.testNotification), systemImage: "bell")
+                    }
+                }
+            }
+
+            Section(model.t(.configSync)) {
+                Picker(model.t(.syncBackend), selection: Binding(
+                    get: { configSync.settings.backend },
+                    set: { model.setConfigSyncBackend($0) }
+                )) {
+                    ForEach(ChumenSyncBackendKind.allCases) { backend in
+                        Text(model.syncBackendTitle(backend)).tag(backend)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if configSync.settings.backend == .directory {
+                    HStack {
+                        Text(model.t(.syncDirectory))
+                        Spacer()
+                        Text(syncDirectoryText)
+                            .font(.caption)
+                            .foregroundStyle(ChumenStyle.mutedText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+
+                    Button {
+                        choosingSyncDirectory = true
+                    } label: {
+                        Label(model.t(.chooseSyncDirectory), systemImage: "folder.badge.gearshape")
+                    }
+                } else {
+                    TextField(model.t(.cloudKitContainerIdentifier), text: Binding(
+                        get: { configSync.settings.cloudKitContainerIdentifier },
+                        set: { model.setCloudKitContainerIdentifier($0) }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+
+                    Button {
+                        model.checkCloudKitSyncStatus()
+                    } label: {
+                        Label(model.t(.checkCloudKitStatus), systemImage: "icloud")
+                    }
+                }
+
+                HStack {
+                    Button {
+                        model.pushConfigSync()
+                    } label: {
+                        Label(model.t(.syncUpload), systemImage: "arrow.up.doc")
+                    }
+                    .disabled(configSync.isSyncing || syncActionUnavailable)
+
+                    Button {
+                        model.pullConfigSync()
+                    } label: {
+                        Label(model.t(.syncDownload), systemImage: "arrow.down.doc")
+                    }
+                    .disabled(configSync.isSyncing || syncActionUnavailable)
+                }
+
+                HStack {
+                    Text(model.t(.lastSync))
+                    Spacer()
+                    Text(syncLastSyncedText)
+                        .foregroundStyle(ChumenStyle.mutedText)
+                }
+
+                if !configSync.statusText.isEmpty {
+                    Text(configSync.statusText)
+                        .font(.caption)
+                        .foregroundStyle(ChumenStyle.mutedText)
+                }
+
+                Text(model.t(.syncPlaintextWarning))
+                    .font(.caption)
+                    .foregroundStyle(ChumenStyle.mutedText)
+            }
+
             Section(model.t(.statusBar)) {
                 Toggle(model.t(.showStatusBarItem), isOn: Binding(
                     get: { model.settings.showStatusBarItem },
@@ -4997,9 +5099,64 @@ private struct AppSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            notifications.refreshAuthorizationState()
+        }
         .onChange(of: model.settings) {
             model.scheduleSettingsAutosave()
         }
+        .fileImporter(
+            isPresented: $choosingSyncDirectory,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            if case let .success(urls) = result, let url = urls.first {
+                model.chooseConfigSyncDirectory(url)
+            }
+        }
         .padding(.vertical, 8)
+    }
+
+    private var syncActionUnavailable: Bool {
+        switch configSync.settings.backend {
+        case .directory:
+            configSync.settings.directoryPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .cloudKit:
+            false
+        }
+    }
+
+    private var syncDirectoryText: String {
+        let path = configSync.settings.directoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? model.t(.syncDirectoryNotSelected) : path
+    }
+
+    private var syncLastSyncedText: String {
+        guard let date = configSync.settings.lastSyncedAt else { return "-" }
+        return date.formatted(date: .abbreviated, time: .standard)
+    }
+
+    private var notificationPermissionText: String {
+        switch notifications.authorizationState {
+        case .unknown:
+            model.t(.unknown)
+        case .notDetermined:
+            model.t(.notificationPermissionNotDetermined)
+        case .authorized:
+            model.t(.notificationPermissionAuthorized)
+        case .denied:
+            model.t(.notificationPermissionDenied)
+        }
+    }
+
+    private var notificationPermissionColor: Color {
+        switch notifications.authorizationState {
+        case .authorized:
+            .green
+        case .denied:
+            .orange
+        case .unknown, .notDetermined:
+            ChumenStyle.mutedText
+        }
     }
 }

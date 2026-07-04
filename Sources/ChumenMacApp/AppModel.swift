@@ -144,6 +144,7 @@ final class AppModel: ObservableObject {
     @Published var aiStatusText = ""
 
     let paths: ChumenPaths
+    let configSync: ChumenConfigSyncService
 
     private let manager: CoreProcessManager
     private let profileRepository: ProfileRepository
@@ -171,11 +172,14 @@ final class AppModel: ObservableObject {
     private var isPreparingForQuit = false
     private let aiKeychainStore = ChumenAIKeychainStore()
     private let aiClient = ChumenAIClient()
+    private let notificationService: ChumenNotificationService
 
-    init() {
+    init(notificationService: ChumenNotificationService = ChumenNotificationService()) {
+        self.notificationService = notificationService
         let paths = (try? ChumenPaths.defaultPaths()) ?? ChumenPaths(appHome: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("chumen"))
         let settingsStore = ChumenSettingsStore(paths: paths)
         self.paths = paths
+        self.configSync = ChumenConfigSyncService(paths: paths)
         self.settingsStore = settingsStore
         try? paths.ensureDirectories()
         let installedDashboards = Self.installBundledDashboards(paths: paths)
@@ -215,6 +219,9 @@ final class AppModel: ObservableObject {
                 self.autoRefreshTask = nil
                 self.isRunning = false
                 self.statusText = status == 0 ? self.t(.stopped) : "\(self.t(.coreExited)): \(status)"
+                if status != 0 {
+                    self.notify(title: self.t(.notificationCoreExited), body: self.statusText, level: .warning)
+                }
             }
         }
 
@@ -245,6 +252,90 @@ final class AppModel: ObservableObject {
 
     func t(_ key: L10n.Key) -> String {
         L10n.text(key, language: language)
+    }
+
+    func sendTestNotification() {
+        notificationService.notify(
+            title: t(.notificationTestTitle),
+            body: t(.notificationTestBody),
+            level: .info
+        )
+    }
+
+    func syncBackendTitle(_ backend: ChumenSyncBackendKind) -> String {
+        configSync.backendTitle(backend, language: language)
+    }
+
+    func setConfigSyncBackend(_ backend: ChumenSyncBackendKind) {
+        configSync.setBackend(backend)
+    }
+
+    func chooseConfigSyncDirectory(_ url: URL) {
+        configSync.setDirectory(url)
+        statusText = t(.syncDirectorySelected)
+    }
+
+    func setCloudKitContainerIdentifier(_ identifier: String) {
+        configSync.setCloudKitContainerIdentifier(identifier)
+    }
+
+    func pushConfigSync() {
+        saveSettings()
+        Task {
+            do {
+                try await configSync.push(
+                    appSettings: settings,
+                    profileLibrary: profileLibrary,
+                    readProfileContent: { profile in
+                        try String(contentsOfFile: profile.filePath, encoding: .utf8)
+                    }
+                )
+                statusText = t(.syncUploaded)
+                notify(title: t(.syncUploaded), body: t(.syncCompleted), level: .success)
+            } catch {
+                statusText = displayError(error)
+                notify(title: t(.syncFailed), body: statusText, level: .failure)
+            }
+        }
+    }
+
+    func pullConfigSync() {
+        guard !isCoreTransitioning else { return }
+        Task {
+            do {
+                let imported = try await configSync.pull(currentSettings: settings)
+                settings = imported.settings
+                profileLibrary = imported.profileLibrary
+                lastSavedSettings = imported.settings
+                statusText = t(.syncDownloaded)
+                notify(title: t(.syncDownloaded), body: t(.syncCompleted), level: .success)
+                if isRunning {
+                    restart()
+                }
+            } catch {
+                statusText = displayError(error)
+                notify(title: t(.syncFailed), body: statusText, level: .failure)
+            }
+        }
+    }
+
+    func checkCloudKitSyncStatus() {
+        Task {
+            do {
+                try await configSync.checkCloudKitStatus()
+                statusText = configSync.statusText
+            } catch {
+                statusText = displayError(error)
+            }
+        }
+    }
+
+    private func notify(title: String, body: String, level: ChumenNotificationLevel = .info) {
+        notificationService.notify(title: title, body: body, level: level)
+    }
+
+    private func activeProfileNotificationBody() -> String {
+        "\(t(.activeProfile)): \(activeProfile?.name ?? "-")"
     }
 
     private func displayError(_ error: Error) -> String {
@@ -1376,6 +1467,11 @@ final class AppModel: ObservableObject {
                 self.statusText = self.t(.running)
                 self.saveSettings()
                 self.startControllerStreams()
+                self.notify(
+                    title: self.t(.notificationCoreStarted),
+                    body: self.activeProfileNotificationBody(),
+                    level: .success
+                )
 
                 if launch.setSystemProxyOnStart {
                     do {
@@ -1397,6 +1493,7 @@ final class AppModel: ObservableObject {
                 self.isRunning = manager.isRunning
                 self.isCoreTransitioning = false
                 self.statusText = self.displayError(error)
+                self.notify(title: self.t(.notificationCoreFailed), body: self.statusText, level: .failure)
                 self.coreTransitionTask = nil
             }
         }
@@ -1420,6 +1517,11 @@ final class AppModel: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             self.isRunning = false
             self.statusText = self.t(.stopped)
+            self.notify(
+                title: self.t(.notificationCoreStopped),
+                body: self.activeProfileNotificationBody(),
+                level: .info
+            )
 
             if shouldClearProxy {
                 do {
@@ -1462,6 +1564,11 @@ final class AppModel: ObservableObject {
                 self.statusText = self.t(.running)
                 self.saveSettings()
                 self.startControllerStreams()
+                self.notify(
+                    title: self.t(.notificationCoreRestarted),
+                    body: self.activeProfileNotificationBody(),
+                    level: .success
+                )
                 try? await Task.sleep(for: .milliseconds(600))
                 await self.refreshAll()
                 self.coreTransitionTask = nil
@@ -1470,6 +1577,7 @@ final class AppModel: ObservableObject {
                 self.isRunning = manager.isRunning
                 self.isCoreTransitioning = false
                 self.statusText = self.displayError(error)
+                self.notify(title: self.t(.notificationCoreFailed), body: self.statusText, level: .failure)
                 self.coreTransitionTask = nil
             }
         }
@@ -1812,9 +1920,13 @@ final class AppModel: ObservableObject {
         }
 
         let message = compactLogMessage(from: text)
+        let alreadyReported = tunRuntimeFailed && tunRuntimeFailureMessage == message
         tunRuntimeFailed = true
         tunRuntimeFailureMessage = message
         statusText = "\(t(.tunFailed)): \(tunFailureTitle(for: message))"
+        if !alreadyReported {
+            notify(title: t(.tunFailed), body: tunRuntimeFailureDetail, level: .failure)
+        }
     }
 
     private func resetTunRuntimeState(for settings: ChumenRuntimeSettings) {
