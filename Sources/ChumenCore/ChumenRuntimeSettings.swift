@@ -179,6 +179,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
     public var nameserverPolicyYAML: String
     public var hostsYAML: String
     public var configAppendixYAML: String
+    public var protectConfigFiles: Bool
     public var ai: ChumenAISettings
 
     public init(
@@ -248,6 +249,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         nameserverPolicyYAML: String = "",
         hostsYAML: String = "",
         configAppendixYAML: String = "",
+        protectConfigFiles: Bool = true,
         ai: ChumenAISettings = ChumenAISettings()
     ) {
         self.corePath = corePath
@@ -316,6 +318,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         self.nameserverPolicyYAML = nameserverPolicyYAML
         self.hostsYAML = hostsYAML
         self.configAppendixYAML = configAppendixYAML
+        self.protectConfigFiles = protectConfigFiles
         self.ai = ai
     }
 
@@ -409,6 +412,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         case nameserverPolicyYAML
         case hostsYAML
         case configAppendixYAML
+        case protectConfigFiles
         case ai
     }
 
@@ -485,6 +489,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
             nameserverPolicyYAML: try container.decodeIfPresent(String.self, forKey: .nameserverPolicyYAML) ?? "",
             hostsYAML: try container.decodeIfPresent(String.self, forKey: .hostsYAML) ?? "",
             configAppendixYAML: try container.decodeIfPresent(String.self, forKey: .configAppendixYAML) ?? "",
+            protectConfigFiles: try container.decodeIfPresent(Bool.self, forKey: .protectConfigFiles) ?? true,
             ai: try container.decodeIfPresent(ChumenAISettings.self, forKey: .ai) ?? ChumenAISettings()
         )
     }

@@ -2,14 +2,41 @@ import Foundation
 
 public struct ChumenSettingsStore: Sendable {
     public let paths: ChumenPaths
+    private let protectionKeyStore: ChumenConfigProtectionKeyStore
 
-    public init(paths: ChumenPaths) {
+    public init(
+        paths: ChumenPaths,
+        protectionKeyStore: ChumenConfigProtectionKeyStore = ChumenConfigProtectionKeyStore()
+    ) {
         self.paths = paths
+        self.protectionKeyStore = protectionKeyStore
     }
 
     public func load() -> ChumenRuntimeSettings {
-        guard let data = try? Data(contentsOf: paths.settingsURL),
-              var settings = try? JSONDecoder().decode(ChumenRuntimeSettings.self, from: data) else {
+        // Settings are the first file read during startup, so this store must understand both the
+        // new encrypted envelope and older plaintext JSON. Successful plaintext loads are written
+        // back through save(_:) so protection turns on without a separate migration step.
+        guard let storedData = try? Data(contentsOf: paths.settingsURL) else {
+            var defaults = ChumenRuntimeSettings()
+            if let candidate = ChumenRuntimeSettings.firstExecutableCoreCandidate() {
+                defaults.corePath = candidate
+            }
+            try? save(defaults)
+            return defaults
+        }
+        let storedDataWasProtected = ChumenConfigProtection.isProtected(storedData)
+        let plainData: Data
+        do {
+            plainData = try ChumenConfigProtection(enabled: true, keyStore: protectionKeyStore)
+                .dataForReading(storedData)
+        } catch {
+            var defaults = ChumenRuntimeSettings()
+            if let candidate = ChumenRuntimeSettings.firstExecutableCoreCandidate() {
+                defaults.corePath = candidate
+            }
+            return defaults
+        }
+        guard var settings = try? JSONDecoder().decode(ChumenRuntimeSettings.self, from: plainData) else {
             var defaults = ChumenRuntimeSettings()
             if let candidate = ChumenRuntimeSettings.firstExecutableCoreCandidate() {
                 defaults.corePath = candidate
@@ -43,6 +70,9 @@ public struct ChumenSettingsStore: Sendable {
         if settings.ensureRandomSecret() {
             needsSave = true
         }
+        if settings.protectConfigFiles, !storedDataWasProtected {
+            needsSave = true
+        }
         if needsSave {
             try? save(settings)
         }
@@ -52,6 +82,10 @@ public struct ChumenSettingsStore: Sendable {
     public func save(_ settings: ChumenRuntimeSettings) throws {
         try paths.ensureDirectories()
         let data = try JSONEncoder().encode(settings)
-        try data.write(to: paths.settingsURL, options: .atomic)
+        let protection = ChumenConfigProtection(
+            enabled: settings.protectConfigFiles,
+            keyStore: protectionKeyStore
+        )
+        try protection.writeData(data, to: paths.settingsURL)
     }
 }

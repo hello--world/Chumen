@@ -1,6 +1,18 @@
 import Foundation
 
 public enum ChumenConfigurationBuilder {
+    // mihomo can only consume plaintext YAML. The canonical runtime file is encrypted with this
+    // process-local session key, while the temporary plaintext file returned by writeRuntimeConfig
+    // is chmod 0600 and cleaned before the next generation/stop. This keeps persistent disk state
+    // protected without pretending the core can read encrypted config directly.
+    private static let runtimeSessionID = UUID().uuidString
+    private static let runtimeSessionKey: Data = {
+        if let key = try? ChumenConfigProtectionKeyStore.randomBytes(count: 32) {
+            return key
+        }
+        return Data(Data((UUID().uuidString + UUID().uuidString).utf8).prefix(32))
+    }()
+
     // 这些顶层键由 GUI/CLI 设置统一接管，生成运行配置时必须覆盖用户 profile 里的同名值。
     private static let alwaysOverwrittenTopLevelKeys: Set<String> = [
         "mixed-port",
@@ -23,16 +35,18 @@ public enum ChumenConfigurationBuilder {
         "tun"
     ]
 
+    @discardableResult
     public static func writeRuntimeConfig(
         settings: ChumenRuntimeSettings,
         paths: ChumenPaths,
         profileAppendixYAML: String = ""
-    ) throws {
+    ) throws -> URL {
         try paths.ensureDirectories()
+        let protection = ChumenConfigProtection(enabled: settings.protectConfigFiles)
 
         let profileYAML: String?
         if let profilePath = settings.profilePath, !profilePath.isEmpty {
-            profileYAML = try String(contentsOfFile: profilePath, encoding: .utf8)
+            profileYAML = try protection.readText(at: URL(fileURLWithPath: profilePath))
         } else {
             profileYAML = nil
         }
@@ -43,7 +57,35 @@ public enum ChumenConfigurationBuilder {
             socketPath: paths.externalControllerSocketURL.path,
             profileAppendixYAML: profileAppendixYAML
         )
-        try yaml.write(to: paths.runtimeConfigURL, atomically: true, encoding: .utf8)
+        guard settings.protectConfigFiles else {
+            try protection.writeText(yaml, to: paths.runtimeConfigURL)
+            return paths.runtimeConfigURL
+        }
+
+        // Store the reproducible runtime YAML encrypted at the stable path for inspection/migration,
+        // then hand the caller a short-lived plaintext URL for mihomo -f / controller reload.
+        let protectedRuntime = try ChumenConfigProtection.encrypt(Data(yaml.utf8), key: runtimeSessionKey)
+        try ChumenConfigProtection.writePlainData(protectedRuntime, to: paths.runtimeConfigURL)
+        try cleanupRuntimePlaintextFiles(paths: paths)
+        let runtimeURL = runtimePlaintextURL(paths: paths)
+        try ChumenConfigProtection.writePlainData(Data(yaml.utf8), to: runtimeURL)
+        return runtimeURL
+    }
+
+    public static func cleanupRuntimePlaintextFiles(paths: ChumenPaths) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: paths.runtimePlaintextDirectoryURL.path) else { return }
+        let files = try fileManager.contentsOfDirectory(
+            at: paths.runtimePlaintextDirectoryURL,
+            includingPropertiesForKeys: nil
+        )
+        for file in files where file.lastPathComponent.hasPrefix("chumen-runtime-") {
+            try? fileManager.removeItem(at: file)
+        }
+    }
+
+    private static func runtimePlaintextURL(paths: ChumenPaths) -> URL {
+        paths.runtimePlaintextDirectoryURL.appendingPathComponent("chumen-runtime-\(runtimeSessionID).yaml")
     }
 
     public static func runtimeYAML(

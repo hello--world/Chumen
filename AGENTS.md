@@ -23,3 +23,9 @@ Tested: 具体执行过的验证命令
 ```
 
 Keep `Constraint` and `Rejected` focused on engineering decisions that prevent future misdiagnosis or regressions. Do not list routine implementation detail as a directive.
+
+## Code Intent Notes
+
+Every new module or non-trivial feature must leave intent close to the code so future humans and AI agents can understand why it exists. Record the problem being solved, the key design choice, important constraints, and rejected alternatives when they affect maintenance.
+
+Prefer concise file headers, type comments, focused doc comments, or nearby README notes. Do not comment obvious line-by-line mechanics; explain the reason, invariant, lifecycle, security boundary, or tradeoff that is not obvious from the code itself. Update or remove stale intent notes when changing the design.

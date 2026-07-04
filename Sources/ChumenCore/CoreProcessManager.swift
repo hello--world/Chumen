@@ -9,6 +9,9 @@ public final class CoreProcessManager: @unchecked Sendable {
     private let fileManager: FileManager
     private var process: Process?
     private var logHandle: FileHandle?
+    // Tracks the actual plaintext runtime file passed to mihomo. The stable runtimeConfigURL may be
+    // encrypted when config protection is enabled, so stop/reload logic must use this live path.
+    private var activeRuntimeConfigURL: URL?
 
     public init(paths: ChumenPaths, fileManager: FileManager = .default) {
         self.paths = paths
@@ -69,17 +72,18 @@ public final class CoreProcessManager: @unchecked Sendable {
 
         // 每次启动都重新生成并测试 runtime YAML，确保 GUI 设置和订阅内容同步到 mihomo。
         try terminateManagedSidecars(waitForExit: true)
-        try ChumenConfigurationBuilder.writeRuntimeConfig(
+        let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(
             settings: settings,
             paths: paths,
             profileAppendixYAML: profileAppendixYAML
         )
         try prepareLogFile()
-        try validateRuntimeConfig(settings: settings)
+        try validateRuntimeConfig(settings: settings, runtimeConfigURL: runtimeConfigURL)
 
         if settings.enableTun {
             // TUN 通常需要特权网络能力，交给 helper 以 LaunchDaemon 方式启动内核。
-            try startPrivileged(settings: settings)
+            try startPrivileged(settings: settings, runtimeConfigURL: runtimeConfigURL)
+            activeRuntimeConfigURL = runtimeConfigURL
             return
         }
 
@@ -91,7 +95,7 @@ public final class CoreProcessManager: @unchecked Sendable {
             "-d",
             paths.appHome.path,
             "-f",
-            paths.runtimeConfigURL.path,
+            runtimeConfigURL.path,
             "-ext-ctl-unix",
             paths.externalControllerSocketURL.path
         ]
@@ -115,6 +119,7 @@ public final class CoreProcessManager: @unchecked Sendable {
 
         try process.run()
         self.process = process
+        activeRuntimeConfigURL = runtimeConfigURL
         appendLog("[core started] \(settings.corePath)\n")
     }
 
@@ -122,6 +127,7 @@ public final class CoreProcessManager: @unchecked Sendable {
         guard let process else {
             do {
                 try terminateManagedSidecars(waitForExit: waitForExit)
+                try? ChumenConfigurationBuilder.cleanupRuntimePlaintextFiles(paths: paths)
             } catch {
                 appendLog("[core stop failed] \(error.localizedDescription)\n")
             }
@@ -142,6 +148,8 @@ public final class CoreProcessManager: @unchecked Sendable {
         appendLog("[core stop requested]\n")
         do {
             try terminateManagedSidecars(excluding: process.processIdentifier, waitForExit: waitForExit)
+            try? ChumenConfigurationBuilder.cleanupRuntimePlaintextFiles(paths: paths)
+            activeRuntimeConfigURL = nil
         } catch {
             appendLog("[core stop failed] \(error.localizedDescription)\n")
         }
@@ -155,6 +163,7 @@ public final class CoreProcessManager: @unchecked Sendable {
     deinit {
         process?.terminate()
         logHandle?.closeFile()
+        try? ChumenConfigurationBuilder.cleanupRuntimePlaintextFiles(paths: paths)
     }
 
     public func appendEventLog(_ message: String) {
@@ -178,7 +187,7 @@ public final class CoreProcessManager: @unchecked Sendable {
         onLog?(text)
     }
 
-    private func validateRuntimeConfig(settings: ChumenRuntimeSettings) throws {
+    private func validateRuntimeConfig(settings: ChumenRuntimeSettings, runtimeConfigURL: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: settings.corePath)
         process.currentDirectoryURL = paths.appHome
@@ -187,7 +196,7 @@ public final class CoreProcessManager: @unchecked Sendable {
             "-d",
             paths.appHome.path,
             "-f",
-            paths.runtimeConfigURL.path
+            runtimeConfigURL.path
         ]
 
         let pipe = Pipe()
@@ -210,16 +219,24 @@ public final class CoreProcessManager: @unchecked Sendable {
         }
     }
 
-    private func startPrivileged(settings: ChumenRuntimeSettings) throws {
+    private func startPrivileged(settings: ChumenRuntimeSettings, runtimeConfigURL: URL) throws {
         appendLog("[core privileged start requested] \(settings.corePath)\n")
         try ensurePrivilegedHelperInstalled(settings: settings)
-        let response = try privilegedHelperClient().send(privilegedHelperRequest(command: "start", settings: settings))
+        let response = try privilegedHelperClient().send(privilegedHelperRequest(
+            command: "start",
+            settings: settings,
+            runtimeConfigURL: runtimeConfigURL
+        ))
         appendLog("[core privileged helper start] \(response.message) pid=\(response.pid.map(String.init) ?? "-")\n")
     }
 
     private func stopPrivilegedSidecars(pids: [Int32]) throws {
         do {
-            let response = try privilegedHelperClient().send(privilegedHelperRequest(command: "stop", settings: nil))
+            let response = try privilegedHelperClient().send(privilegedHelperRequest(
+                command: "stop",
+                settings: nil,
+                runtimeConfigURL: activeRuntimeConfigURL
+            ))
             appendLog("[core privileged helper stop] \(response.message)\n")
             return
         } catch {
@@ -280,12 +297,16 @@ public final class CoreProcessManager: @unchecked Sendable {
         PrivilegedHelperClient(socketURL: paths.privilegedHelperSocketURL)
     }
 
-    private func privilegedHelperRequest(command: String, settings: ChumenRuntimeSettings?) -> PrivilegedHelperRequest {
+    private func privilegedHelperRequest(
+        command: String,
+        settings: ChumenRuntimeSettings?,
+        runtimeConfigURL: URL? = nil
+    ) -> PrivilegedHelperRequest {
         PrivilegedHelperRequest(
             command: command,
             corePath: settings?.corePath,
             appHome: paths.appHome.path,
-            runtimeConfigPath: paths.runtimeConfigURL.path,
+            runtimeConfigPath: runtimeConfigURL?.path ?? activeRuntimeConfigURL?.path ?? paths.runtimeConfigURL.path,
             controllerSocketPath: paths.externalControllerSocketURL.path,
             logPath: paths.sidecarLogURL.path,
             pidPath: paths.privilegedCorePIDURL.path
@@ -442,8 +463,8 @@ public final class CoreProcessManager: @unchecked Sendable {
         ps.waitUntilExit()
         guard let output = String(data: data, encoding: .utf8) else { return [] }
 
-        let runtimePath = paths.runtimeConfigURL.path
         let appHomePath = paths.appHome.path
+        let controllerSocketPath = paths.externalControllerSocketURL.path
         let ownPID = Int32(ProcessInfo.processInfo.processIdentifier)
 
         return output.split(separator: "\n").compactMap { line -> Int32? in
@@ -452,8 +473,8 @@ public final class CoreProcessManager: @unchecked Sendable {
             let pidText = trimmed[..<firstSpace]
             let command = trimmed[firstSpace...]
             guard let pid = Int32(pidText), pid != ownPID, pid != excludedPID else { return nil }
-            guard command.contains(runtimePath),
-                  command.contains(appHomePath),
+            guard command.contains(appHomePath),
+                  command.contains(controllerSocketPath),
                   command.contains("-ext-ctl-unix") else { return nil }
             return pid
         }

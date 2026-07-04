@@ -53,27 +53,35 @@ public struct ProfileLibrary: Codable, Equatable, Sendable {
 
 @MainActor
 public final class ProfileRepository {
+    // ProfileRepository owns profile-file encryption because every import, edit, sync import, and
+    // remote update eventually lands here. Keeping protection at this boundary prevents UI/CLI code
+    // from accidentally treating encrypted YAML as normal text.
     private let paths: ChumenPaths
     private let fileManager: FileManager
     private let session: URLSession
+    private let protection: ChumenConfigProtection
 
     public init(
         paths: ChumenPaths,
+        protectConfigFiles: Bool = true,
+        protectionKeyStore: ChumenConfigProtectionKeyStore = ChumenConfigProtectionKeyStore(),
         fileManager: FileManager = .default,
         session: URLSession = .shared
     ) {
         self.paths = paths
         self.fileManager = fileManager
         self.session = session
+        self.protection = ChumenConfigProtection(enabled: protectConfigFiles, keyStore: protectionKeyStore)
     }
 
     public func load() -> ProfileLibrary {
-        guard let data = try? Data(contentsOf: paths.profileLibraryURL),
-              var library = try? JSONDecoder().decode(ProfileLibrary.self, from: data) else {
+        guard let storedData = try? Data(contentsOf: paths.profileLibraryURL),
+              let plainData = try? protection.dataForReading(storedData),
+              var library = try? JSONDecoder().decode(ProfileLibrary.self, from: plainData) else {
             return ProfileLibrary()
         }
         // 配置库也保存绝对路径，改名/迁移后需要在读取时修正并写回。
-        var changed = false
+        var changed = protection.enabled && !ChumenConfigProtection.isProtected(storedData)
         for index in library.profiles.indices {
             let migratedPath = paths.rewriteLegacyAppHomePath(library.profiles[index].filePath)
             if migratedPath != library.profiles[index].filePath {
@@ -84,6 +92,7 @@ public final class ProfileRepository {
         if changed {
             try? save(library)
         }
+        try? rewriteProfileFilesIfNeeded(in: library)
         return library
     }
 
@@ -92,17 +101,18 @@ public final class ProfileRepository {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(library)
-        try data.write(to: paths.profileLibraryURL, options: .atomic)
+        try protection.writeData(data, to: paths.profileLibraryURL, fileManager: fileManager)
+    }
+
+    public nonisolated func profileContent(_ profile: ProxyProfile) throws -> String {
+        try protection.readText(at: URL(fileURLWithPath: profile.filePath))
     }
 
     public func importLocalProfile(from sourceURL: URL, name: String? = nil, into library: inout ProfileLibrary) throws -> ProxyProfile {
         try paths.ensureDirectories(fileManager: fileManager)
         let id = UUID().uuidString
         let targetURL = paths.profilesDirectoryURL.appendingPathComponent("\(id).yaml")
-        if fileManager.fileExists(atPath: targetURL.path) {
-            try fileManager.removeItem(at: targetURL)
-        }
-        try fileManager.copyItem(at: sourceURL, to: targetURL)
+        try writeProfileData(Data(contentsOf: sourceURL), to: targetURL)
 
         let profile = ProxyProfile(
             id: id,
@@ -127,7 +137,7 @@ public final class ProfileRepository {
 
         let id = UUID().uuidString
         let targetURL = paths.profilesDirectoryURL.appendingPathComponent("\(id).yaml")
-        try data.write(to: targetURL, options: .atomic)
+        try writeProfileData(data, to: targetURL)
 
         let profile = ProxyProfile(
             id: id,
@@ -172,7 +182,7 @@ public final class ProfileRepository {
 
                 let id = UUID().uuidString
                 let targetURL = paths.profilesDirectoryURL.appendingPathComponent("\(id).yaml")
-                try data.write(to: targetURL, options: .atomic)
+                try writeProfileData(data, to: targetURL)
 
                 let profile = ProxyProfile(
                     id: id,
@@ -210,7 +220,7 @@ public final class ProfileRepository {
             throw ChumenError.commandFailed("This profile has no remote subscription URL.")
         }
         let data = try await downloadProfile(url: url)
-        try data.write(to: URL(fileURLWithPath: profile.filePath), options: .atomic)
+        try writeProfileData(data, to: URL(fileURLWithPath: profile.filePath))
 
         var updated = profile
         updated.updatedAt = Date()
@@ -235,7 +245,7 @@ public final class ProfileRepository {
     }
 
     public func saveContent(_ profile: ProxyProfile, content: String, in library: inout ProfileLibrary) throws -> ProxyProfile {
-        try content.write(to: URL(fileURLWithPath: profile.filePath), atomically: true, encoding: .utf8)
+        try protection.writeText(content, to: URL(fileURLWithPath: profile.filePath), fileManager: fileManager)
 
         var updated = profile
         updated.updatedAt = Date()
@@ -254,7 +264,7 @@ public final class ProfileRepository {
         in library: inout ProfileLibrary
     ) throws -> ProxyProfile {
         let normalizedRemoteURL = try normalizedRemoteURL(remoteURL)
-        try content.write(to: URL(fileURLWithPath: profile.filePath), atomically: true, encoding: .utf8)
+        try protection.writeText(content, to: URL(fileURLWithPath: profile.filePath), fileManager: fileManager)
 
         var updated = profile
         updated.name = cleanName(name, fallback: profile.name)
@@ -316,7 +326,7 @@ public final class ProfileRepository {
         ]
         let proxySession = URLSession(configuration: configuration)
         let data = try await downloadProfile(url: url, sessionOverride: proxySession)
-        try data.write(to: URL(fileURLWithPath: profile.filePath), options: .atomic)
+        try writeProfileData(data, to: URL(fileURLWithPath: profile.filePath))
 
         var updated = profile
         updated.updatedAt = Date()
@@ -363,11 +373,27 @@ public final class ProfileRepository {
             if let fingerprint = profile.sourceFingerprint {
                 return fingerprint
             }
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: profile.filePath)) else {
+            guard let data = try? profileData(profile) else {
                 return nil
             }
             return Self.contentFingerprint(data)
         })
+    }
+
+    private func writeProfileData(_ data: Data, to url: URL) throws {
+        try protection.writeData(data, to: url, fileManager: fileManager)
+    }
+
+    private func profileData(_ profile: ProxyProfile) throws -> Data {
+        try protection.dataForReading(Data(contentsOf: URL(fileURLWithPath: profile.filePath)))
+    }
+
+    private func rewriteProfileFilesIfNeeded(in library: ProfileLibrary) throws {
+        guard protection.enabled else { return }
+        for profile in library.profiles {
+            let url = URL(fileURLWithPath: profile.filePath)
+            _ = try protection.rewriteIfNeeded(at: url, fileManager: fileManager)
+        }
     }
 
     private func uniqueName(_ raw: String, existingNames: Set<String>) -> String {

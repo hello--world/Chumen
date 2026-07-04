@@ -193,7 +193,7 @@ final class AppModel: ObservableObject {
             try? settingsStore.save(loadedSettings)
         }
         self.settings = loadedSettings
-        self.profileRepository = ProfileRepository(paths: paths)
+        self.profileRepository = ProfileRepository(paths: paths, protectConfigFiles: loadedSettings.protectConfigFiles)
         var library = profileRepository.load()
         if library.activeProfileID == nil {
             library.activeProfileID = loadedSettings.activeProfileID
@@ -286,8 +286,8 @@ final class AppModel: ObservableObject {
                 try await configSync.push(
                     appSettings: settings,
                     profileLibrary: profileLibrary,
-                    readProfileContent: { profile in
-                        try String(contentsOfFile: profile.filePath, encoding: .utf8)
+                    readProfileContent: { [profileRepository] profile in
+                        try profileRepository.profileContent(profile)
                     }
                 )
                 statusText = t(.syncUploaded)
@@ -445,12 +445,12 @@ final class AppModel: ObservableObject {
             }
 
             if isRunning, !wasActive {
-                try ChumenConfigurationBuilder.writeRuntimeConfig(
+                let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(
                     settings: launch,
                     paths: paths,
                     profileAppendixYAML: activeProfileAppendixYAML
                 )
-                try await mihomoClient().reloadConfig(path: paths.runtimeConfigURL.path, force: true)
+                try await mihomoClient().reloadConfig(path: runtimeConfigURL.path, force: true)
                 await refreshAll()
             }
 
@@ -1129,11 +1129,11 @@ final class AppModel: ObservableObject {
         profileEditorIsLoading = true
         editingProfile = profile
 
-        let filePath = profile.filePath
+        let repository = profileRepository
         profileEditorLoadTask = Task { [weak self] in
             do {
                 let text = try await Task.detached(priority: .userInitiated) {
-                    try String(contentsOfFile: filePath, encoding: .utf8)
+                    try repository.profileContent(profile)
                 }.value
                 guard !Task.isCancelled else { return }
                 self?.profileEditorText = text
@@ -1189,12 +1189,12 @@ final class AppModel: ObservableObject {
         profileSectionEditorIsLoading = true
         editingProfileSection = ProfileSectionEditorState(profile: profile, kind: kind)
 
-        let filePath = profile.filePath
+        let repository = profileRepository
         let yamlKey = kind.yamlKey
         profileSectionEditorLoadTask = Task { [weak self] in
             do {
                 let yaml = try await Task.detached(priority: .userInitiated) {
-                    try String(contentsOfFile: filePath, encoding: .utf8)
+                    try repository.profileContent(profile)
                 }.value
                 guard !Task.isCancelled else { return }
                 self?.profileSectionEditorText = Self.extractTopLevelBlock(yamlKey, from: yaml)
@@ -1213,7 +1213,7 @@ final class AppModel: ObservableObject {
         guard !profileSectionEditorIsLoading else { return }
 
         do {
-            let current = try String(contentsOfFile: editingProfileSection.profile.filePath, encoding: .utf8)
+            let current = try profileRepository.profileContent(editingProfileSection.profile)
             let content = Self.replacingTopLevelBlock(
                 editingProfileSection.kind.yamlKey,
                 in: current,
@@ -1410,14 +1410,14 @@ final class AppModel: ObservableObject {
             do {
                 let launch = launchSettings()
                 // profile 改动后不重启内核，优先通过 controller 热重载生成后的 runtime YAML。
-                try ChumenConfigurationBuilder.writeRuntimeConfig(
+                let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(
                     settings: launch,
                     paths: paths,
                     profileAppendixYAML: activeProfileAppendixYAML
                 )
                 settings = launch
                 saveSettings()
-                try await mihomoClient().reloadConfig(path: paths.runtimeConfigURL.path, force: true)
+                try await mihomoClient().reloadConfig(path: runtimeConfigURL.path, force: true)
                 statusText = t(.runtimeConfigReloaded)
                 await refreshAll()
             } catch {
@@ -2017,12 +2017,12 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let launch = launchSettings()
-                try ChumenConfigurationBuilder.writeRuntimeConfig(
+                let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(
                     settings: launch,
                     paths: paths,
                     profileAppendixYAML: activeProfileAppendixYAML
                 )
-                try await mihomoClient().reloadConfig(path: paths.runtimeConfigURL.path, force: true)
+                try await mihomoClient().reloadConfig(path: runtimeConfigURL.path, force: true)
                 settings = launch
                 saveSettings()
                 statusText = t(.runtimeConfigReloaded)

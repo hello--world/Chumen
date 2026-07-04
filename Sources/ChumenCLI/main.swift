@@ -200,7 +200,7 @@ struct ChumenCLI {
         case "show":
             guard arguments.count >= 2 else { throw CLIError.usage("profile show <id>") }
             let profile = try findProfile(arguments[1], in: library)
-            print(try String(contentsOfFile: profile.filePath, encoding: .utf8))
+            print(try context.profileRepository.profileContent(profile))
         case "export":
             guard arguments.count >= 3 else { throw CLIError.usage("profile export <id> <target-yaml-path>") }
             let profile = try findProfile(arguments[1], in: library)
@@ -208,7 +208,7 @@ struct ChumenCLI {
             if FileManager.default.fileExists(atPath: target.path) {
                 try FileManager.default.removeItem(at: target)
             }
-            try FileManager.default.copyItem(at: URL(fileURLWithPath: profile.filePath), to: target)
+            try context.profileRepository.profileContent(profile).write(to: target, atomically: true, encoding: .utf8)
             print(target.path)
         case "rename":
             guard arguments.count >= 3 else { throw CLIError.usage("profile rename <id> <name>") }
@@ -303,10 +303,11 @@ struct ChumenCLI {
 
         switch arguments.first {
         case nil, "generate":
-            try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: context.paths)
-            print(context.paths.runtimeConfigURL.path)
+            let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: context.paths)
+            print(runtimeConfigURL.path)
         case "print":
-            let profile = settings.profilePath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+            let protection = ChumenConfigProtection(enabled: settings.protectConfigFiles)
+            let profile = settings.profilePath.flatMap { try? protection.readText(at: URL(fileURLWithPath: $0)) }
             print(ChumenConfigurationBuilder.runtimeYAML(profileYAML: profile, settings: settings, socketPath: context.paths.externalControllerSocketURL.path))
         default:
             throw CLIError.usage("config <generate|print>")
@@ -356,7 +357,17 @@ struct ChumenCLI {
             try await client.patchConfigs(patch)
             print("config patched")
         case "reload-config":
-            let path = arguments.count >= 2 ? arguments[1] : context.paths.runtimeConfigURL.path
+            let path: String
+            if arguments.count >= 2 {
+                path = arguments[1]
+            } else {
+                var settings = context.settingsStore.load()
+                if let active = context.profileRepository.load().activeProfile {
+                    settings.activeProfileID = active.id
+                    settings.profilePath = active.filePath
+                }
+                path = try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: context.paths).path
+            }
             let force = arguments.count >= 3 ? try parseBool(arguments[2]) : true
             try await client.reloadConfig(path: path, force: force)
             print("config reloaded")
@@ -578,11 +589,11 @@ struct ChumenCLI {
             settings.profilePath = nil
         }
         try context.settingsStore.save(settings)
-        try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: context.paths)
+        let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(settings: settings, paths: context.paths)
         guard let url = settings.controllerBaseURL else { return }
         do {
             try await MihomoClient(baseURL: url, secret: settings.secret)
-                .reloadConfig(path: context.paths.runtimeConfigURL.path, force: true)
+                .reloadConfig(path: runtimeConfigURL.path, force: true)
         } catch {
             let nsError = error as NSError
             if nsError.domain == NSURLErrorDomain,
@@ -786,7 +797,7 @@ private struct CLIContext {
         self.paths = paths
         self.settingsStore = ChumenSettingsStore(paths: paths)
         self.settings = settingsStore.load()
-        self.profileRepository = ProfileRepository(paths: paths)
+        self.profileRepository = ProfileRepository(paths: paths, protectConfigFiles: settings.protectConfigFiles)
     }
 
     func client() throws -> MihomoClient {

@@ -384,7 +384,8 @@ final class ChumenConfigurationBuilderTests: XCTestCase {
         let settings = ChumenSettingsStore(paths: paths).load()
 
         XCTAssertEqual(settings.profilePath, migratedProfile.path)
-        XCTAssertFalse(try String(contentsOf: paths.settingsURL, encoding: .utf8).contains(previousAppSupportDirectoryName))
+        let storedSettings = try ChumenConfigProtection().readText(at: paths.settingsURL)
+        XCTAssertFalse(storedSettings.contains(previousAppSupportDirectoryName))
     }
 
     func testPathsMigrateLegacyAppHomeAndRewriteStoredAbsolutePaths() throws {

@@ -24,6 +24,7 @@ final class ProfileRepositoryTests: XCTestCase {
         XCTAssertEqual(reloaded.activeProfileID, profile.id)
         XCTAssertEqual(reloaded.profiles.first?.name, "source")
         XCTAssertTrue(FileManager.default.fileExists(atPath: profile.filePath))
+        XCTAssertTrue(ChumenConfigProtection.isProtected(try Data(contentsOf: URL(fileURLWithPath: profile.filePath))))
     }
 
     func testDeleteActiveProfileSelectsNextProfile() throws {
@@ -67,9 +68,10 @@ final class ProfileRepositoryTests: XCTestCase {
 
         let edited = try repository.saveContent(profile, content: "rules:\n  - MATCH,DIRECT\n", in: &library)
         let renamed = try repository.rename(edited, name: "Daily Profile", in: &library)
-        let content = try String(contentsOfFile: renamed.filePath, encoding: .utf8)
+        let content = try repository.profileContent(renamed)
 
         XCTAssertEqual(content, "rules:\n  - MATCH,DIRECT\n")
+        XCTAssertTrue(ChumenConfigProtection.isProtected(try Data(contentsOf: URL(fileURLWithPath: renamed.filePath))))
         XCTAssertEqual(library.profiles.first?.name, "Daily Profile")
         XCTAssertEqual(repository.load().profiles.first?.name, "Daily Profile")
     }
@@ -99,7 +101,7 @@ final class ProfileRepositoryTests: XCTestCase {
 
         XCTAssertEqual(updated.name, "Imported Subscription")
         XCTAssertEqual(updated.remoteURL, "https://example.com/sub.yaml?token=abc")
-        XCTAssertEqual(try String(contentsOfFile: updated.filePath, encoding: .utf8), "rules:\n  - MATCH,DIRECT\n")
+        XCTAssertEqual(try repository.profileContent(updated), "rules:\n  - MATCH,DIRECT\n")
         XCTAssertEqual(repository.load().profiles.first?.remoteURL, "https://example.com/sub.yaml?token=abc")
 
         let localOnly = try repository.updateMetadata(updated, name: "Local Only", remoteURL: "", in: &library)
@@ -273,7 +275,8 @@ final class ProfileRepositoryTests: XCTestCase {
         let loaded = ProfileRepository(paths: paths).load()
 
         XCTAssertEqual(loaded.profiles.first?.filePath, migratedFile.path)
-        XCTAssertFalse(try String(contentsOf: paths.profileLibraryURL, encoding: .utf8).contains(previousAppSupportDirectoryName))
+        let storedLibrary = try ChumenConfigProtection().readText(at: paths.profileLibraryURL)
+        XCTAssertFalse(storedLibrary.contains(previousAppSupportDirectoryName))
     }
 
     private var previousAppToken: String {

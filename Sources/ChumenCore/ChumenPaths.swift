@@ -34,6 +34,12 @@ public struct ChumenPaths: Sendable {
         appHome.appendingPathComponent("chumen-runtime.yaml")
     }
 
+    public var runtimePlaintextDirectoryURL: URL {
+        // A dedicated runtime directory lets cleanup target only Chumen-generated plaintext YAML
+        // without touching user-imported profiles or durable encrypted state.
+        appHome.appendingPathComponent("runtime", isDirectory: true)
+    }
+
     public var settingsURL: URL {
         appHome.appendingPathComponent("settings.json")
     }
@@ -93,6 +99,8 @@ public struct ChumenPaths: Sendable {
         try fileManager.createDirectory(at: profilesDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: logsDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: socketDirectoryURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: runtimePlaintextDirectoryURL, withIntermediateDirectories: true)
+        try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: runtimePlaintextDirectoryURL.path)
     }
 
     static func migrateLegacyAppHomeIfNeeded(

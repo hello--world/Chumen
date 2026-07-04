@@ -35,6 +35,9 @@ struct ChumenImportedSyncState {
 
 @MainActor
 final class ChumenConfigSyncService: ObservableObject {
+    // Sync snapshots are portability artifacts, not Chumen's local storage format. They keep
+    // profile paths relative and profile YAML readable so another Chumen install can import them;
+    // importPayload is the boundary that re-applies local config protection and rewrites paths.
     @Published private(set) var settings: ChumenSyncSettings
     @Published private(set) var statusText = ""
     @Published private(set) var isSyncing = false
@@ -249,8 +252,12 @@ final class ChumenConfigSyncService: ObservableObject {
 
         var importedSettings = payload.settings
         importedSettings.corePath = currentSettings.corePath
+        // Local protection is an installation policy, not a property that should be forced by a
+        // synced snapshot from another machine.
+        importedSettings.protectConfigFiles = currentSettings.protectConfigFiles
 
         var localLibrary = payload.profileLibrary
+        let protection = ChumenConfigProtection(enabled: currentSettings.protectConfigFiles)
 
         for index in localLibrary.profiles.indices {
             let profile = localLibrary.profiles[index]
@@ -262,7 +269,7 @@ final class ChumenConfigSyncService: ObservableObject {
             }
 
             let targetURL = paths.profilesDirectoryURL.appendingPathComponent("\(profile.id).yaml")
-            try Data(content.utf8).write(to: targetURL, options: .atomic)
+            try protection.writeText(content, to: targetURL, fileManager: fileManager)
             localLibrary.profiles[index].filePath = targetURL.path
         }
 
@@ -277,7 +284,7 @@ final class ChumenConfigSyncService: ObservableObject {
         }
 
         try ChumenSettingsStore(paths: paths).save(importedSettings)
-        try ProfileRepository(paths: paths).save(localLibrary)
+        try ProfileRepository(paths: paths, protectConfigFiles: currentSettings.protectConfigFiles).save(localLibrary)
 
         return ChumenImportedSyncState(settings: importedSettings, profileLibrary: localLibrary)
     }
