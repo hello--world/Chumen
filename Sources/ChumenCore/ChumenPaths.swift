@@ -55,6 +55,13 @@ public struct ChumenPaths: Sendable {
         appHome.appendingPathComponent("pin-vault.json")
     }
 
+    public var pinAutoUnlockKeyURL: URL {
+        // Default installs should behave like a normal app: the PIN participates in protecting the
+        // age identity, but the app can still reopen without asking unless app-lock is enabled. This
+        // small local wrapping key unlocks that default path and is deleted when app-lock is turned on.
+        appHome.appendingPathComponent("pin-auto-unlock.key")
+    }
+
     public var ageIdentityURL: URL {
         // Plain age identity storage is intentionally simple and local. It is used only when the
         // user disables PIN protection for the age key; the default protected path stores the same

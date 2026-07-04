@@ -18,6 +18,27 @@ final class ChumenPINVaultTests: XCTestCase {
         XCTAssertThrowsError(try vault.unlock(pin: "000000"))
     }
 
+    func testPINVaultAutoUnlockFollowsAppLockFlag() throws {
+        let root = temporaryRoot()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let vault = ChumenPINVault(paths: ChumenPaths(appHome: root), service: testService())
+        let keyPair = MihomoAgeKeyPair(secretKey: "AGE-SECRET-KEY-AUTO", publicKey: "age1auto")
+
+        try vault.create(pin: "2468", keyPair: keyPair, lockAppOnLaunch: false, storage: .local)
+
+        XCTAssertEqual(try vault.autoUnlock(), keyPair)
+
+        try vault.updateLockAppOnLaunch(true, storage: .local)
+
+        XCTAssertThrowsError(try vault.autoUnlock())
+
+        try vault.updateLockAppOnLaunch(false, keyPair: keyPair, storage: .local)
+
+        XCTAssertEqual(try vault.autoUnlock(), keyPair)
+    }
+
     func testKeychainPINVaultCanMoveToLocalWithoutKnowingPIN() throws {
         let root = temporaryRoot()
         defer {

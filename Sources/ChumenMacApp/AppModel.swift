@@ -222,24 +222,48 @@ final class AppModel: ObservableObject {
         var library: ProfileLibrary
         let shouldDeferStartup: Bool
         if pinVault.exists {
-            // PIN-protected settings cannot be decoded until the user supplies the PIN that unwraps
-            // the age identity. Do not call settingsStore.load() here: its legacy fallback behavior
-            // would synthesize defaults and risk later overwriting the protected files.
-            loadedSettings = ChumenSettingsStore.defaultSettings()
-            library = ProfileLibrary()
             self.pinVaultExists = true
-            self.pinStorageLocked = true
             let detectedPINStorage = pinVault.storageKind() ?? .local
             self.pinStorageKind = detectedPINStorage
-            self.pinAppLockOnLaunch = (try? pinVault.load(preferredStorage: detectedPINStorage)?.lockAppOnLaunch) ?? false
-            self.pinStatusText = L10n.text(.pinRequired, language: loadedSettings.language ?? .system)
-            self.profileRepository = ProfileRepository(
-                paths: paths,
-                protectConfigFiles: loadedSettings.protectConfigFiles,
-                protectionKeyStore: bootstrapKeyStore,
-                corePath: loadedSettings.corePath
-            )
-            shouldDeferStartup = true
+            let storedVault = try? pinVault.load(preferredStorage: detectedPINStorage)
+            let appLockOnLaunch = storedVault?.lockAppOnLaunch ?? false
+            self.pinAppLockOnLaunch = appLockOnLaunch
+
+            // PIN has two jobs: it can protect the age key, and it can optionally lock the app.
+            // Default installs keep the app usable by auto-unlocking the PIN-protected age key with
+            // Chumen's local wrapping key. Only the explicit app-lock flag should block startup.
+            if !appLockOnLaunch,
+               let keyPair = try? pinVault.autoUnlock(preferredStorage: detectedPINStorage),
+               let protectedState = try? Self.loadProtectedConfiguration(
+                    paths: paths,
+                    storage: detectedPINStorage,
+                    ageKeyPair: keyPair
+               ) {
+                self.protectionKeyStore = protectedState.keyStore
+                self.settingsStore = protectedState.settingsStore
+                self.profileRepository = protectedState.profileRepository
+                self.unlockedAgeKeyPair = keyPair
+                loadedSettings = protectedState.settings
+                library = protectedState.library
+                self.pinStorageLocked = false
+                self.pinStatusText = ""
+                shouldDeferStartup = false
+            } else {
+                // Existing vaults from older builds may not have an auto-unlock copy. In that case
+                // ask once for the PIN, then loadUnlockedConfiguration will backfill auto-unlock
+                // when app-lock is disabled.
+                loadedSettings = ChumenSettingsStore.defaultSettings()
+                library = ProfileLibrary()
+                self.pinStorageLocked = true
+                self.pinStatusText = L10n.text(.pinRequired, language: loadedSettings.language ?? .system)
+                self.profileRepository = ProfileRepository(
+                    paths: paths,
+                    protectConfigFiles: loadedSettings.protectConfigFiles,
+                    protectionKeyStore: bootstrapKeyStore,
+                    corePath: loadedSettings.corePath
+                )
+                shouldDeferStartup = true
+            }
         } else {
             // First pass is read-only: if the decoded/default settings require PIN protection, we
             // must not migrate plaintext settings or profiles yet because migration writes would
@@ -779,7 +803,13 @@ final class AppModel: ObservableObject {
         pinAppLockOnLaunch = enabled
         guard pinVaultExists else { return }
         do {
-            try pinVault.updateLockAppOnLaunch(enabled, storage: pinStorageKind)
+            if !enabled, unlockedAgeKeyPair == nil {
+                pinStatusText = t(.pinRequired)
+                pinAppLocked = true
+                return
+            }
+            let keyPair = enabled ? nil : unlockedAgeKeyPair
+            try pinVault.updateLockAppOnLaunch(enabled, keyPair: keyPair, storage: pinStorageKind)
             pinStatusText = t(.saved)
         } catch {
             pinStatusText = displayError(error)
@@ -823,15 +853,26 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func loadUnlockedConfiguration(ageKeyPair: MihomoAgeKeyPair) throws {
+    private struct ProtectedConfigurationState {
+        let keyStore: ChumenConfigProtectionKeyStore
+        let settingsStore: ChumenSettingsStore
+        let profileRepository: ProfileRepository
+        var settings: ChumenRuntimeSettings
+        var library: ProfileLibrary
+    }
+
+    private static func loadProtectedConfiguration(
+        paths: ChumenPaths,
+        storage: ChumenAgeKeyStorageKind,
+        ageKeyPair: MihomoAgeKeyPair
+    ) throws -> ProtectedConfigurationState {
         let unlockedStore = ChumenConfigProtectionKeyStore(ageKeyPair: ageKeyPair)
-        protectionKeyStore = unlockedStore
-        settingsStore = ChumenSettingsStore(paths: paths, protectionKeyStore: unlockedStore)
+        let settingsStore = ChumenSettingsStore(paths: paths, protectionKeyStore: unlockedStore)
         var loadedSettings = try settingsStore.loadOrThrow()
         let decodedProtectAgeKeyWithPIN = loadedSettings.protectAgeKeyWithPIN
         loadedSettings.protectAgeKeyWithPIN = true
-        loadedSettings.ageKeyStorage = pinStorageKind
-        profileRepository = ProfileRepository(
+        loadedSettings.ageKeyStorage = storage
+        let profileRepository = ProfileRepository(
             paths: paths,
             protectConfigFiles: loadedSettings.protectConfigFiles,
             protectionKeyStore: unlockedStore,
@@ -855,20 +896,42 @@ final class AppModel: ObservableObject {
             try settingsStore.save(loadedSettings)
         }
 
+        return ProtectedConfigurationState(
+            keyStore: unlockedStore,
+            settingsStore: settingsStore,
+            profileRepository: profileRepository,
+            settings: loadedSettings,
+            library: library
+        )
+    }
+
+    private func loadUnlockedConfiguration(ageKeyPair: MihomoAgeKeyPair) throws {
+        let protectedState = try Self.loadProtectedConfiguration(
+            paths: paths,
+            storage: pinStorageKind,
+            ageKeyPair: ageKeyPair
+        )
+
         unlockedAgeKeyPair = ageKeyPair
-        manager.updateProtectionKeyStore(unlockedStore)
-        settings = loadedSettings
-        profileLibrary = library
-        lastSavedSettings = loadedSettings
+        protectionKeyStore = protectedState.keyStore
+        settingsStore = protectedState.settingsStore
+        profileRepository = protectedState.profileRepository
+        manager.updateProtectionKeyStore(protectedState.keyStore)
+        settings = protectedState.settings
+        profileLibrary = protectedState.library
+        lastSavedSettings = protectedState.settings
         pinVaultExists = true
         pinSetupRequired = false
         pinStorageLocked = false
         pinAppLocked = false
         pinAppLockOnLaunch = (try? pinVault.load(preferredStorage: pinStorageKind)?.lockAppOnLaunch) ?? false
+        if !pinAppLockOnLaunch {
+            try? pinVault.updateLockAppOnLaunch(false, keyPair: ageKeyPair, storage: pinStorageKind)
+        }
         pinStatusText = t(.pinUnlocked)
         statusText = t(.pinUnlocked)
         profileContentCache.removeAll()
-        preloadProfileVisualData(for: library.profiles, force: true)
+        preloadProfileVisualData(for: protectedState.library.profiles, force: true)
         refreshSystemProxyState()
         presentStartupImportPromptIfNeeded()
         Task {

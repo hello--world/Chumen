@@ -6,8 +6,9 @@ import Security
 ///
 /// Intent: Keychain is convenient but it is still tied to the logged-in macOS user. The PIN vault is
 /// a simple "防熟人 / 防扫描" layer around the age identity: Chumen cannot decrypt settings,
-/// subscriptions, or nodes until the user enters the PIN. This is separate from the optional app
-/// lock UI; the default PIN use case protects stored keys, not the window as a lock screen.
+/// subscriptions, or nodes without an unlock path for the age key. By default that unlock path is
+/// automatic so the app behaves normally; when app-lock is enabled, the automatic copy is removed
+/// and the PIN becomes the required launch credential.
 /// This is not a root/admin boundary, and the KDF is intentionally lightweight enough to keep the
 /// feature simple instead of pretending to be high-assurance secret storage.
 public struct ChumenPINVault: Sendable {
@@ -16,16 +17,25 @@ public struct ChumenPINVault: Sendable {
         public var saltHex: String
         public var sealedKeyPairBase64: String
         public var lockAppOnLaunch: Bool
+        public var autoSealedKeyPairBase64: String?
 
-        public init(version: Int, saltHex: String, sealedKeyPairBase64: String, lockAppOnLaunch: Bool) {
+        public init(
+            version: Int,
+            saltHex: String,
+            sealedKeyPairBase64: String,
+            lockAppOnLaunch: Bool,
+            autoSealedKeyPairBase64: String? = nil
+        ) {
             self.version = version
             self.saltHex = saltHex
             self.sealedKeyPairBase64 = sealedKeyPairBase64
             self.lockAppOnLaunch = lockAppOnLaunch
+            self.autoSealedKeyPairBase64 = autoSealedKeyPairBase64
         }
     }
 
     public let vaultURL: URL
+    public let autoUnlockKeyURL: URL
     private let service: String
     private let account: String
 
@@ -35,6 +45,7 @@ public struct ChumenPINVault: Sendable {
         account: String = "age-key-vault"
     ) {
         self.vaultURL = paths.pinVaultURL
+        self.autoUnlockKeyURL = paths.pinAutoUnlockKeyURL
         self.service = service
         self.account = account
     }
@@ -72,7 +83,8 @@ public struct ChumenPINVault: Sendable {
             version: 1,
             saltHex: salt.hexString,
             sealedKeyPairBase64: combined.base64EncodedString(),
-            lockAppOnLaunch: lockAppOnLaunch
+            lockAppOnLaunch: lockAppOnLaunch,
+            autoSealedKeyPairBase64: lockAppOnLaunch ? nil : try autoSeal(keyPair)
         )
         try save(vault, storage: storage)
         try delete(storage: storage == .local ? .keychain : .local)
@@ -94,9 +106,32 @@ public struct ChumenPINVault: Sendable {
         return try JSONDecoder().decode(MihomoAgeKeyPair.self, from: plain)
     }
 
-    public func updateLockAppOnLaunch(_ enabled: Bool, storage: ChumenAgeKeyStorageKind? = nil) throws {
+    public func autoUnlock(preferredStorage: ChumenAgeKeyStorageKind? = nil) throws -> MihomoAgeKeyPair {
+        guard let vault = try load(preferredStorage: preferredStorage) else {
+            throw ChumenError.commandFailed("PIN vault is not configured.")
+        }
+        guard let sealedBase64 = vault.autoSealedKeyPairBase64,
+              let sealedData = Data(base64Encoded: sealedBase64) else {
+            throw ChumenError.commandFailed("PIN vault auto unlock is not configured.")
+        }
+        let sealed = try AES.GCM.SealedBox(combined: sealedData)
+        let plain = try AES.GCM.open(sealed, using: SymmetricKey(data: try loadAutoUnlockKey()))
+        return try JSONDecoder().decode(MihomoAgeKeyPair.self, from: plain)
+    }
+
+    public func updateLockAppOnLaunch(
+        _ enabled: Bool,
+        keyPair: MihomoAgeKeyPair? = nil,
+        storage: ChumenAgeKeyStorageKind? = nil
+    ) throws {
         guard var vault = try load(preferredStorage: storage) else { return }
         vault.lockAppOnLaunch = enabled
+        if enabled {
+            vault.autoSealedKeyPairBase64 = nil
+            try deleteAutoUnlockKey()
+        } else if let keyPair {
+            vault.autoSealedKeyPairBase64 = try autoSeal(keyPair)
+        }
         try save(vault, storage: storage ?? storageKind() ?? .local)
     }
 
@@ -119,6 +154,7 @@ public struct ChumenPINVault: Sendable {
                 try FileManager.default.removeItem(at: vaultURL)
             }
             try deleteKeychainVault()
+            try deleteAutoUnlockKey()
         }
     }
 
@@ -194,6 +230,48 @@ public struct ChumenPINVault: Sendable {
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: vaultURL.path)
         case .keychain:
             try saveKeychainVault(data)
+        }
+    }
+
+    private func autoSeal(_ keyPair: MihomoAgeKeyPair) throws -> String {
+        let plain = try JSONEncoder().encode(keyPair)
+        let sealed = try AES.GCM.seal(plain, using: SymmetricKey(data: try loadOrCreateAutoUnlockKey()))
+        guard let combined = sealed.combined else {
+            throw ChumenError.commandFailed("Could not encode PIN vault auto unlock payload.")
+        }
+        return combined.base64EncodedString()
+    }
+
+    private func loadOrCreateAutoUnlockKey() throws -> Data {
+        if let existing = try loadAutoUnlockKeyIfPresent() {
+            return existing
+        }
+        let key = try Self.randomBytes(count: 32)
+        try FileManager.default.createDirectory(at: autoUnlockKeyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try key.write(to: autoUnlockKeyURL, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: autoUnlockKeyURL.path)
+        return key
+    }
+
+    private func loadAutoUnlockKey() throws -> Data {
+        guard let key = try loadAutoUnlockKeyIfPresent() else {
+            throw ChumenError.commandFailed("PIN vault auto unlock key is missing.")
+        }
+        return key
+    }
+
+    private func loadAutoUnlockKeyIfPresent() throws -> Data? {
+        guard FileManager.default.fileExists(atPath: autoUnlockKeyURL.path) else { return nil }
+        let data = try Data(contentsOf: autoUnlockKeyURL)
+        guard data.count == 32 else {
+            throw ChumenError.commandFailed("PIN vault auto unlock key is corrupt.")
+        }
+        return data
+    }
+
+    private func deleteAutoUnlockKey() throws {
+        if FileManager.default.fileExists(atPath: autoUnlockKeyURL.path) {
+            try FileManager.default.removeItem(at: autoUnlockKeyURL)
         }
     }
 
