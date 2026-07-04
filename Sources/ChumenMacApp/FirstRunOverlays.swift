@@ -23,7 +23,9 @@ struct PINLockOverlay: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let width = min(CGFloat(980), max(CGFloat(820), geometry.size.width - CGFloat(120)))
+            let isSetup = model.pinSetupRequired
+            let width = min(CGFloat(980), max(isSetup ? CGFloat(820) : CGFloat(760), geometry.size.width - CGFloat(120)))
+            let height = isSetup ? CGFloat(460) : CGFloat(340)
 
             ZStack {
                 Rectangle()
@@ -35,12 +37,16 @@ struct PINLockOverlay: View {
                         .frame(width: 300)
 
                     VStack(alignment: .leading, spacing: 14) {
-                        storageSection
-                        if model.pinSetupRequired {
+                        if isSetup {
+                            storageSection
                             setupSection
                             Spacer(minLength: 0)
                             setupActions
                         } else {
+                            // Unlock mode means "read the already configured age key". The storage
+                            // location is vault metadata from first setup or Settings, so presenting
+                            // the segmented storage picker here looks like a new decision and can
+                            // cause accidental moves. Keep the launch prompt to one required action.
                             unlockSection
                             Spacer(minLength: 0)
                             unlockActions
@@ -49,7 +55,7 @@ struct PINLockOverlay: View {
                     .padding(24)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-                .frame(width: width, height: 460)
+                .frame(width: width, height: height)
                 .background(
                     RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                         .fill(PINOverlayStyle.card)
@@ -67,7 +73,7 @@ struct PINLockOverlay: View {
 
     private var introPanel: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: model.pinSetupRequired ? "key.fill" : "lock.fill")
+            Image(systemName: model.pinAppLocked ? "lock.fill" : "key.fill")
                 .font(.system(size: 30, weight: .semibold))
                 .foregroundStyle(PINOverlayStyle.accent)
                 .frame(width: 64, height: 64)
