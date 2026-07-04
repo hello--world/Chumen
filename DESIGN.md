@@ -4,8 +4,8 @@
 - Status: Active
 - Last refreshed: 2026-07-04
 - Primary product surfaces: Native macOS Chumen app and its menu bar controller.
-- Evidence reviewed: `Sources/ChumenMacApp/ContentView.swift`, `Sources/ChumenMacApp/AppModel.swift`, `Sources/ChumenMacApp/L10n.swift`, `README.md`, user screenshots of Chumen, macOS Settings, and Shortcuts.
-- Implementation spec: `docs/ui-design-system.md` is the detailed UI contract for colors, layout, typography, first-run setup, search, dashboard, list, and AI assistant surfaces.
+- Evidence reviewed: `Sources/ChumenMacApp/ContentView.swift`, `Sources/ChumenMacApp/AppModel.swift`, `Sources/ChumenMacApp/L10n.swift`, `README.md`, `docs/security-model.md`, user screenshots of Chumen, macOS Settings, and Shortcuts.
+- Implementation spec: `docs/ui-design-system.md` is the detailed UI contract for colors, layout, typography, first-run setup, search, dashboard, list, and AI assistant surfaces. `docs/security-model.md` is the source of truth for config encryption, PIN, app lock, Keychain, runtime plaintext, logging, and AI review boundaries.
 
 ## Brand
 - Personality: quiet, native, technical, reliable.
@@ -67,6 +67,18 @@
 - Disabled: use native disabled controls.
 - Offline/slow network, if applicable: API status should indicate unreachable controller without visually dominating the dashboard.
 - AI draft review: every AI-suggested operation is a temporary proposed change with a git-like diff. The user must explicitly apply each item; no model response may directly mutate settings, import profiles, toggle proxy/TUN, or reload runtime config.
+
+## Security And Privacy Model
+- Source of truth: `docs/security-model.md`.
+- Configuration is encrypted by default with the mihomo age path; Chumen should not create a parallel long-term config encryption scheme.
+- PIN has two independent meanings: age private-key protection and optional application lock. PIN protection is on by default; application lock is off by default.
+- Default startup should auto-unlock the PIN-protected age key using Chumen's local wrapping key, so the app behaves normally unless app lock is enabled.
+- Enabling app lock must remove the auto-unlock path and require PIN on launch. Disabling app lock may recreate auto-unlock only from an already unlocked age key.
+- Do not explain or implement app lock as a side effect of enabling PIN. UI copy must make it clear that app lock is a separate switch.
+- Default age private-key storage is local file; Keychain is optional.
+- Do not use a fixed salt as the default decrypt mechanism. PIN derivation uses a random per-vault salt; default auto-unlock uses a random local wrapping key.
+- Fixed Application Support runtime config may exist only as protected data when config protection is enabled. If a future path needs unavoidable plaintext runtime material, write it to a random temporary session directory and clean it with an explicit cleanup owner.
+- Every user-visible security/runtime notification must also be logged with sanitized context; never log PINs, API keys, controller secrets, age private keys, decrypted profile content, or credential-bearing subscription URLs.
 
 ## Content voice
 - Tone: concise utility language.

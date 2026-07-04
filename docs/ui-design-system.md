@@ -3,6 +3,8 @@
 This document is the implementation-level design contract for Chumen UI work.
 `DESIGN.md` defines product direction; this file defines concrete visual rules that future
 SwiftUI changes must follow.
+For PIN, config encryption, app lock, Keychain, runtime plaintext, logging, and AI review
+boundaries, `docs/security-model.md` is authoritative.
 
 ## Design Goal
 
@@ -107,6 +109,8 @@ footer row.
 ### First-Run Security Setup
 
 This flow protects the age private key and runs before profile import on first launch.
+Its product semantics must follow `docs/security-model.md`; UI changes here must not reinterpret
+PIN protection as app lock.
 
 Default behavior:
 

@@ -23,12 +23,26 @@ scripts/download_mihomo.sh    下载本地 mihomo 内核
 
 主要文件：
 
-- `settings.json`：端口、模式、TUN、DNS、状态栏、内核路径、controller secret 等运行设置。
-- `profiles.json`：订阅/配置库索引。
-- `profiles/*.yaml`：导入后的实际 YAML 配置。
-- `chumen-runtime.yaml`：启动 mihomo 前生成的最终运行配置。
+- `settings.json`：端口、模式、TUN、DNS、状态栏、内核路径、controller secret 等运行设置；默认以 age 加密保存。
+- `profiles.json`：订阅/配置库索引；默认以 age 加密保存。
+- `profiles/*.yaml`：导入后的实际 YAML 配置；默认以 age 加密保存。
+- `chumen-runtime.yaml`：启动 mihomo 前生成的最终运行配置；开启配置保护时固定路径里保存的是 age 保护数据，不应留下明文运行配置。
+- `pin-vault.json`：PIN 保护的 age 私钥保险箱元数据。
+- `pin-auto-unlock.key`：默认不锁应用时用于自动解锁 PIN 保险箱的本地随机包装密钥；开启应用锁屏后会删除。
+- `age-identity.json`：仅在用户关闭 PIN 保护时使用的本地 age 私钥文件。
 - `logs/sidecar.log`：内核 stdout/stderr 和应用侧事件日志。
 - `ipc/*.sock`：HTTP controller 以外的 Unix socket 通道。
+
+## 配置保护、PIN 和应用锁屏
+
+Chumen 的配置保护规则以 `docs/security-model.md` 为准。核心语义是：
+
+- 配置文件默认加密保存，目标是避免订阅和节点被明文扫描、误分享或随手打开看到。
+- PIN 默认参与保护 age 私钥，但不等于应用锁屏。
+- 应用锁屏是独立选项，默认关闭；只有开启后，启动时才必须输入 PIN。
+- 默认不把 age 私钥存到 Keychain；本地文件是默认路径，Keychain 是可选路径。
+- 不用 PIN 也可以继续，配置仍会加密，但 age 私钥会直接保存在所选位置，本机保护更弱。
+- AI 功能只能生成待审核的临时修改和 diff，用户显式应用前不得直接改配置或运行状态。
 
 ## 开发运行
 
