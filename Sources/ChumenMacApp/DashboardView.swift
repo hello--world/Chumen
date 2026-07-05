@@ -155,7 +155,7 @@ struct DashboardView: View {
                 .frame(width: 310, alignment: .leading)
 
             if !commandActionItems.isEmpty {
-                commandActionGrid(minimumColumnWidth: 104, maximumColumnWidth: 132)
+                commandActionGrid
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -166,7 +166,7 @@ struct DashboardView: View {
             commandStateColumn
                 .frame(maxWidth: .infinity, alignment: .leading)
             if !commandActionItems.isEmpty {
-                commandActionGrid(minimumColumnWidth: 104, maximumColumnWidth: 132)
+                commandActionGrid
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -276,9 +276,9 @@ struct DashboardView: View {
                 .font(.callout.weight(.medium))
                 .foregroundStyle(ChumenStyle.mutedText)
             dashboardModePicker
-                .frame(maxWidth: .infinity)
+                .frame(width: 236)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: 292, alignment: .leading)
     }
 
     private var dashboardModePicker: some View {
@@ -320,8 +320,7 @@ struct DashboardView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
                 .padding(.horizontal, 10)
-                .frame(maxWidth: .infinity)
-                .frame(height: 32)
+                .frame(width: 118, height: 32)
                 .background(
                     RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                         .fill(ChumenStyle.controlFill)
@@ -331,13 +330,20 @@ struct DashboardView: View {
         .help(model.t(.quickControlsConfiguration))
     }
 
-    private func commandActionGrid(
-        minimumColumnWidth: CGFloat,
-        maximumColumnWidth: CGFloat
-    ) -> some View {
-        let columns = [
-            GridItem(.adaptive(minimum: minimumColumnWidth, maximum: maximumColumnWidth), spacing: 6)
-        ]
+    private var commandActionGrid: some View {
+        ViewThatFits(in: .horizontal) {
+            commandActionGrid(columnCount: 5)
+            commandActionGrid(columnCount: 4)
+            commandActionGrid(columnCount: 3)
+            commandActionGrid(columnCount: 2)
+        }
+    }
+
+    private func commandActionGrid(columnCount: Int) -> some View {
+        let columns = Array(
+            repeating: GridItem(.fixed(118), spacing: 6),
+            count: columnCount
+        )
 
         return LazyVGrid(columns: columns, alignment: .leading, spacing: 6) {
             ForEach(commandActionItems) { item in
@@ -367,7 +373,6 @@ struct DashboardView: View {
             }
             .buttonStyle(.plain)
             .disabled(!item.isEnabled)
-            .frame(maxWidth: .infinity)
             .help(quickActionHelp(item))
         } else {
             Button {
@@ -377,7 +382,6 @@ struct DashboardView: View {
             }
             .buttonStyle(.plain)
             .disabled(!item.isEnabled)
-            .frame(maxWidth: .infinity)
             .help(quickActionHelp(item))
         }
     }
@@ -389,9 +393,7 @@ struct DashboardView: View {
             .lineLimit(1)
             .minimumScaleFactor(0.72)
             .padding(.horizontal, 10)
-            .frame(minWidth: 118)
-            .frame(maxWidth: .infinity)
-            .frame(height: 32)
+            .frame(width: 118, height: 32)
             .background(
                 RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                     .fill(quickActionBackground(for: item))
@@ -417,9 +419,7 @@ struct DashboardView: View {
         }
         .foregroundStyle(quickActionForeground(for: item))
         .padding(.horizontal, 10)
-        .frame(minWidth: 118)
-        .frame(maxWidth: .infinity)
-        .frame(height: 32)
+        .frame(width: 118, height: 32)
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                 .fill(quickActionBackground(for: item))
