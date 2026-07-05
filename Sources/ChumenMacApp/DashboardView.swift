@@ -150,12 +150,12 @@ struct DashboardView: View {
     }
 
     private var commandPanelWide: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: 8) {
             commandStateColumn
-                .frame(width: 310, alignment: .leading)
+                .frame(width: 236, alignment: .leading)
 
             if !commandActionItems.isEmpty {
-                commandActionGrid
+                commandActionFlow
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -166,7 +166,7 @@ struct DashboardView: View {
             commandStateColumn
                 .frame(maxWidth: .infinity, alignment: .leading)
             if !commandActionItems.isEmpty {
-                commandActionGrid
+                commandActionFlow
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -320,7 +320,7 @@ struct DashboardView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
                 .padding(.horizontal, 10)
-                .frame(width: 118, height: 32)
+                .frame(height: 32)
                 .background(
                     RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                         .fill(ChumenStyle.controlFill)
@@ -330,33 +330,14 @@ struct DashboardView: View {
         .help(model.t(.quickControlsConfiguration))
     }
 
-    private var commandActionGrid: some View {
-        ViewThatFits(in: .horizontal) {
-            commandActionGrid(columnCount: 5)
-            commandActionGrid(columnCount: 4)
-            commandActionGrid(columnCount: 3)
-            commandActionGrid(columnCount: 2)
-        }
-    }
-
-    private func commandActionGrid(columnCount: Int) -> some View {
-        let columns = Array(
-            repeating: GridItem(.fixed(118), spacing: 6),
-            count: columnCount
-        )
-
-        return LazyVGrid(columns: columns, alignment: .leading, spacing: 6) {
+    private var commandActionFlow: some View {
+        CommandActionFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
             ForEach(commandActionItems) { item in
                 quickActionButton(item)
             }
             dashboardEditButton
         }
-        .frame(width: commandActionGridWidth(columnCount: columnCount), alignment: .leading)
         .controlSize(.regular)
-    }
-
-    private func commandActionGridWidth(columnCount: Int) -> CGFloat {
-        CGFloat(columnCount * 118 + max(0, columnCount - 1) * 6)
     }
 
     private func quickActionStrip(_ items: [DashboardItem]) -> some View {
@@ -398,7 +379,7 @@ struct DashboardView: View {
             .lineLimit(1)
             .minimumScaleFactor(0.72)
             .padding(.horizontal, 10)
-            .frame(width: 118, height: 32)
+            .frame(height: 32)
             .background(
                 RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                     .fill(quickActionBackground(for: item))
@@ -419,12 +400,11 @@ struct DashboardView: View {
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
-            Spacer(minLength: 4)
             switchGlyph(isOn: isOn, tint: item.tint)
         }
         .foregroundStyle(quickActionForeground(for: item))
         .padding(.horizontal, 10)
-        .frame(width: 118, height: 32)
+        .frame(height: 32)
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                 .fill(quickActionBackground(for: item))
@@ -704,6 +684,79 @@ struct DashboardView: View {
         default:
             return 82
         }
+    }
+}
+
+private struct CommandActionFlowLayout: Layout {
+    var horizontalSpacing: CGFloat
+    var verticalSpacing: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+        let rows = rows(for: subviews, maxWidth: maxWidth)
+        let width = rows.map(\.width).max() ?? 0
+        let height = rows.enumerated().reduce(CGFloat.zero) { total, item in
+            total + item.element.height + (item.offset == rows.count - 1 ? 0 : verticalSpacing)
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let needsWrap = x > bounds.minX && x + size.width > bounds.maxX
+            if needsWrap {
+                x = bounds.minX
+                y += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+
+            subview.place(
+                at: CGPoint(x: x, y: y),
+                proposal: ProposedViewSize(size)
+            )
+            x += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+
+    private func rows(for subviews: Subviews, maxWidth: CGFloat) -> [(width: CGFloat, height: CGFloat)] {
+        var rows: [(width: CGFloat, height: CGFloat)] = []
+        var currentWidth: CGFloat = 0
+        var currentHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let nextWidth = currentWidth == 0
+                ? size.width
+                : currentWidth + horizontalSpacing + size.width
+            if currentWidth > 0 && nextWidth > maxWidth {
+                rows.append((currentWidth, currentHeight))
+                currentWidth = size.width
+                currentHeight = size.height
+            } else {
+                currentWidth = nextWidth
+                currentHeight = max(currentHeight, size.height)
+            }
+        }
+
+        if currentWidth > 0 {
+            rows.append((currentWidth, currentHeight))
+        }
+        return rows
     }
 }
 
