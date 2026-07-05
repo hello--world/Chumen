@@ -76,8 +76,16 @@ public enum ExternalProfileImporter {
         let appSupport = homeDirectory.appendingPathComponent("Library/Application Support", isDirectory: true)
         let config = homeDirectory.appendingPathComponent(".config", isDirectory: true)
         let sourceDefinitions: [(String, String, URL)] = [
-            ("clash-verge-rev", "Clash Verge Rev", appSupport.appendingPathComponent("io.github.clash-verge-rev.clash-verge-rev", isDirectory: true)),
-            ("clash-verge-rev-dev", "Clash Verge Rev Dev", appSupport.appendingPathComponent("io.github.clash-verge-rev.clash-verge-rev.dev", isDirectory: true)),
+            (
+                "clash-verge-rev",
+                "Clash Verge Rev",
+                appSupport.appendingPathComponent("io.github.clash-verge-rev.clash-verge-rev", isDirectory: true)
+            ),
+            (
+                "clash-verge-rev-dev",
+                "Clash Verge Rev Dev",
+                appSupport.appendingPathComponent("io.github.clash-verge-rev.clash-verge-rev.dev", isDirectory: true)
+            ),
             ("clash-verge", "Clash Verge", appSupport.appendingPathComponent("clash-verge", isDirectory: true)),
             ("clashx-meta", "ClashX Meta", appSupport.appendingPathComponent("com.metacubex.ClashX.meta", isDirectory: true)),
             ("clashx", "ClashX", appSupport.appendingPathComponent("ClashX", isDirectory: true)),
@@ -234,7 +242,12 @@ public enum ExternalProfileImporter {
                 for file in fileCandidates {
                     metadataByFile[file] = metadata
                     metadataByFile[rootURL.appendingPathComponent(file).standardizedFileURL.path] = metadata
-                    metadataByFile[rootURL.appendingPathComponent("profiles", isDirectory: true).appendingPathComponent(file).standardizedFileURL.path] = metadata
+                    let profilePath = rootURL
+                        .appendingPathComponent("profiles", isDirectory: true)
+                        .appendingPathComponent(file)
+                        .standardizedFileURL
+                        .path
+                    metadataByFile[profilePath] = metadata
                 }
             }
         }

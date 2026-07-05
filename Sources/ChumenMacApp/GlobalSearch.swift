@@ -226,14 +226,80 @@ enum GlobalSearchEngine {
             detail: snapshot.activeProfileName,
             priority: GlobalSearchScope.profiles.sortPriority + 5
         )
-        add(id: "tab-proxies", tab: .proxies, scope: .proxies, icon: "point.3.connected.trianglepath.dotted", title: labels.proxies, subtitle: "\(snapshot.proxyGroups.count) \(labels.groups)", priority: GlobalSearchScope.proxies.sortPriority + 5)
-        add(id: "tab-providers", tab: .providers, scope: .providers, icon: "tray.full", title: labels.providers, subtitle: "\(snapshot.proxyProviders.count + snapshot.ruleProviders.count) Provider", priority: GlobalSearchScope.providers.sortPriority + 5)
-        add(id: "tab-connections", tab: .connections, scope: .connections, icon: "link", title: labels.connections, subtitle: "\(snapshot.connections.count) \(labels.activeConnections)", priority: GlobalSearchScope.connections.sortPriority + 5)
-        add(id: "tab-rules", tab: .rules, scope: .rules, icon: "list.bullet.rectangle", title: labels.rules, subtitle: "\(snapshot.rules.count)", priority: GlobalSearchScope.rules.sortPriority + 5)
-        add(id: "tab-core", tab: .core, scope: .core, icon: "gearshape.2", title: labels.coreSettings, subtitle: labels.runtime, detail: snapshot.settings.corePath, priority: GlobalSearchScope.core.sortPriority + 8)
-        add(id: "tab-core-tools", tab: .coreTools, scope: .core, icon: "terminal", title: labels.coreTools, subtitle: "API", detail: snapshot.coreToolResult, priority: GlobalSearchScope.core.sortPriority + 10)
-        add(id: "tab-logs", tab: .logs, scope: .logs, icon: "text.alignleft", title: labels.logs, subtitle: "\(labels.processLog) / \(labels.runtimeLog)", priority: GlobalSearchScope.logs.sortPriority + 5)
-        add(id: "tab-settings", tab: .settings, scope: .settings, icon: "gearshape", title: labels.appSettings, subtitle: "\(labels.statusBar) / \(labels.language) / \(labels.systemProxy)", priority: GlobalSearchScope.settings.sortPriority + 8)
+        add(
+            id: "tab-proxies",
+            tab: .proxies,
+            scope: .proxies,
+            icon: "point.3.connected.trianglepath.dotted",
+            title: labels.proxies,
+            subtitle: "\(snapshot.proxyGroups.count) \(labels.groups)",
+            priority: GlobalSearchScope.proxies.sortPriority + 5
+        )
+        add(
+            id: "tab-providers",
+            tab: .providers,
+            scope: .providers,
+            icon: "tray.full",
+            title: labels.providers,
+            subtitle: "\(snapshot.proxyProviders.count + snapshot.ruleProviders.count) Provider",
+            priority: GlobalSearchScope.providers.sortPriority + 5
+        )
+        add(
+            id: "tab-connections",
+            tab: .connections,
+            scope: .connections,
+            icon: "link",
+            title: labels.connections,
+            subtitle: "\(snapshot.connections.count) \(labels.activeConnections)",
+            priority: GlobalSearchScope.connections.sortPriority + 5
+        )
+        add(
+            id: "tab-rules",
+            tab: .rules,
+            scope: .rules,
+            icon: "list.bullet.rectangle",
+            title: labels.rules,
+            subtitle: "\(snapshot.rules.count)",
+            priority: GlobalSearchScope.rules.sortPriority + 5
+        )
+        add(
+            id: "tab-core",
+            tab: .core,
+            scope: .core,
+            icon: "gearshape.2",
+            title: labels.coreSettings,
+            subtitle: labels.runtime,
+            detail: snapshot.settings.corePath,
+            priority: GlobalSearchScope.core.sortPriority + 8
+        )
+        add(
+            id: "tab-core-tools",
+            tab: .coreTools,
+            scope: .core,
+            icon: "terminal",
+            title: labels.coreTools,
+            subtitle: "API",
+            detail: snapshot.coreToolResult,
+            priority: GlobalSearchScope.core.sortPriority + 10
+        )
+        add(
+            id: "tab-logs",
+            tab: .logs,
+            scope: .logs,
+            icon: "text.alignleft",
+            title: labels.logs,
+            subtitle: "\(labels.processLog) / \(labels.runtimeLog)",
+            priority: GlobalSearchScope.logs.sortPriority + 5
+        )
+        add(
+            id: "tab-settings",
+            tab: .settings,
+            scope: .settings,
+            icon: "gearshape",
+            title: labels.appSettings,
+            subtitle: "\(labels.statusBar) / \(labels.language) / \(labels.systemProxy)",
+            priority: GlobalSearchScope.settings.sortPriority + 8
+        )
 
         for profile in snapshot.profiles {
             add(
@@ -294,11 +360,29 @@ enum GlobalSearchEngine {
 
         for provider in snapshot.proxyProviders {
             if results.count >= candidateLimit { break }
-            addProviderResult(provider, tab: .providers, scope: .providers, subtitle: labels.proxyProviders, results: &results, query: query, selectedScope: selectedScope, candidateLimit: candidateLimit)
+            addProviderResult(
+                provider,
+                tab: .providers,
+                scope: .providers,
+                subtitle: labels.proxyProviders,
+                results: &results,
+                query: query,
+                selectedScope: selectedScope,
+                candidateLimit: candidateLimit
+            )
         }
         for provider in snapshot.ruleProviders {
             if results.count >= candidateLimit { break }
-            addProviderResult(provider, tab: .providers, scope: .providers, subtitle: labels.ruleProviders, results: &results, query: query, selectedScope: selectedScope, candidateLimit: candidateLimit)
+            addProviderResult(
+                provider,
+                tab: .providers,
+                scope: .providers,
+                subtitle: labels.ruleProviders,
+                results: &results,
+                query: query,
+                selectedScope: selectedScope,
+                candidateLimit: candidateLimit
+            )
         }
 
         for connection in snapshot.connections {
@@ -386,7 +470,12 @@ enum GlobalSearchEngine {
         let coreItems: [(String, String, String, String)] = [
             ("core-path", labels.executable, settings.corePath, "terminal"),
             ("secret", labels.secret, settings.secret, "key"),
-            ("ports", labels.ports, "Mixed \(settings.mixedPort), SOCKS \(settings.socksPort), HTTP \(settings.httpPort)", "point.3.connected.trianglepath.dotted"),
+            (
+                "ports",
+                labels.ports,
+                "Mixed \(settings.mixedPort), SOCKS \(settings.socksPort), HTTP \(settings.httpPort)",
+                "point.3.connected.trianglepath.dotted"
+            ),
             ("controller", labels.controllerHost, "\(settings.externalControllerHost):\(settings.externalControllerPort)", "slider.horizontal.3"),
             ("network", labels.networkOptions, "\(labels.allowLAN) \(settings.allowLAN), IPv6 \(settings.ipv6)", "network"),
             ("tun", labels.tunMode, "\(settings.enableTun) / \(settings.tunStack.rawValue)", "shield.lefthalf.filled"),

@@ -104,7 +104,12 @@ public struct MihomoClient: Sendable {
         try await request(pathComponents: ["group", name])
     }
 
-    public func delayGroup(name: String, url: String = "https://www.gstatic.com/generate_204", timeout: Int = 5000, expected: String? = nil) async throws -> MihomoJSONValue {
+    public func delayGroup(
+        name: String,
+        url: String = "https://www.gstatic.com/generate_204",
+        timeout: Int = 5000,
+        expected: String? = nil
+    ) async throws -> MihomoJSONValue {
         var queryItems = [
             URLQueryItem(name: "url", value: url),
             URLQueryItem(name: "timeout", value: String(timeout))
@@ -163,11 +168,19 @@ public struct MihomoClient: Sendable {
         try await request(pathComponents: ["providers", "proxies", provider, proxy])
     }
 
-    public func healthcheckProxyProviderProxy(provider: String, proxy: String, url: String = "https://www.gstatic.com/generate_204", timeout: Int = 5000) async throws -> MihomoJSONValue {
-        try await request(pathComponents: ["providers", "proxies", provider, proxy, "healthcheck"], queryItems: [
-            URLQueryItem(name: "url", value: url),
-            URLQueryItem(name: "timeout", value: String(timeout))
-        ])
+    public func healthcheckProxyProviderProxy(
+        provider: String,
+        proxy: String,
+        url: String = "https://www.gstatic.com/generate_204",
+        timeout: Int = 5000
+    ) async throws -> MihomoJSONValue {
+        try await request(
+            pathComponents: ["providers", "proxies", provider, proxy, "healthcheck"],
+            queryItems: [
+                URLQueryItem(name: "url", value: url),
+                URLQueryItem(name: "timeout", value: String(timeout))
+            ]
+        )
     }
 
     public func updateRuleProvider(name: String) async throws {
@@ -218,8 +231,18 @@ public struct MihomoClient: Sendable {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    private func request<T: Decodable>(pathComponents: [String], queryItems: [URLQueryItem] = [], method: String = "GET", body: Data? = nil) async throws -> T {
-        let (data, _) = try await data(pathComponents: pathComponents, queryItems: queryItems, method: method, body: body)
+    private func request<T: Decodable>(
+        pathComponents: [String],
+        queryItems: [URLQueryItem] = [],
+        method: String = "GET",
+        body: Data? = nil
+    ) async throws -> T {
+        let (data, _) = try await data(
+            pathComponents: pathComponents,
+            queryItems: queryItems,
+            method: method,
+            body: body
+        )
         return try JSONDecoder().decode(T.self, from: data)
     }
 

@@ -86,14 +86,16 @@ struct ConnectionsView: View {
                 reportMetricTile(
                     title: model.t(.activeConnections),
                     value: "\(analysis.activeCount)",
-                    detail: "\(model.t(.upload)) \(AppModel.formatBytes(analysis.uploadBytes)) / \(model.t(.download)) \(AppModel.formatBytes(analysis.downloadBytes))",
+                    detail: "\(model.t(.upload)) \(AppModel.formatBytes(analysis.uploadBytes)) / " +
+                        "\(model.t(.download)) \(AppModel.formatBytes(analysis.downloadBytes))",
                     systemImage: "link",
                     color: .blue
                 )
                 reportMetricTile(
                     title: model.t(.proxyRoute),
                     value: "\(routeCount("proxy", in: analysis))",
-                    detail: "\(model.t(.directRoute)) \(routeCount("direct", in: analysis)) / \(model.t(.unknownRoute)) \(routeCount("unknown", in: analysis))",
+                    detail: "\(model.t(.directRoute)) \(routeCount("direct", in: analysis)) / " +
+                        "\(model.t(.unknownRoute)) \(routeCount("unknown", in: analysis))",
                     systemImage: "point.3.connected.trianglepath.dotted",
                     color: .orange
                 )

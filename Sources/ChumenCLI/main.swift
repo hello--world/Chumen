@@ -316,7 +316,14 @@ struct ChumenCLI {
 
     private static func handleAPI(_ arguments: [String], context: CLIContext) async throws {
         guard let subcommand = arguments.first else {
-            throw CLIError.usage("api <version|logs|traffic|memory|configs|patch-config|reload-config|restart-kernel|upgrade|upgrade-ui|upgrade-geo|groups|group|delay-group|proxies|proxy-info|delay|select|clear-proxy|proxy-providers|proxy-provider-info|proxy-provider-proxy|rule-providers|rules|disable-rules|connections|dns-query|storage-get|storage-put|storage-delete|flush-fakeip|flush-dns|gc|raw>")
+            throw CLIError.usage(
+                "api <version|logs|traffic|memory|configs|patch-config|reload-config|" +
+                    "restart-kernel|upgrade|upgrade-ui|upgrade-geo|groups|group|delay-group|" +
+                    "proxies|proxy-info|delay|select|clear-proxy|proxy-providers|" +
+                    "proxy-provider-info|proxy-provider-proxy|rule-providers|rules|disable-rules|" +
+                    "connections|dns-query|storage-get|storage-put|storage-delete|flush-fakeip|" +
+                    "flush-dns|gc|raw>"
+            )
         }
 
         let client = try context.client()

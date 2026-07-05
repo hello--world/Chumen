@@ -317,9 +317,14 @@ final class AppModel: ObservableObject {
         self.manager = CoreProcessManager(paths: paths, protectionKeyStore: self.protectionKeyStore)
         self.lastSavedSettings = loadedSettings
         self.aiAPIKeyStored = aiKeychainStore.hasAPIKey()
-        self.aiStatusText = loadedSettings.ai.usesLocalOllama
-            ? L10n.text(.aiOllamaReady, language: loadedSettings.language ?? .system)
-            : (self.aiAPIKeyStored ? L10n.text(.aiKeyStored, language: loadedSettings.language ?? .system) : L10n.text(.aiSearchOnly, language: loadedSettings.language ?? .system))
+        let loadedLanguage = loadedSettings.language ?? .system
+        if loadedSettings.ai.usesLocalOllama {
+            self.aiStatusText = L10n.text(.aiOllamaReady, language: loadedLanguage)
+        } else if self.aiAPIKeyStored {
+            self.aiStatusText = L10n.text(.aiKeyStored, language: loadedLanguage)
+        } else {
+            self.aiStatusText = L10n.text(.aiSearchOnly, language: loadedLanguage)
+        }
 
         notificationService.onLog = { [manager = self.manager] message in
             manager.appendEventLog(message)
@@ -1708,11 +1713,23 @@ final class AppModel: ObservableObject {
             + \(t(.displayName)): \(change.profileName ?? t(.unknown))
             """
         case .setMode:
-            return aiSettingsDiff(label: t(.mode), oldValue: settings.mode.rawValue, newValue: change.mode?.rawValue ?? t(.unknown))
+            return aiSettingsDiff(
+                label: t(.mode),
+                oldValue: settings.mode.rawValue,
+                newValue: change.mode?.rawValue ?? t(.unknown)
+            )
         case .setTun:
-            return aiSettingsDiff(label: t(.tunMode), oldValue: settings.enableTun ? t(.on) : t(.off), newValue: (change.enabled ?? false) ? t(.on) : t(.off))
+            return aiSettingsDiff(
+                label: t(.tunMode),
+                oldValue: settings.enableTun ? t(.on) : t(.off),
+                newValue: (change.enabled ?? false) ? t(.on) : t(.off)
+            )
         case .setSystemProxy:
-            return aiSettingsDiff(label: t(.systemProxy), oldValue: systemProxyEnabled ? t(.on) : t(.off), newValue: (change.enabled ?? false) ? t(.on) : t(.off))
+            return aiSettingsDiff(
+                label: t(.systemProxy),
+                oldValue: systemProxyEnabled ? t(.on) : t(.off),
+                newValue: (change.enabled ?? false) ? t(.on) : t(.off)
+            )
         case .setConfigAppendix:
             return aiTextDiff(
                 path: "settings/configAppendixYAML",

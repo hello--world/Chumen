@@ -388,6 +388,9 @@ public final class CoreProcessManager: @unchecked Sendable {
             label: Self.privilegedHelperLaunchDaemonLabel
         )
         // 安装新 helper 前清掉旧代号的 LaunchDaemon，避免两个特权服务同时管理内核。
+        let quotedAppHome = Self.shellQuote(paths.appHome.path)
+        let quotedLogsDirectory = Self.shellQuote(paths.logsDirectoryURL.path)
+        let quotedSocketDirectory = Self.shellQuote(paths.socketDirectoryURL.path)
         let script = """
         #!/bin/sh
         set -eu
@@ -404,11 +407,11 @@ public final class CoreProcessManager: @unchecked Sendable {
         /bin/rm -f \(Self.shellQuote(Self.legacyPrivilegedLaunchDaemonPlistPath))
         /bin/rm -f \(Self.shellQuote(Self.legacyPrivilegedHelperLaunchDaemonPlistPath))
         /bin/rm -f \(Self.shellQuote(Self.legacyPrivilegedHelperInstallPath))
-        /bin/mkdir -p /Library/PrivilegedHelperTools \(Self.shellQuote(paths.appHome.path)) \(Self.shellQuote(paths.logsDirectoryURL.path)) \(Self.shellQuote(paths.socketDirectoryURL.path))
+        /bin/mkdir -p /Library/PrivilegedHelperTools \(quotedAppHome) \(quotedLogsDirectory) \(quotedSocketDirectory)
         /bin/cp \(Self.shellQuote(helperSourcePath)) \(Self.shellQuote(Self.privilegedHelperInstallPath))
         /usr/sbin/chown root:wheel \(Self.shellQuote(Self.privilegedHelperInstallPath))
         /bin/chmod 755 \(Self.shellQuote(Self.privilegedHelperInstallPath))
-        /usr/sbin/chown \(userID):\(groupID) \(Self.shellQuote(paths.appHome.path)) \(Self.shellQuote(paths.logsDirectoryURL.path)) \(Self.shellQuote(paths.socketDirectoryURL.path)) 2>/dev/null || true
+        /usr/sbin/chown \(userID):\(groupID) \(quotedAppHome) \(quotedLogsDirectory) \(quotedSocketDirectory) 2>/dev/null || true
         /bin/rm -f \(Self.shellQuote(paths.privilegedHelperSocketURL.path))
         /bin/cat > \(Self.shellQuote(Self.privilegedHelperLaunchDaemonPlistPath)) <<'CHUMEN_HELPER_PLIST'
         \(plist)

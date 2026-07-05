@@ -244,7 +244,10 @@ public enum ChumenConfigurationBuilder {
         }
 
         if let socketPath, !socketPath.isEmpty {
-            lines.insert("external-controller-unix: \(yamlQuoted(socketPath))", after: "external-controller: \(settings.externalControllerHost):\(settings.externalControllerPort)")
+            lines.insert(
+                "external-controller-unix: \(yamlQuoted(socketPath))",
+                after: "external-controller: \(settings.externalControllerHost):\(settings.externalControllerPort)"
+            )
         }
         if !settings.externalUI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             lines.append("external-ui: \(yamlQuoted(settings.externalUI))")

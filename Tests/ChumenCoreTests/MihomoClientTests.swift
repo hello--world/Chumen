@@ -13,7 +13,10 @@ final class MihomoClientTests: XCTestCase {
             XCTAssertEqual(request.url?.path, "/version")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token")
             expectation.fulfill()
-            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, #"{"version":"1.2.3","meta":true}"#.data(using: .utf8)!)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                #"{"version":"1.2.3","meta":true}"#.data(using: .utf8)!
+            )
         }
 
         let client = MihomoClient(baseURL: URL(string: "http://127.0.0.1:9097")!, secret: "token", session: mockSession())

@@ -940,7 +940,9 @@ enum L10n {
         .importLocal: "Import Local YAML",
         .subscriptionURL: "Subscription URL",
         .displayName: "Display name",
-        .subscriptionEditHint: "After saving, the display name updates immediately. The subscription URL is used by Update; clear it to keep this as a local YAML profile.",
+        .subscriptionEditHint:
+            "After saving, the display name updates immediately. The subscription URL is used by Update; " +
+            "clear it to keep this as a local YAML profile.",
         .importSubscription: "Import Subscription",
         .importFromClients: "Import From Other Clients",
         .importedFromClient: "Imported from",
@@ -1074,7 +1076,9 @@ enum L10n {
         .clear: "Clear",
         .clearProxySelectionAction: "Unpin",
         .clearProxySelectionHelpTitle: "Unpin selection",
-        .clearProxySelectionHelpBody: "Clears the proxy manually pinned for this group and returns it to the config default or auto-selection behavior. It does not delete nodes, subscriptions, delay results, DNS, or cache.",
+        .clearProxySelectionHelpBody:
+            "Clears the proxy manually pinned for this group and returns it to the config default " +
+            "or auto-selection behavior. It does not delete nodes, subscriptions, delay results, DNS, or cache.",
         .clearLogs: "Clear Logs",
         .executable: "Executable",
         .useDetectedCore: "Use Detected Core",
@@ -1112,7 +1116,9 @@ enum L10n {
         .syncCompleted: "Sync completed",
         .syncFailed: "Sync failed",
         .lastSync: "Last sync",
-        .syncPlaintextWarning: "The sync folder and CloudKit snapshot contain subscription URLs, secrets, and config content. Use a trusted folder or private iCloud account.",
+        .syncPlaintextWarning:
+            "The sync folder and CloudKit snapshot contain subscription URLs, secrets, and config content. " +
+            "Use a trusted folder or private iCloud account.",
         .syncDirectoryNotSelected: "No sync folder selected",
         .syncMissingProfileFile: "Sync snapshot is missing a profile file",
         .syncCloudKitAvailable: "iCloud account is available; CloudKit still requires iCloud entitlements in the app signature.",

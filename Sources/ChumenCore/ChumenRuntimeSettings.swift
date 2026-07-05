@@ -112,6 +112,21 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         "https://dns.alidns.com/dns-query",
         "https://doh.pub/dns-query"
     ]
+    public static let defaultFakeIPFilters = [
+        "*.lan",
+        "*.local",
+        "*.arpa",
+        "time.*.com",
+        "ntp.*.com",
+        "+.market.xiaomi.com",
+        "*.msftncsi.com",
+        "www.msftconnecttest.com"
+    ]
+    public static let defaultFallbackFilterDomains = [
+        "+.google.com",
+        "+.facebook.com",
+        "+.youtube.com"
+    ]
 
     private static let legacyDefaultMixedPort = 7897
     private static let legacyDefaultSocksPort = 7898
@@ -253,7 +268,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         fallbackNameservers: [String] = [],
         proxyServerNameservers: [String] = Self.defaultNameservers,
         directNameservers: [String] = [],
-        fakeIPFilters: [String] = ["*.lan", "*.local", "*.arpa", "time.*.com", "ntp.*.com", "+.market.xiaomi.com", "*.msftncsi.com", "www.msftconnecttest.com"],
+        fakeIPFilters: [String] = Self.defaultFakeIPFilters,
         fallbackFilterGeoIP: Bool = true,
         fallbackFilterGeoIPCode: String = "CN",
         fallbackFilterIPCIDRs: [String] = ["240.0.0.0/4", "0.0.0.0/32"],
@@ -505,11 +520,13 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
             fallbackNameservers: try container.decodeIfPresent([String].self, forKey: .fallbackNameservers) ?? [],
             proxyServerNameservers: try container.decodeIfPresent([String].self, forKey: .proxyServerNameservers) ?? Self.defaultNameservers,
             directNameservers: try container.decodeIfPresent([String].self, forKey: .directNameservers) ?? [],
-            fakeIPFilters: try container.decodeIfPresent([String].self, forKey: .fakeIPFilters) ?? ["*.lan", "*.local", "*.arpa", "time.*.com", "ntp.*.com", "+.market.xiaomi.com", "*.msftncsi.com", "www.msftconnecttest.com"],
+            fakeIPFilters: try container.decodeIfPresent([String].self, forKey: .fakeIPFilters)
+                ?? Self.defaultFakeIPFilters,
             fallbackFilterGeoIP: try container.decodeIfPresent(Bool.self, forKey: .fallbackFilterGeoIP) ?? true,
             fallbackFilterGeoIPCode: try container.decodeIfPresent(String.self, forKey: .fallbackFilterGeoIPCode) ?? "CN",
             fallbackFilterIPCIDRs: try container.decodeIfPresent([String].self, forKey: .fallbackFilterIPCIDRs) ?? ["240.0.0.0/4", "0.0.0.0/32"],
-            fallbackFilterDomains: try container.decodeIfPresent([String].self, forKey: .fallbackFilterDomains) ?? ["+.google.com", "+.facebook.com", "+.youtube.com"],
+            fallbackFilterDomains: try container.decodeIfPresent([String].self, forKey: .fallbackFilterDomains)
+                ?? Self.defaultFallbackFilterDomains,
             nameserverPolicyYAML: try container.decodeIfPresent(String.self, forKey: .nameserverPolicyYAML) ?? "",
             hostsYAML: try container.decodeIfPresent(String.self, forKey: .hostsYAML) ?? "",
             configAppendixYAML: try container.decodeIfPresent(String.self, forKey: .configAppendixYAML) ?? "",
