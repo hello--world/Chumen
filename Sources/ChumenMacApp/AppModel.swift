@@ -2784,6 +2784,12 @@ final class AppModel: ObservableObject {
     func prepareForQuit() {
         guard !isPreparingForQuit else { return }
         isPreparingForQuit = true
+        if settings.disableTunOnQuit && settings.enableTun {
+            // 退出时先持久化关闭 TUN，避免下次自动启动内核时继续启用 TUN 路由。
+            settings.enableTun = false
+            resetTunRuntimeState(for: settings)
+            pendingTunToggleTarget = nil
+        }
         saveSettings()
         coreTransitionTask?.cancel()
         coreTransitionTask = nil

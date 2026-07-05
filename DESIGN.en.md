@@ -5,7 +5,7 @@
 ## Source Of Truth
 
 - Status: Active.
-- Last refreshed: 2026-07-04.
+- Last refreshed: 2026-07-05.
 - Primary product surfaces: native macOS Chumen app and menu bar controller.
 - Evidence reviewed: `Sources/ChumenMacApp/ContentView.swift`, `Sources/ChumenMacApp/AppModel.swift`, `Sources/ChumenMacApp/L10n.swift`, `README.en.md`, `docs/security-model.en.md`, user screenshots, macOS Settings, and Shortcuts references.
 - Detailed UI contract: `docs/ui-design-system.en.md`.
@@ -40,8 +40,8 @@
 - Primary navigation: top tab bar.
 - Core screens: dashboard, profiles, proxies, providers, connections, rules, core, core tools, logs,
   and settings.
-- Content hierarchy: current runtime state first, then global search, then actions, metrics, and
-  lists.
+- Content hierarchy: current runtime state first, then global search, then actions, key metrics,
+  diagnostic summaries, and linked related information.
 - Header: one compact row with app/running state on the left, a modest-width search launcher, and a
   persistent status strip for API, system proxy, mode, speed, traffic, and TUN.
 - Search: the header search is only a launcher. Activating it opens a Spotlight-style overlay that
@@ -61,6 +61,9 @@
 - Use native SwiftUI/AppKit controls and semantic colors first; custom color should be a small
   identity or action accent.
 - Functional density matters more than decorative whitespace.
+- The dashboard must be a modular command surface: feature modules expose key state, diagnostics,
+  and links through Dashboard providers; the page owns sorting and rendering, not business-specific
+  card stacking.
 
 ## Visual Language
 
@@ -75,8 +78,8 @@
 
 ## Components
 
-- Reuse: header, command panel, metric tile, settings form, top tab navigation.
-- Key components: global search overlay, compact header status strip, native grouped dashboard,
+- Reuse: header, command panel, Dashboard item/section, settings form, top tab navigation.
+- Key components: global search overlay, compact header status strip, modular dashboard providers,
   core quick navigation, separate settings form, first-run security setup, AI review panel, and menu
   bar status icon variants.
 - States: running/stopped, API reachable/unreachable, proxy on/off, TUN on/off, empty metrics, local
@@ -96,7 +99,8 @@
 ## Responsive Behavior
 
 - Supported surface: resizable macOS app window.
-- Dashboard metrics wrap through an adaptive grid.
+- Dashboard sections and items wrap through an adaptive grid. A module may provide state, metrics,
+  diagnostics, or links, but each item needs a stable title, value, priority, and action semantics.
 - Header search and status stay in one row. In narrow windows, horizontal status scrolling is better
   than hiding important status chips.
 
@@ -145,6 +149,12 @@
 - Tokens: keep style tokens in `ChumenStyle`; do not add a new theming layer.
 - UI contract: check `docs/ui-design-system.en.md` before UI changes. If implementation needs an
   exception, update the document first or add a local code intent note near the component.
+- Dashboard additions should be implemented as provider/item data first, not as module-specific
+  views hardcoded in `DashboardView`; logs, connections, rules, providers, and similar modules can
+  register important summaries and navigation links.
+- Dashboard quick-action buttons must also be published through provider/item data. Start, stop,
+  refresh, system proxy, TUN, settings entries, and module jumps all use the same quick-entry
+  contract.
 - Performance: dashboard updates must remain cheap during traffic/connection streams.
 - Security: AI API keys are stored in Keychain; local Ollama does not require a key; model calls use
   user-configured OpenAI-compatible endpoints.

@@ -145,6 +145,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
     public var autoStartCoreOnLaunch: Bool
     public var setSystemProxyOnStart: Bool
     public var clearSystemProxyOnStop: Bool
+    public var disableTunOnQuit: Bool
     public var language: AppLanguage?
     public var showStatusBarItem: Bool
     public var statusBarDisplayMode: StatusBarDisplayMode
@@ -218,6 +219,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         autoStartCoreOnLaunch: Bool = true,
         setSystemProxyOnStart: Bool = false,
         clearSystemProxyOnStop: Bool = true,
+        disableTunOnQuit: Bool = true,
         language: AppLanguage? = nil,
         showStatusBarItem: Bool = true,
         statusBarDisplayMode: StatusBarDisplayMode = .stackedSpeed,
@@ -290,6 +292,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         self.autoStartCoreOnLaunch = autoStartCoreOnLaunch
         self.setSystemProxyOnStart = setSystemProxyOnStart
         self.clearSystemProxyOnStop = clearSystemProxyOnStop
+        self.disableTunOnQuit = disableTunOnQuit
         self.language = language
         self.showStatusBarItem = showStatusBarItem
         self.statusBarDisplayMode = statusBarDisplayMode
@@ -387,6 +390,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         case autoStartCoreOnLaunch
         case setSystemProxyOnStart
         case clearSystemProxyOnStop
+        case disableTunOnQuit
         case language
         case showStatusBarItem
         case statusBarDisplayMode
@@ -467,6 +471,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
             autoStartCoreOnLaunch: try container.decodeIfPresent(Bool.self, forKey: .autoStartCoreOnLaunch) ?? true,
             setSystemProxyOnStart: try container.decodeIfPresent(Bool.self, forKey: .setSystemProxyOnStart) ?? false,
             clearSystemProxyOnStop: try container.decodeIfPresent(Bool.self, forKey: .clearSystemProxyOnStop) ?? true,
+            disableTunOnQuit: try container.decodeIfPresent(Bool.self, forKey: .disableTunOnQuit) ?? true,
             language: try container.decodeIfPresent(AppLanguage.self, forKey: .language),
             showStatusBarItem: try container.decodeIfPresent(Bool.self, forKey: .showStatusBarItem) ?? true,
             statusBarDisplayMode: (try? container.decode(StatusBarDisplayMode.self, forKey: .statusBarDisplayMode)) ?? .stackedSpeed,

@@ -39,7 +39,7 @@ struct ContentView: View {
                     header
                     Divider()
                     TabView(selection: $selectedTab) {
-                        DashboardView()
+                        DashboardView(selectedTab: $selectedTab)
                             .tabItem { Label(model.t(.dashboard), systemImage: "gauge.with.dots.needle.50percent") }
                             .tag(AppTab.dashboard)
                         ProfilesView(choosingProfile: $choosingProfile)

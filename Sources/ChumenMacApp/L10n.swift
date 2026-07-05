@@ -312,6 +312,7 @@ enum L10n {
         case autoStartCoreOnLaunch
         case setProxyOnStart
         case clearProxyOnStop
+        case disableTunOnQuit
         case files
         case openDataDirectory
         case more
@@ -741,6 +742,7 @@ enum L10n {
         .autoStartCoreOnLaunch: "打开 Chumen 后自动启动内核",
         .setProxyOnStart: "启动后自动开启系统代理",
         .clearProxyOnStop: "停止时自动清理系统代理",
+        .disableTunOnQuit: "退出时自动关闭 TUN",
         .files: "文件",
         .openDataDirectory: "打开数据目录",
         .more: "更多",
@@ -1161,6 +1163,7 @@ enum L10n {
         .autoStartCoreOnLaunch: "Start core when Chumen opens",
         .setProxyOnStart: "Set system proxy after start",
         .clearProxyOnStop: "Clear system proxy on stop",
+        .disableTunOnQuit: "Disable TUN on quit",
         .files: "Files",
         .openDataDirectory: "Open Data Directory",
         .more: "More",

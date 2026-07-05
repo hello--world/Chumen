@@ -3,44 +3,151 @@ import SwiftUI
 
 struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
+    @Binding var selectedTab: AppTab
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 18) {
                 commandPanel
-                metricsGrid
+                dashboardSections
             }
             .padding(.horizontal, 18)
             .padding(.top, 18)
-            .padding(.bottom, 18)
+            .padding(.bottom, 28)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(ChumenStyle.pageBackground)
     }
 
-    private var commandPanel: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 12) {
-                commandSummary
-                    .frame(width: 330, alignment: .leading)
+    private var dashboardSections: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ForEach(DashboardSectionRegistry.sections(for: model)) { section in
+                dashboardSection(section)
+            }
+        }
+    }
 
-                Spacer(minLength: 12)
-
-                VStack(alignment: .trailing, spacing: 9) {
-                    commandActions
-                    modeControl
+    private func dashboardSection(_ section: DashboardSection) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(section.title)
+                    .font(.headline.weight(.semibold))
+                if !section.detail.isEmpty {
+                    Text(section.detail)
+                        .font(.caption)
+                        .foregroundStyle(ChumenStyle.mutedText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Spacer(minLength: 0)
             }
 
-            VStack(alignment: .leading, spacing: 14) {
-                commandSummary
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 260, maximum: 420), spacing: 12)],
+                alignment: .leading,
+                spacing: 12
+            ) {
+                ForEach(section.items) { item in
+                    dashboardItem(item)
+                }
+            }
+        }
+    }
 
-                Divider()
+    private func dashboardItem(_ item: DashboardItem) -> some View {
+        Group {
+            if isActionable(item.action) {
+                Button {
+                    perform(item.action)
+                } label: {
+                    dashboardItemContent(item)
+                }
+                .buttonStyle(.plain)
+                .disabled(!item.isEnabled)
+            } else {
+                dashboardItemContent(item)
+            }
+        }
+        .opacity(item.isEnabled ? 1 : 0.52)
+    }
+
+    private func dashboardItemContent(_ item: DashboardItem) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(item.tint.opacity(iconFillOpacity(for: item.style)))
+                Image(systemName: item.systemImage)
+                    .font(.system(size: iconSize(for: item.style), weight: .semibold))
+                    .foregroundStyle(item.tint)
+            }
+            .frame(width: 38, height: 38)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.title)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(ChumenStyle.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(item.value)
+                    .font(valueFont(for: item.style))
+                    .foregroundStyle(Color.primary)
+                    .lineLimit(valueLineLimit(for: item.style))
+                    .minimumScaleFactor(0.74)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !item.detail.isEmpty {
+                    Text(item.detail)
+                        .font(.caption)
+                        .foregroundStyle(ChumenStyle.mutedText)
+                        .lineLimit(detailLineLimit(for: item.style))
+                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            if isActionable(item.action) {
+                Image(systemName: actionIcon(for: item.action))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(ChumenStyle.mutedText)
+                    .frame(width: 16)
+            }
+        }
+        .padding(12)
+        .frame(minHeight: minHeight(for: item.style), alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(ChumenStyle.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .strokeBorder(ChumenStyle.border)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous))
+    }
+
+    private var commandPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 14) {
+                    commandSummary
+                    Spacer(minLength: 12)
+                    modeControl
+                }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    commandActions
+                    commandSummary
                     modeControl
+                }
+            }
+
+            Divider()
+
+            ViewThatFits(in: .horizontal) {
+                quickActionStrip
+                ScrollView(.horizontal, showsIndicators: false) {
+                    quickActionStrip
                 }
             }
         }
@@ -53,7 +160,6 @@ struct DashboardView: View {
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                 .strokeBorder(ChumenStyle.border)
         )
-        .shadow(color: ChumenStyle.softShadow, radius: 6, x: 0, y: 2)
     }
 
     private var commandSummary: some View {
@@ -106,86 +212,52 @@ struct DashboardView: View {
         .frame(maxWidth: 340, alignment: .leading)
     }
 
-    private var commandActions: some View {
+    private var quickActionStrip: some View {
         HStack(spacing: 8) {
+            ForEach(DashboardSectionRegistry.quickActions(for: model)?.items ?? []) { item in
+                quickActionButton(item)
+            }
+        }
+        .controlSize(.regular)
+    }
+
+    @ViewBuilder
+    private func quickActionButton(_ item: DashboardItem) -> some View {
+        if isPrimaryCommand(item.action) {
             Button {
-                model.start()
+                perform(item.action)
             } label: {
-                Label(model.t(.start), systemImage: "play.fill")
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(width: 82)
+                quickActionLabel(item)
             }
             .buttonStyle(.borderedProminent)
             .labelStyle(.titleAndIcon)
-            .help(model.t(.start))
-            .disabled(model.isRunning || model.isCoreTransitioning)
-
+            .disabled(!item.isEnabled)
+            .tint(item.tint)
+            .help(quickActionHelp(item))
+        } else {
             Button {
-                model.stop()
+                perform(item.action)
             } label: {
-                Label(model.t(.stop), systemImage: "stop.fill")
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(width: 82)
+                quickActionLabel(item)
             }
             .buttonStyle(.bordered)
             .labelStyle(.titleAndIcon)
-            .help(model.t(.stop))
-            .disabled(!model.isRunning || model.isCoreTransitioning)
-
-            Button {
-                model.restart()
-            } label: {
-                Label(model.t(.restart), systemImage: "arrow.clockwise")
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(width: 82)
-            }
-            .buttonStyle(.bordered)
-            .labelStyle(.titleAndIcon)
-            .help(model.t(.restart))
-            .disabled(model.isCoreTransitioning)
-
-            Button {
-                Task { await model.refreshAll() }
-            } label: {
-                Label(model.t(.refresh), systemImage: "arrow.triangle.2.circlepath")
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(width: 82)
-            }
-            .buttonStyle(.bordered)
-            .labelStyle(.titleAndIcon)
-            .help(model.t(.refresh))
-
-            Button {
-                model.toggleSystemProxy()
-            } label: {
-                Label(model.systemProxyEnabled ? model.t(.disableProxy) : model.t(.enableProxy), systemImage: "network")
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(width: 112)
-            }
-            .buttonStyle(.bordered)
-            .labelStyle(.titleAndIcon)
-            .help(model.systemProxyEnabled ? model.t(.disableProxy) : model.t(.enableProxy))
-
-            Button {
-                model.setTunEnabled(!model.settings.enableTun)
-            } label: {
-                Label(model.settings.enableTun ? model.t(.disableTun) : model.t(.enableTun), systemImage: "shield.lefthalf.filled")
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(width: 112)
-            }
-            .buttonStyle(.bordered)
-            .labelStyle(.titleAndIcon)
-            .help(tunHelpText)
-            .tint(tunAccent)
-            .disabled(model.isCoreTransitioning)
+            .disabled(!item.isEnabled)
+            .tint(item.tint)
+            .help(quickActionHelp(item))
         }
-        .controlSize(.regular)
+    }
+
+    private func quickActionLabel(_ item: DashboardItem) -> some View {
+        Label(item.title, systemImage: item.systemImage)
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+            .padding(.horizontal, 2)
+            .frame(minWidth: 76)
+    }
+
+    private func quickActionHelp(_ item: DashboardItem) -> String {
+        item.detail.isEmpty ? item.title : "\(item.title): \(item.detail)"
     }
 
     private var commandTitle: String {
@@ -327,127 +399,129 @@ struct DashboardView: View {
         .pickerStyle(.segmented)
     }
 
-    private var metricsGrid: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 230, maximum: 320), spacing: 12)], spacing: 12) {
-            metric(
-                model.t(.runtime),
-                value: model.isRunning ? model.t(.running) : model.t(.stopped),
-                icon: "bolt.horizontal",
-                accent: model.isRunning ? .green : ChumenStyle.mutedText
-            )
-            metric(
-                model.t(.activeProfile),
-                value: model.activeProfile?.name ?? "-",
-                icon: "doc.text",
-                accent: .blue
-            )
-            metric(
-                model.t(.mode),
-                value: model.settings.mode.rawValue,
-                icon: "arrow.triangle.branch",
-                accent: .purple
-            )
-            metric(
-                model.t(.cumulativeTraffic),
-                value: model.dashboardTrafficText,
-                icon: "arrow.up.arrow.down",
-                accent: .teal
-            )
-            metric(
-                model.t(.currentSpeed),
-                value: model.speedText,
-                icon: "speedometer",
-                accent: .cyan
-            )
-            metric(
-                model.t(.routedTraffic),
-                value: model.routedTrafficText,
-                icon: "point.3.connected.trianglepath.dotted",
-                accent: .mint
-            )
-            metric(
-                model.t(.memory),
-                value: model.memoryText,
-                icon: "memorychip",
-                accent: .indigo
-            )
-            metric(
-                model.t(.systemProxy),
-                value: model.systemProxyEnabled ? model.t(.on) : model.t(.off),
-                icon: model.systemProxyEnabled ? "checkmark.shield" : "shield",
-                accent: model.systemProxyEnabled ? .green : ChumenStyle.mutedText
-            )
-            metric(
-                model.t(.tunMode),
-                value: tunStateText,
-                icon: "shield.lefthalf.filled",
-                accent: tunAccent
-            )
+    private func perform(_ action: DashboardItemAction) {
+        switch action {
+        case .none:
+            break
+        case .openTab(let tab):
+            selectedTab = tab
+        case .refreshAll:
+            Task { await model.refreshAll() }
+        case .startCore:
+            model.start()
+        case .stopCore:
+            model.stop()
+        case .restartCore:
+            model.restart()
+        case .toggleSystemProxy:
+            model.toggleSystemProxy()
+        case .toggleTun:
+            model.setTunEnabled(!model.settings.enableTun)
+        case .openDashboardURL:
+            model.openDashboardURL()
         }
     }
 
-    private func metric(_ title: String, value: String, icon: String, accent: Color) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(ChumenStyle.groupedSurface)
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(accent)
-            }
-            .frame(width: 36, height: 36)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(title)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(ChumenStyle.mutedText)
-                Text(value)
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(Color.primary)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.72)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
+    private func isActionable(_ action: DashboardItemAction) -> Bool {
+        switch action {
+        case .none:
+            return false
+        default:
+            return true
         }
-        .padding(14)
-        .frame(minHeight: 88, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .fill(ChumenStyle.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .strokeBorder(ChumenStyle.border)
-        )
-        .shadow(color: ChumenStyle.softShadow, radius: 5, x: 0, y: 1)
     }
 
-    private var tunStateText: String {
-        if !model.settings.enableTun {
-            return model.t(.off)
+    private func actionIcon(for action: DashboardItemAction) -> String {
+        switch action {
+        case .refreshAll:
+            return "arrow.triangle.2.circlepath"
+        case .startCore:
+            return "play.fill"
+        case .stopCore:
+            return "stop.fill"
+        case .restartCore:
+            return "arrow.clockwise"
+        case .toggleSystemProxy, .toggleTun:
+            return "switch.2"
+        case .openDashboardURL:
+            return "arrow.up.forward.app"
+        case .openTab:
+            return "chevron.right"
+        case .none:
+            return ""
         }
-        if model.tunRuntimeFailed {
-            return model.tunRuntimeFailureTitle
-        }
-        if model.isCoreTransitioning {
-            return model.t(.pending)
-        }
-        return model.t(.on)
     }
 
-    private var tunAccent: Color {
-        if model.settings.enableTun && model.tunRuntimeFailed {
-            return .orange
+    private func isPrimaryCommand(_ action: DashboardItemAction) -> Bool {
+        switch action {
+        case .startCore:
+            return true
+        default:
+            return false
         }
-        return model.settings.enableTun ? .green : ChumenStyle.mutedText
     }
 
-    private var tunHelpText: String {
-        if model.settings.enableTun && model.tunRuntimeFailed {
-            let detail = model.tunRuntimeFailureDetail.trimmingCharacters(in: .whitespacesAndNewlines)
-            return detail.isEmpty ? model.t(.tunFailed) : "\(model.t(.tunFailed)): \(detail)"
+    private func valueFont(for style: DashboardItemStyle) -> Font {
+        switch style {
+        case .command:
+            return .system(size: 16, weight: .semibold)
+        case .state:
+            return .system(size: 19, weight: .semibold)
+        case .metric:
+            return .system(size: 18, weight: .semibold)
+        case .diagnostic:
+            return .system(size: 16, weight: .semibold)
+        case .link:
+            return .system(size: 16, weight: .semibold)
         }
-        return model.settings.enableTun ? model.t(.disableTun) : model.t(.enableTun)
+    }
+
+    private func iconSize(for style: DashboardItemStyle) -> CGFloat {
+        switch style {
+        case .diagnostic:
+            return 17
+        default:
+            return 18
+        }
+    }
+
+    private func iconFillOpacity(for style: DashboardItemStyle) -> Double {
+        switch style {
+        case .link:
+            return 0.08
+        case .diagnostic:
+            return 0.10
+        default:
+            return 0.09
+        }
+    }
+
+    private func valueLineLimit(for style: DashboardItemStyle) -> Int {
+        switch style {
+        case .metric, .diagnostic:
+            return 2
+        default:
+            return 1
+        }
+    }
+
+    private func detailLineLimit(for style: DashboardItemStyle) -> Int {
+        switch style {
+        case .diagnostic:
+            return 2
+        default:
+            return 1
+        }
+    }
+
+    private func minHeight(for style: DashboardItemStyle) -> CGFloat {
+        switch style {
+        case .diagnostic:
+            return 96
+        case .command:
+            return 54
+        default:
+            return 82
+        }
     }
 }
