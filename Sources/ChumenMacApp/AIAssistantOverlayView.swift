@@ -19,12 +19,14 @@ struct AIAssistantOverlayView: View {
     // The assistant owns only its text-field focus. Search scheduling and navigation stay outside
     // through callbacks so this view can move between overlay/sidebar presentations safely.
     @FocusState private var aiInputFocused: Bool
+    @State private var aiAdvancedConfigExpanded = false
 
     var body: some View {
         aiAssistantPanel
             .onAppear {
                 if !model.aiReady {
                     onSearchImmediately()
+                    aiAdvancedConfigExpanded = true
                 }
                 if model.settings.ai.usesLocalOllama {
                     model.refreshOllamaModelsIfNeeded()
@@ -40,57 +42,35 @@ struct AIAssistantOverlayView: View {
     // Keeping them stacked here makes the audit path visible before any AI-proposed config edit is applied.
     private var aiAssistantPanel: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Label(model.t(.aiAssistant), systemImage: "sparkles")
-                    .font(.headline.weight(.semibold))
-                Spacer()
-                Button {
-                    model.clearAIMessages()
-                    onClearSearchResults()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.borderless)
-                .help(model.t(.aiClearChat))
-
-                Button {
-                    aiInputFocused = false
-                    isPresented = false
-                } label: {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(.borderless)
-                .help(model.t(.aiCloseAssistant))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            aiAssistantHeader
 
             Divider()
 
-            aiConfigurationSection
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+            GeometryReader { proxy in
+                let inspectorWidth = min(CGFloat(360), max(CGFloat(308), proxy.size.width * 0.28))
+                if proxy.size.width >= 980 {
+                    HStack(spacing: 0) {
+                        aiConversationColumn
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider()
+                        Divider()
 
-            Group {
-                if model.aiReady {
-                    aiMessagesList
+                        aiInspectorColumn
+                            .frame(width: inspectorWidth)
+                    }
                 } else {
-                    searchResultsList
+                    VStack(spacing: 0) {
+                        aiConversationColumn
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        Divider()
+
+                        aiInspectorColumn
+                            .frame(maxWidth: .infinity, maxHeight: 230)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if !model.aiPendingChanges.isEmpty {
-                Divider()
-                aiPendingChangesView
-                    .frame(maxHeight: 184)
-            }
-
-            Divider()
-            aiInputBar
-                .padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ChumenStyle.surface)
@@ -104,6 +84,75 @@ struct AIAssistantOverlayView: View {
                 onSearchImmediately()
             }
         }
+    }
+
+    private var aiAssistantHeader: some View {
+        HStack(spacing: 8) {
+            Label(model.t(.aiAssistant), systemImage: "sparkles")
+                .font(.headline.weight(.semibold))
+            Text(aiAssistantStatusText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(model.aiReady ? Color.green : ChumenStyle.mutedText)
+                .lineLimit(1)
+            Spacer()
+            Button {
+                model.clearAIMessages()
+                onClearSearchResults()
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help(model.t(.aiClearChat))
+
+            Button {
+                aiInputFocused = false
+                isPresented = false
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help(model.t(.aiCloseAssistant))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    // Chat owns the primary space. The input bar is pinned to the bottom of this column so model
+    // setup or pending diffs in the inspector can never push the command field out of view.
+    private var aiConversationColumn: some View {
+        VStack(spacing: 0) {
+            Group {
+                if model.aiReady {
+                    aiMessagesList
+                } else {
+                    searchResultsList
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+            aiInputBar
+                .padding(12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ChumenStyle.surface)
+    }
+
+    // The right column is an inspector, not another dashboard. It holds controls that users may need
+    // while chatting, plus review artifacts; runtime facts stay in the AI prompt and top command bar.
+    private var aiInspectorColumn: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                aiConfigurationSection
+
+                if !model.aiPendingChanges.isEmpty {
+                    aiPendingChangesView
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .background(ChumenStyle.groupedSurface.opacity(0.34))
     }
 
     // Settings are inline because the fastest local path is Ollama. The user can get value from the
@@ -123,13 +172,13 @@ struct AIAssistantOverlayView: View {
     private var aiAssistantEnableRow: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.t(.enabled))
-                    .font(.caption.weight(.semibold))
+                Text(model.t(.aiModelSettings))
+                    .font(.callout.weight(.semibold))
+                Text(aiActiveModelSummary)
+                    .font(.caption)
                     .foregroundStyle(ChumenStyle.mutedText)
-                Text(aiAssistantStatusText)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(model.aiReady ? Color.green : ChumenStyle.mutedText)
                     .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Spacer(minLength: 8)
             Toggle("", isOn: $model.settings.ai.isEnabled)
@@ -144,19 +193,42 @@ struct AIAssistantOverlayView: View {
     // The setup controls are grouped as one compact inspector card. This keeps the fixed rail from
     // looking like a settings page while still making the active backend and model editable in place.
     private var aiConfigurationCard: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            aiFieldRow(model.t(.aiModelSettings)) {
-                aiProviderPicker
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            aiProviderPicker
 
-            if model.settings.ai.usesLocalOllama {
-                localOllamaConfiguration
-            } else {
-                customAIConfiguration
-            }
+            Divider()
 
-            if model.settings.ai.requiresAPIKey {
-                aiAPIKeyConfiguration
+            DisclosureGroup(isExpanded: $aiAdvancedConfigExpanded) {
+                VStack(alignment: .leading, spacing: 9) {
+                    if model.settings.ai.usesLocalOllama {
+                        localOllamaConfiguration
+                    } else {
+                        customAIConfiguration
+                    }
+
+                    if model.settings.ai.requiresAPIKey {
+                        aiAPIKeyConfiguration
+                    }
+                }
+                .padding(.top, 8)
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.t(.aiModel))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.primary)
+                        Text(aiActiveModelSummary)
+                            .font(.caption2)
+                            .foregroundStyle(ChumenStyle.mutedText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
             }
         }
         .padding(10)
@@ -169,6 +241,12 @@ struct AIAssistantOverlayView: View {
                 .strokeBorder(ChumenStyle.border)
         )
         .controlSize(.small)
+    }
+
+    private var aiActiveModelSummary: String {
+        let provider = model.settings.ai.usesLocalOllama ? model.t(.aiUseLocalOllama) : model.t(.aiCustomEndpoint)
+        let modelName = model.settings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        return modelName.isEmpty ? "\(provider) · \(model.t(.aiModelRequired))" : "\(provider) · \(modelName)"
     }
 
     // The provider selector is stateful rather than two loose buttons so users can see which backend
@@ -190,6 +268,7 @@ struct AIAssistantOverlayView: View {
                 .tag("custom")
         }
         .pickerStyle(.segmented)
+        .labelsHidden()
     }
 
     private var localOllamaConfiguration: some View {

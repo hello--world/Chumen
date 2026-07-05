@@ -15,14 +15,17 @@ struct DashboardView: View {
     @State private var quickActionConfigurationPresented = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            commandPanel
-            dashboardAssistantWorkspace
+        GeometryReader { proxy in
+            VStack(alignment: .leading, spacing: 12) {
+                commandPanel
+                dashboardAssistantWorkspace
+                    .layoutPriority(1)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            .padding(.bottom, 14)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 18)
-        .padding(.bottom, 18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(ChumenStyle.pageBackground)
     }
 
@@ -32,7 +35,6 @@ struct DashboardView: View {
     private var dashboardAssistantWorkspace: some View {
         assistantWorkbench
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .frame(minHeight: 560)
     }
 
     private var assistantWorkbench: some View {
@@ -93,15 +95,13 @@ struct DashboardView: View {
     }
 
     private var commandPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            commandPanelHeader
-            if !commandActionItems.isEmpty {
-                commandActionFlow
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+        ViewThatFits(in: .horizontal) {
+            commandPanelWide
+            commandPanelStacked
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14 * ChumenStyle.dashboardVerticalScale)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                 .fill(ChumenStyle.surface)
@@ -113,6 +113,36 @@ struct DashboardView: View {
         .sheet(isPresented: $quickActionConfigurationPresented) {
             QuickActionConfigurationSheet()
                 .environmentObject(model)
+        }
+    }
+
+    // The overview control surface should read like a toolbar, not a settings form. On wide
+    // windows the status summary, muscle-memory actions, and mode switch share one horizontal row;
+    // only narrow windows fall back to the old stacked shape.
+    private var commandPanelWide: some View {
+        HStack(alignment: .center, spacing: 12) {
+            if !commandStatusItems.isEmpty {
+                commandStatusStrip
+                    .frame(minWidth: 270, maxWidth: 360, alignment: .leading)
+            }
+
+            if !commandActionItems.isEmpty {
+                commandActionFlow
+                    .layoutPriority(1)
+            }
+
+            Spacer(minLength: 8)
+            modeControl
+        }
+    }
+
+    private var commandPanelStacked: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            commandPanelHeader
+            if !commandActionItems.isEmpty {
+                commandActionFlow
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -165,7 +195,7 @@ struct DashboardView: View {
                 commandStatusItem(item)
             }
         }
-        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
