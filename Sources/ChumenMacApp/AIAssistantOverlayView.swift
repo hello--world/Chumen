@@ -2,8 +2,8 @@ import ChumenCore
 import SwiftUI
 
 // AI assistant presentation is isolated from ContentView so the app shell only coordinates
-// visibility, search scheduling, and navigation. The assistant still reads AppModel directly
-// because settings, messages, and pending changes are one feature surface.
+// search scheduling and navigation. The assistant is now a fixed right rail: it does not cover page
+// controls, can be collapsed by the user, and preserves the review-before-apply security boundary.
 struct AIAssistantOverlayView: View {
     @EnvironmentObject private var model: AppModel
     @Binding var isPresented: Bool
@@ -16,67 +16,20 @@ struct AIAssistantOverlayView: View {
     let onSelectSearchResult: (GlobalSearchResult) -> Void
 
     // The assistant owns only its text-field focus. Search scheduling and navigation stay outside
-    // through callbacks so this view can be redesigned without changing app state routing.
+    // through callbacks so this view can move between overlay/sidebar presentations safely.
     @FocusState private var aiInputFocused: Bool
 
     var body: some View {
-        aiAssistantLayer
-    }
-
-    private var searchQuery: String {
-        model.aiInputText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    // The layer is full-size only for positioning. It does not own hit-testing outside the button or
-    // panel, so normal app interactions continue unless the panel itself is open.
-    private var aiAssistantLayer: some View {
-        GeometryReader { proxy in
-            VStack {
-                Spacer(minLength: 0)
-                HStack {
-                    Spacer(minLength: 0)
-                    if isPresented {
-                        aiAssistantPanel
-                            .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottomTrailing)))
-                    } else {
-                        aiFloatingButton
-                    }
-                }
-                .padding(.trailing, proxy.size.width < 760 ? 14 : 20)
-                .padding(.bottom, 18)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-        }
-    }
-
-    // This is deliberately a floating command affordance, not another tab. AI is a cross-page tool:
-    // it can search current app data or propose edits regardless of the selected page.
-    private var aiFloatingButton: some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.16)) {
-                isPresented = true
-            }
-            DispatchQueue.main.async {
-                aiInputFocused = true
+        aiAssistantPanel
+            .onAppear {
                 if !model.aiReady {
                     onSearchImmediately()
                 }
             }
-        } label: {
-            Label(model.t(.aiAssistant), systemImage: "sparkles")
-                .font(.callout.weight(.semibold))
-                .labelStyle(.titleAndIcon)
-                .padding(.horizontal, 14)
-                .frame(height: 38)
-                .background(
-                    RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                        .fill(Color.accentColor)
-                )
-                .foregroundStyle(.white)
-                .shadow(color: ChumenStyle.softShadow.opacity(5), radius: 14, y: 8)
-        }
-        .buttonStyle(.plain)
-        .help(model.t(.aiOpenAssistant))
+    }
+
+    private var searchQuery: String {
+        model.aiInputText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // The panel has three modes in one surface: provider setup, chat, and pending-change review.
@@ -97,11 +50,10 @@ struct AIAssistantOverlayView: View {
                 .help(model.t(.aiClearChat))
 
                 Button {
-                    withAnimation(.easeOut(duration: 0.14)) {
-                        isPresented = false
-                    }
+                    aiInputFocused = false
+                    isPresented = false
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: "sidebar.right")
                 }
                 .buttonStyle(.borderless)
                 .help(model.t(.aiCloseAssistant))
@@ -136,16 +88,8 @@ struct AIAssistantOverlayView: View {
             aiInputBar
                 .padding(12)
         }
-        .frame(width: 420, height: 590)
-        .background(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .fill(ChumenStyle.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .strokeBorder(ChumenStyle.border)
-        )
-        .shadow(color: ChumenStyle.softShadow.opacity(6), radius: 24, y: 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ChumenStyle.surface)
         .onChange(of: model.aiInputText) {
             if !model.aiReady {
                 onSearchChanged()
@@ -284,7 +228,7 @@ struct AIAssistantOverlayView: View {
     }
 
     // When AI is disabled or incomplete, the assistant intentionally remains useful as search.
-    // This avoids a dead floating button and lets users learn the command surface before adding a key.
+    // This avoids a dead assistant rail and lets users learn the command surface before adding a key.
     private var searchResultsList: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {

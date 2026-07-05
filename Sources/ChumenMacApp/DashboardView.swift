@@ -7,19 +7,17 @@ struct DashboardView: View {
     @State private var quickActionConfigurationPresented = false
 
     var body: some View {
-        GeometryReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18 * ChumenStyle.dashboardVerticalScale) {
-                    commandPanel
-                    dashboardSections
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 18)
-                .padding(.bottom, 28)
-                // The dashboard is a command surface. Use an 80% reading measure on normal and
-                // wide windows so controls gain vertical room instead of stretching edge to edge.
-                .frame(width: ChumenStyle.shellContentWidth(for: proxy.size.width), alignment: .topLeading)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18 * ChumenStyle.dashboardVerticalScale) {
+                commandPanel
+                dashboardSections
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 28)
+            // Keep dashboard width inherited from the available main pane. The current design
+            // request is height-only growth; horizontal restraint is handled by the fixed AI rail.
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(ChumenStyle.pageBackground)
     }

@@ -45,13 +45,13 @@
 - Header: keep one outer row with app/running state on the left and a modest-width search launcher
   in the middle. Status facts are grouped vertically by meaning: `API` above config update, and
   system proxy above `mode + TUN`, so the header does not become an overlong horizontal ribbon.
-- Wide-screen restraint: the dashboard's main content and header status area share one content
-  measure, about 80% of available width by default, with roughly 20% more vertical rhythm instead of
-  filling ultra-wide windows.
+- Dashboard rhythm: keep the existing horizontal measure and increase only the command/metric
+  vertical rhythm by roughly 20%. Do not narrow the main content as a side effect of making it taller.
 - Search: the header search is only a launcher. Activating it opens a Spotlight-style overlay that
   covers the header/search launcher so no duplicate search field or status leaks through. Results
   prioritize settings and core, then profiles, proxies, providers, rules, connections, and logs.
-- AI: a bottom-right affordance opens a compact chat panel. Local Ollama is the preferred path at
+- AI: a fixed right-side chat rail is visible by default and can collapse into a narrow right rail.
+  Local Ollama is the preferred path at
   `http://127.0.0.1:11434/v1` and does not need a key. Remote OpenAI-compatible endpoints require a
   saved key. Without a usable model, the panel behaves as local search.
 - Settings boundary: `内核` owns mihomo/runtime config; `设置` owns Chumen preferences. Ordinary
@@ -108,9 +108,8 @@
 - The header shell stays in one row while status pills may stack inside their groups. In narrow
   windows, tighten search/status group widths before hiding `API`, config update, system proxy,
   mode, or TUN.
-- On wide windows, dashboard content should not stretch to the full window width; use
-  `ChumenStyle.shellContentWidth(for:)` as the scanning measure, about 80% of available width by
-  default.
+- Dashboard pages keep their existing horizontal width. Use `ChumenStyle.dashboardVerticalScale` only
+  to increase command and metric height.
 
 ## Interaction States
 

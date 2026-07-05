@@ -192,17 +192,16 @@ The header is a single utility shell, not a long horizontal status waterfall.
 - Stack `API` above config update as one group.
 - Put system proxy on the upper row, with `mode` and `TUN` side by side below it.
 - Tighten group widths before hiding these key states.
-- On wide windows, the header status area uses `ChumenStyle.shellContentWidth(for:)` with the
-  dashboard, about 80% of available width by default, so search and status do not stretch to
-  opposite window edges.
+- Keep the header's original horizontal layout. Header width must not be changed as a side effect of
+  making dashboard cards taller.
 
 ### Dashboard And Metrics
 
 Dashboard surfaces should be dense and calm:
 
 - metrics are scan tiles, not marketing cards;
-- dashboard main content uses `ChumenStyle.shellContentWidth(for:)`, about 80% of available width by
-  default; command panels and metric sections use roughly 20% more vertical rhythm;
+- dashboard main content keeps its existing horizontal width; command panels and metric sections use
+  roughly 20% more vertical rhythm through `ChumenStyle.dashboardVerticalScale`;
 - traffic and speed values need stable dimensions;
 - no large single-color sections;
 - status color follows state: green for active/healthy, gray for inactive, orange/red for failure.
@@ -221,6 +220,8 @@ List columns should align consistently.
 The AI assistant is a review-first tool.
 
 - It may search locally when no model endpoint/key is configured.
+- It is fixed as a right-side rail, not a bottom-right floating button. Users can collapse it into a
+  narrow right rail, and it must not cover page controls.
 - Model-generated operations produce pending diffs.
 - The user must review and apply changes manually.
 - No AI response may directly mutate profiles, rules, settings, proxy/TUN state, or runtime config.

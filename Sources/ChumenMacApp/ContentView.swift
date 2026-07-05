@@ -10,7 +10,7 @@ struct ContentView: View {
     @EnvironmentObject private var model: AppModel
 
     // Shell state only. Individual pages own their local controls; this view keeps the cross-page
-    // state needed for tab routing, file import sheets, global search, and the floating assistant.
+    // state needed for tab routing, file import sheets, global search, and the fixed assistant rail.
     @State private var selectedTab: AppTab = .dashboard
     @State private var choosingCore = false
     @State private var choosingProfile = false
@@ -19,7 +19,7 @@ struct ContentView: View {
     @State private var globalSearchPresented = false
     @State private var globalSearchResults: [GlobalSearchResult] = []
     @State private var globalSearchTask: Task<Void, Never>?
-    @State private var aiAssistantPresented = false
+    @State private var aiAssistantPresented = true
     @State private var aiSearchResults: [GlobalSearchResult] = []
     @State private var aiSearchTask: Task<Void, Never>?
 
@@ -38,44 +38,54 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     header
                     Divider()
-                    TabView(selection: $selectedTab) {
-                        DashboardView(selectedTab: $selectedTab)
-                            .tabItem { Label(model.t(.dashboard), systemImage: "gauge.with.dots.needle.50percent") }
-                            .tag(AppTab.dashboard)
-                        ProfilesView(choosingProfile: $choosingProfile)
-                            .tabItem { Label(model.t(.profiles), systemImage: "doc.text") }
-                            .tag(AppTab.profiles)
-                        ProxiesView()
-                            .tabItem { Label(model.t(.proxies), systemImage: "point.3.connected.trianglepath.dotted") }
-                            .tag(AppTab.proxies)
-                        ProvidersView()
-                            .tabItem { Label(model.t(.providers), systemImage: "tray.full") }
-                            .tag(AppTab.providers)
-                        ConnectionsView()
-                            .tabItem { Label(model.t(.connections), systemImage: "link") }
-                            .tag(AppTab.connections)
-                        RulesView()
-                            .tabItem { Label(model.t(.rules), systemImage: "list.bullet.rectangle") }
-                            .tag(AppTab.rules)
-                        CoreSettingsView(choosingCore: $choosingCore)
-                            .tabItem { Label(model.t(.coreSettings), systemImage: "gearshape.2") }
-                            .tag(AppTab.core)
-                        CoreToolsView()
-                            .tabItem { Label(model.t(.coreTools), systemImage: "terminal") }
-                            .tag(AppTab.coreTools)
-                        LogsView()
-                            .tabItem { Label(model.t(.logs), systemImage: "text.alignleft") }
-                            .tag(AppTab.logs)
-                        AppSettingsView()
-                            .tabItem { Label(model.t(.appSettings), systemImage: "gearshape") }
-                            .tag(AppTab.settings)
-                    }
-                    .focusable(false)
-                    .padding(.top, 8)
-                }
+                    HStack(spacing: 0) {
+                        TabView(selection: $selectedTab) {
+                            DashboardView(selectedTab: $selectedTab)
+                                .tabItem { Label(model.t(.dashboard), systemImage: "gauge.with.dots.needle.50percent") }
+                                .tag(AppTab.dashboard)
+                            ProfilesView(choosingProfile: $choosingProfile)
+                                .tabItem { Label(model.t(.profiles), systemImage: "doc.text") }
+                                .tag(AppTab.profiles)
+                            ProxiesView()
+                                .tabItem { Label(model.t(.proxies), systemImage: "point.3.connected.trianglepath.dotted") }
+                                .tag(AppTab.proxies)
+                            ProvidersView()
+                                .tabItem { Label(model.t(.providers), systemImage: "tray.full") }
+                                .tag(AppTab.providers)
+                            ConnectionsView()
+                                .tabItem { Label(model.t(.connections), systemImage: "link") }
+                                .tag(AppTab.connections)
+                            RulesView()
+                                .tabItem { Label(model.t(.rules), systemImage: "list.bullet.rectangle") }
+                                .tag(AppTab.rules)
+                            CoreSettingsView(choosingCore: $choosingCore)
+                                .tabItem { Label(model.t(.coreSettings), systemImage: "gearshape.2") }
+                                .tag(AppTab.core)
+                            CoreToolsView()
+                                .tabItem { Label(model.t(.coreTools), systemImage: "terminal") }
+                                .tag(AppTab.coreTools)
+                            LogsView()
+                                .tabItem { Label(model.t(.logs), systemImage: "text.alignleft") }
+                                .tag(AppTab.logs)
+                            AppSettingsView()
+                                .tabItem { Label(model.t(.appSettings), systemImage: "gearshape") }
+                                .tag(AppTab.settings)
+                        }
+                        .focusable(false)
+                        .padding(.top, 8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                aiAssistantLayer
-                    .zIndex(700)
+                        Divider()
+
+                        if aiAssistantPresented {
+                            aiAssistantLayer
+                                .frame(width: ChumenStyle.aiSidebarWidth)
+                        } else {
+                            aiAssistantCollapsedRail
+                                .frame(width: ChumenStyle.aiCollapsedSidebarWidth)
+                        }
+                    }
+                }
 
                 if globalSearchPresented {
                     globalSearchOverlay
@@ -129,14 +139,12 @@ struct ContentView: View {
             let width = max(proxy.size.width, 0)
             let horizontalPadding: CGFloat = width < 1000 ? 16 : 22
             let availableWidth = max(0, width - horizontalPadding * 2)
-            let shellWidth = ChumenStyle.shellContentWidth(for: availableWidth)
-            let isCompact = shellWidth < 1280
+            let isCompact = width < 1280
             let identityWidth = isCompact ? CGFloat(160) : CGFloat(172)
             let leftStatusWidth = isCompact ? CGFloat(109) : CGFloat(118)
             let rightStatusWidth = isCompact ? CGFloat(222) : CGFloat(254)
             let fixedWidth = identityWidth + leftStatusWidth + rightStatusWidth + 42
-            let searchWidth = min(isCompact ? CGFloat(192) : CGFloat(240), max(CGFloat(180), shellWidth - fixedWidth))
-            let contentWidth = identityWidth + leftStatusWidth + searchWidth + rightStatusWidth + 42
+            let searchWidth = min(isCompact ? CGFloat(192) : CGFloat(240), max(CGFloat(180), availableWidth - fixedWidth))
 
             ZStack(alignment: .topLeading) {
                 HStack(alignment: .center, spacing: 14) {
@@ -147,10 +155,11 @@ struct ContentView: View {
                         .frame(width: searchWidth)
                         .zIndex(20)
                     headerRightStatusPills(width: rightStatusWidth)
+                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, horizontalPadding)
                 .padding(.vertical, 9)
-                .frame(width: min(shellWidth, contentWidth) + horizontalPadding * 2, height: proxy.size.height, alignment: .leading)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
         }
@@ -214,8 +223,8 @@ struct ContentView: View {
     }
 
     private var aiAssistantLayer: some View {
-        // The assistant is visually global but still routes through ContentView so selecting a
-        // search result can switch tabs without the assistant knowing the app's navigation model.
+        // The assistant is a fixed right rail. ContentView keeps navigation callbacks here so local
+        // search results can switch tabs without letting the assistant own app routing.
         AIAssistantOverlayView(
             isPresented: $aiAssistantPresented,
             searchResults: aiSearchResults,
@@ -231,6 +240,44 @@ struct ContentView: View {
             onSubmit: submitAIInput,
             onSelectSearchResult: selectAISearchResult
         )
+    }
+
+    private var aiAssistantCollapsedRail: some View {
+        // Closed state remains a right-side rail instead of a floating button. This preserves the
+        // "assistant lives on the right" mental model while giving users the full main workspace.
+        VStack(spacing: 10) {
+            Button {
+                aiAssistantPresented = true
+                if !model.aiReady {
+                    scheduleAISearch(delay: .zero)
+                }
+            } label: {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 30, height: 30)
+                    .foregroundStyle(Color.accentColor)
+                    .background(
+                        RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.10))
+                    )
+            }
+            .buttonStyle(.plain)
+            .help(model.t(.aiOpenAssistant))
+
+            if !model.aiPendingChanges.isEmpty {
+                Text("\(model.aiPendingChanges.count)")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.orange))
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ChumenStyle.surface)
     }
 
     private var globalSearchOverlay: some View {
@@ -631,9 +678,6 @@ struct ContentView: View {
         selectedTab = result.tab
         model.aiInputText = ""
         aiSearchResults = []
-        withAnimation(.easeOut(duration: 0.14)) {
-            aiAssistantPresented = false
-        }
     }
 
     // AI fallback search uses the same index as global search. Cancellation avoids stale results
