@@ -129,7 +129,7 @@ struct ContentView: View {
             let width = max(proxy.size.width, 0)
             let horizontalPadding: CGFloat = width < 1000 ? 16 : 20
             let availableWidth = max(0, width - horizontalPadding * 2)
-            let identityWidth = min(CGFloat(208), max(CGFloat(190), availableWidth * 0.19))
+            let identityWidth = min(CGFloat(190), max(CGFloat(178), availableWidth * 0.18))
             let searchWidth = min(CGFloat(232), max(CGFloat(220), availableWidth * 0.22))
 
             ZStack(alignment: .topLeading) {
@@ -174,7 +174,7 @@ struct ContentView: View {
                 Text("Chumen")
                     .font(.system(size: 22, weight: .semibold))
                     .lineLimit(1)
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     runtimeBadge
                     activeProfileBadge
                 }
@@ -314,11 +314,15 @@ struct ContentView: View {
     }
 
     private var runtimeBadge: some View {
-        Label(model.isRunning ? model.t(.running) : model.t(.stopped), systemImage: model.isRunning ? "checkmark.circle.fill" : "pause.circle.fill")
-            .font(.caption.weight(.semibold))
-            .labelStyle(.titleAndIcon)
+        HStack(spacing: 4) {
+            Image(systemName: model.isRunning ? "checkmark.circle.fill" : "pause.circle.fill")
+                .font(.system(size: 10, weight: .semibold))
+            Text(model.isRunning ? model.t(.running) : model.t(.stopped))
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+        }
             .foregroundStyle(model.isRunning ? .green : ChumenStyle.mutedText)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
@@ -331,22 +335,20 @@ struct ContentView: View {
     }
 
     private var activeProfileBadge: some View {
-        Label {
+        HStack(spacing: 4) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 10, weight: .semibold))
             Text(headerActiveProfileName)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .minimumScaleFactor(0.82)
                 .allowsTightening(true)
-        } icon: {
-            Image(systemName: "doc.text")
-                .font(.system(size: 10, weight: .semibold))
         }
-        .labelStyle(.titleAndIcon)
         .foregroundStyle(ChumenStyle.mutedText)
-        .padding(.horizontal, 7)
+        .padding(.horizontal, 6)
         .padding(.vertical, 4)
-        .frame(maxWidth: 86, alignment: .leading)
+        .frame(width: 72, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                 .fill(ChumenStyle.surface)
