@@ -174,10 +174,7 @@ struct ContentView: View {
                 Text("Chumen")
                     .font(.system(size: 22, weight: .semibold))
                     .lineLimit(1)
-                HStack(spacing: 6) {
-                    runtimeBadge
-                    activeProfileBadge
-                }
+                runtimeProfileBadge
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -313,31 +310,18 @@ struct ContentView: View {
         }
     }
 
-    private var runtimeBadge: some View {
+    private var runtimeProfileBadge: some View {
         HStack(spacing: 4) {
             Image(systemName: model.isRunning ? "checkmark.circle.fill" : "pause.circle.fill")
                 .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(model.isRunning ? .green : ChumenStyle.mutedText)
             Text(model.isRunning ? model.t(.running) : model.t(.stopped))
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
-        }
-            .foregroundStyle(model.isRunning ? .green : ChumenStyle.mutedText)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                    .fill(ChumenStyle.groupedSurface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                    .strokeBorder((model.isRunning ? Color.green.opacity(0.35) : ChumenStyle.border))
-            )
-    }
-
-    private var activeProfileBadge: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "doc.text")
-                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(model.isRunning ? .green : ChumenStyle.mutedText)
+            Text(headerRuntimeProfileSeparator)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(ChumenStyle.mutedText)
             Text(headerActiveProfileName)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
@@ -345,19 +329,18 @@ struct ContentView: View {
                 .minimumScaleFactor(0.82)
                 .allowsTightening(true)
         }
-        .foregroundStyle(ChumenStyle.mutedText)
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 7)
         .padding(.vertical, 4)
-        .frame(width: 72, alignment: .leading)
+        .frame(width: 132, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .fill(ChumenStyle.surface)
+                .fill(ChumenStyle.groupedSurface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .strokeBorder(ChumenStyle.border.opacity(0.72))
+                .strokeBorder((model.isRunning ? Color.green.opacity(0.35) : ChumenStyle.border))
         )
-        .help("\(model.t(.activeProfile)): \(headerActiveProfileName)")
+        .help("\(model.isRunning ? model.t(.running) : model.t(.stopped))\(headerRuntimeProfileSeparator)\(headerActiveProfileName)")
     }
 
     private func headerStatusPill(title: String, value: String, icon: String, accent: Color, width: CGFloat, help: String) -> some View {
@@ -448,6 +431,10 @@ struct ContentView: View {
     private var headerActiveProfileName: String {
         let name = model.activeProfile?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return name.isEmpty ? "-" : name
+    }
+
+    private var headerRuntimeProfileSeparator: String {
+        model.language == .zhHans ? "：" : ": "
     }
 
     private var headerProxyStateValueText: String {
