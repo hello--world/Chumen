@@ -152,10 +152,10 @@ struct DashboardView: View {
     private var commandPanelWide: some View {
         HStack(alignment: .top, spacing: 16) {
             commandStateColumn
-                .frame(width: 360, alignment: .leading)
+                .frame(width: 330, alignment: .leading)
 
             if !commandActionItems.isEmpty {
-                commandActionGrid(columnCount: 4)
+                commandActionGrid(columnCount: 5)
                     .frame(minWidth: 600, maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -166,14 +166,14 @@ struct DashboardView: View {
             commandStateColumn
                 .frame(maxWidth: .infinity, alignment: .leading)
             if !commandActionItems.isEmpty {
-                commandActionGrid(columnCount: 3)
+                commandActionGrid(columnCount: 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
     private var commandStateColumn: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             if !commandStatusItems.isEmpty {
                 commandStatusStrip
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -231,15 +231,15 @@ struct DashboardView: View {
     }
 
     private func commandStatusContent(_ item: DashboardItem) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ZStack {
                 RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                     .fill(item.tint.opacity(0.10))
                 Image(systemName: item.systemImage)
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(item.tint)
             }
-            .frame(width: 38, height: 38)
+            .frame(width: 34, height: 34)
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
@@ -290,11 +290,11 @@ struct DashboardView: View {
                     }
                 } label: {
                     Text(mode.rawValue)
-                        .font(.callout.weight(.semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(model.settings.mode == mode ? Color.white : Color.primary)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
+                        .padding(.vertical, 6)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
                                 .fill(model.settings.mode == mode ? Color.blue : Color.clear)
@@ -315,13 +315,13 @@ struct DashboardView: View {
             quickActionConfigurationPresented = true
         } label: {
             Label(model.t(.editQuickControls), systemImage: "slider.horizontal.3")
-                .font(.callout.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.primary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.78)
-                .padding(.horizontal, 12)
+                .minimumScaleFactor(0.72)
+                .padding(.horizontal, 10)
                 .frame(maxWidth: .infinity)
-                .frame(height: 36)
+                .frame(height: 32)
                 .background(
                     RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                         .fill(ChumenStyle.controlFill)
@@ -333,7 +333,7 @@ struct DashboardView: View {
 
     private func commandActionGrid(columnCount: Int) -> some View {
         let columns = Array(
-            repeating: GridItem(.flexible(minimum: 142, maximum: 190), spacing: 8),
+            repeating: GridItem(.flexible(minimum: 118, maximum: 158), spacing: 8),
             count: columnCount
         )
 
@@ -382,14 +382,14 @@ struct DashboardView: View {
 
     private func quickActionLabel(_ item: DashboardItem) -> some View {
         Label(item.title, systemImage: item.systemImage)
-            .font(.callout.weight(.semibold))
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(quickActionForeground(for: item))
             .lineLimit(1)
-            .minimumScaleFactor(0.78)
-            .padding(.horizontal, 12)
-            .frame(minWidth: 142)
+            .minimumScaleFactor(0.72)
+            .padding(.horizontal, 10)
+            .frame(minWidth: 118)
             .frame(maxWidth: .infinity)
-            .frame(height: 36)
+            .frame(height: 32)
             .background(
                 RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                     .fill(quickActionBackground(for: item))
@@ -402,22 +402,22 @@ struct DashboardView: View {
     }
 
     private func quickToggleLabel(_ item: DashboardItem, isOn: Bool) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Image(systemName: item.systemImage)
-                .font(.callout.weight(.semibold))
-                .frame(width: 18)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 16)
             Text(item.title)
-                .font(.callout.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
-                .minimumScaleFactor(0.72)
-            Spacer(minLength: 6)
+                .minimumScaleFactor(0.68)
+            Spacer(minLength: 4)
             switchGlyph(isOn: isOn, tint: item.tint)
         }
         .foregroundStyle(quickActionForeground(for: item))
-        .padding(.horizontal, 12)
-        .frame(minWidth: 142)
+        .padding(.horizontal, 10)
+        .frame(minWidth: 118)
         .frame(maxWidth: .infinity)
-        .frame(height: 36)
+        .frame(height: 32)
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                 .fill(quickActionBackground(for: item))
@@ -432,11 +432,11 @@ struct DashboardView: View {
     private func switchGlyph(isOn: Bool, tint: Color) -> some View {
         RoundedRectangle(cornerRadius: 7, style: .continuous)
             .fill(isOn ? tint.opacity(0.92) : ChumenStyle.mutedText.opacity(0.22))
-            .frame(width: 26, height: 14)
+            .frame(width: 24, height: 13)
             .overlay(alignment: isOn ? .trailing : .leading) {
                 Circle()
                     .fill(Color.white)
-                    .frame(width: 10, height: 10)
+                    .frame(width: 9, height: 9)
                     .padding(2)
             }
     }
