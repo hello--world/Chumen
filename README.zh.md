@@ -89,7 +89,7 @@ CHUMEN_HOME=/tmp/chumen-test swift run chumenctl settings show
 bash ./scripts/download_mihomo.sh
 ```
 
-下载结果写入 `bin/mihomo`。该目录不进 git；当 `corePath` 为空或旧路径不可执行时，GUI 和 CLI 会自动优先查找这个文件。
+下载结果写入 `bin/chumen-door`。该目录不进 git；当 `corePath` 为空或旧路径不可执行时，GUI 和 CLI 会自动优先查找这个文件。Chumen 启动内核前会按设置里的进程名后缀创建托管链接，默认后缀是 `door`，因此默认进程名是 `chumen-door`，方便在进程列表里和系统安装的 `mihomo` 区分。
 
 默认端口刻意避开常见代理客户端：
 
@@ -113,7 +113,7 @@ dist/Chumen.app
 把指定内核打进 App Bundle：
 
 ```bash
-CHUMEN_CORE_PATH="$PWD/bin/mihomo" bash ./scripts/build_app.sh
+CHUMEN_CORE_PATH="$PWD/bin/chumen-door" bash ./scripts/build_app.sh
 ```
 
 ## 功能

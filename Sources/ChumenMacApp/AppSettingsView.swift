@@ -233,6 +233,7 @@ struct AppSettingsView: View {
                 TextField(model.t(.systemProxyHost), text: $model.settings.systemProxyHost)
                     .textFieldStyle(.roundedBorder)
                 Toggle(model.t(.setProxyOnStart), isOn: $model.settings.setSystemProxyOnStart)
+                Toggle(model.t(.enableTunOnStart), isOn: $model.settings.enableTunOnStart)
                 Toggle(model.t(.clearProxyOnStop), isOn: $model.settings.clearSystemProxyOnStop)
                 Toggle(model.t(.disableTunOnQuit), isOn: $model.settings.disableTunOnQuit)
                 HStack {

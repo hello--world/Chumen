@@ -7,6 +7,7 @@ APP_DIR="$DIST_DIR/Chumen.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+CORE_BUNDLE_NAME="chumen-door"
 
 cd "$ROOT_DIR"
 swift build -c release --product Chumen
@@ -29,6 +30,12 @@ chmod 755 "$MACOS_DIR/Chumen"
 chmod 755 "$RESOURCES_DIR/ChumenHelper"
 
 CORE_SOURCE="${CHUMEN_CORE_PATH:-}"
+if [[ -z "$CORE_SOURCE" && -x "$ROOT_DIR/bin/$CORE_BUNDLE_NAME" ]]; then
+  CORE_SOURCE="$ROOT_DIR/bin/$CORE_BUNDLE_NAME"
+fi
+if [[ -z "$CORE_SOURCE" && -x "$ROOT_DIR/bin/chumen-mihomo" ]]; then
+  CORE_SOURCE="$ROOT_DIR/bin/chumen-mihomo"
+fi
 if [[ -z "$CORE_SOURCE" && -x "$ROOT_DIR/bin/mihomo" ]]; then
   CORE_SOURCE="$ROOT_DIR/bin/mihomo"
 fi
@@ -38,8 +45,8 @@ if [[ -n "$CORE_SOURCE" ]]; then
     echo "Core path is not executable: $CORE_SOURCE" >&2
     exit 1
   fi
-  cp "$CORE_SOURCE" "$RESOURCES_DIR/mihomo"
-  chmod 755 "$RESOURCES_DIR/mihomo"
+  cp "$CORE_SOURCE" "$RESOURCES_DIR/$CORE_BUNDLE_NAME"
+  chmod 755 "$RESOURCES_DIR/$CORE_BUNDLE_NAME"
 fi
 
 codesign --force --deep --sign - "$APP_DIR" >/dev/null

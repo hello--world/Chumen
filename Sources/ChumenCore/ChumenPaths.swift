@@ -77,6 +77,12 @@ public struct ChumenPaths: Sendable {
         appHome.appendingPathComponent("logs", isDirectory: true)
     }
 
+    public var managedCoreDirectoryURL: URL {
+        // Chumen starts mihomo through a Chumen-named link so process lists can distinguish the
+        // app-managed core from system or third-party mihomo instances.
+        appHome.appendingPathComponent("managed-core", isDirectory: true)
+    }
+
     public var sidecarLogURL: URL {
         logsDirectoryURL.appendingPathComponent("sidecar.log")
     }
@@ -119,6 +125,7 @@ public struct ChumenPaths: Sendable {
         try fileManager.createDirectory(at: appHome, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: profilesDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: logsDirectoryURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: managedCoreDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: socketDirectoryURL, withIntermediateDirectories: true)
     }
 

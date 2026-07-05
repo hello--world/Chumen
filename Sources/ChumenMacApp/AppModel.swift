@@ -82,6 +82,11 @@ private struct ProfileContentCacheEntry: Sendable {
     var topLevelBlocks: [String: String]
 }
 
+private enum AppUpdateID {
+    static let appStatus = "appStatus"
+    static let coreSnapshot = "coreSnapshot"
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     // AppModel 是 GUI 的单一状态源：窗口、状态栏菜单和异步内核任务都从这里读写状态。
@@ -189,7 +194,7 @@ final class AppModel: ObservableObject {
     private var lastConnectionDownloadTotal: Int64?
     private var lastConnectionReportSampleDate: Date?
     private var lastLogReportSampleDate: Date?
-    private var autoRefreshTask: Task<Void, Never>?
+    private let updateCoordinator = AppUpdateCoordinator()
     private var profileEditorLoadTask: Task<Void, Never>?
     private var profileSectionEditorLoadTask: Task<Void, Never>?
     private var profileVisualPreloadTask: Task<Void, Never>?
@@ -339,8 +344,6 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.stopControllerStreams()
-                self.autoRefreshTask?.cancel()
-                self.autoRefreshTask = nil
                 self.isRunning = false
                 self.statusText = status == 0 ? self.t(.stopped) : "\(self.t(.coreExited)): \(status)"
                 if status != 0 {
@@ -352,7 +355,7 @@ final class AppModel: ObservableObject {
         statusText = t(.stopped)
         apiText = t(.apiNotTested)
         preloadProfileVisualData(for: library.profiles, force: false)
-        refreshSystemProxyState()
+        startApplicationUpdates()
         if shouldDeferStartup {
             statusText = pinStatusText.isEmpty ? t(.pending) : pinStatusText
         } else {
@@ -470,7 +473,10 @@ final class AppModel: ObservableObject {
         var profilePath: String
     }
 
-    private func recoverUnreadableActiveProfileForDefaultLaunch(after error: Error) -> ProfileLaunchRecovery? {
+    private func recoverUnreadableActiveProfileForDefaultLaunch(
+        after error: Error,
+        applyStartAutomation: Bool = false
+    ) -> ProfileLaunchRecovery? {
         guard isAgeIdentityMismatch(error), let failedProfile = activeProfile else {
             return nil
         }
@@ -495,7 +501,7 @@ final class AppModel: ObservableObject {
             "profile-recovery disabled active profile \(failedProfile.id) \(failedProfile.filePath): \(error.localizedDescription)"
         )
 
-        var fallback = launchSettings()
+        var fallback = launchSettings(applyStartAutomation: applyStartAutomation)
         fallback.activeProfileID = nil
         fallback.profilePath = nil
         return ProfileLaunchRecovery(
@@ -2334,7 +2340,7 @@ final class AppModel: ObservableObject {
             return
         }
         guard !isCoreTransitioning else { return }
-        let launch = launchSettings()
+        let launch = launchSettings(applyStartAutomation: true)
         let profileAppendixYAML = activeProfileAppendixYAML
         resetTunRuntimeState(for: launch)
         resetConnectionTrafficBreakdown()
@@ -2382,7 +2388,10 @@ final class AppModel: ObservableObject {
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 let failureMessage = self.recordCoreTransitionFailure(action: "start", error: error)
-                if let recovery = self.recoverUnreadableActiveProfileForDefaultLaunch(after: error),
+                if let recovery = self.recoverUnreadableActiveProfileForDefaultLaunch(
+                    after: error,
+                    applyStartAutomation: true
+                ),
                    await self.startRecoveredDefaultRuntime(
                        recovery: recovery,
                        manager: manager,
@@ -2402,8 +2411,6 @@ final class AppModel: ObservableObject {
     func stop() {
         guard !isCoreTransitioning else { return }
         stopControllerStreams()
-        autoRefreshTask?.cancel()
-        autoRefreshTask = nil
         isCoreTransitioning = true
         statusText = t(.pending)
         let shouldClearProxy = settings.clearSystemProxyOnStop && systemProxyEnabled
@@ -2454,8 +2461,6 @@ final class AppModel: ObservableObject {
         resetConnectionTrafficBreakdown()
         resetMemoryTelemetry()
         stopControllerStreams()
-        autoRefreshTask?.cancel()
-        autoRefreshTask = nil
         isCoreTransitioning = true
         statusText = t(.coreRestartRequested)
 
@@ -2840,8 +2845,7 @@ final class AppModel: ObservableObject {
         coreTransitionTask?.cancel()
         coreTransitionTask = nil
         stopControllerStreams()
-        autoRefreshTask?.cancel()
-        autoRefreshTask = nil
+        updateCoordinator.stopAll()
         profileVisualPreloadTask?.cancel()
         profileVisualPreloadTask = nil
         if settings.clearSystemProxyOnStop, systemProxyEnabled {
@@ -3217,7 +3221,7 @@ final class AppModel: ObservableObject {
     private func startControllerStreams() {
         startLogStream()
         startTelemetryStreams()
-        startAutoRefresh()
+        startCoreSnapshotUpdates()
     }
 
     private func stopControllerStreams() {
@@ -3225,6 +3229,7 @@ final class AppModel: ObservableObject {
         trafficStream.stop()
         memoryStream.stop()
         connectionsStream.stop()
+        updateCoordinator.stop(AppUpdateID.coreSnapshot)
     }
 
     private func startLogStream() {
@@ -3398,23 +3403,36 @@ final class AppModel: ObservableObject {
         memoryUnavailable = false
     }
 
-    private func startAutoRefresh() {
-        autoRefreshTask?.cancel()
-        autoRefreshTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
-                guard let self, !Task.isCancelled else { return }
-                await self.refreshConnections()
-                await self.refreshTrafficAndMemory()
-            }
-        }
+    private func startApplicationUpdates() {
+        updateCoordinator.start(AppUpdateCoordinator.Item(
+            id: AppUpdateID.appStatus,
+            interval: .seconds(5),
+            runImmediately: true
+        ) { [weak self] in
+            await self?.refreshSystemProxyStateAsync()
+        })
     }
 
-    private func launchSettings() -> ChumenRuntimeSettings {
+    private func startCoreSnapshotUpdates() {
+        updateCoordinator.start(AppUpdateCoordinator.Item(
+            id: AppUpdateID.coreSnapshot,
+            interval: .seconds(5),
+            runImmediately: false
+        ) { [weak self] in
+            guard let self, self.isRunning else { return }
+            await self.refreshConnections()
+            await self.refreshTrafficAndMemory()
+        })
+    }
+
+    private func launchSettings(applyStartAutomation: Bool = false) -> ChumenRuntimeSettings {
         var launch = settings
         if (launch.corePath.isEmpty || !FileManager.default.isExecutableFile(atPath: launch.corePath)),
            let candidate = ChumenRuntimeSettings.firstExecutableCoreCandidate() {
             launch.corePath = candidate
+        }
+        if applyStartAutomation, launch.enableTunOnStart {
+            launch.enableTun = true
         }
         if let activeProfile {
             launch.profilePath = activeProfile.filePath

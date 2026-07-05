@@ -300,9 +300,13 @@ final class ChumenConfigurationBuilderTests: XCTestCase {
         XCTAssertEqual(settings.nameservers, ChumenRuntimeSettings.defaultNameservers)
         XCTAssertEqual(settings.systemProxyHost, "127.0.0.1")
         XCTAssertTrue(settings.showStatusBarItem)
+        XCTAssertFalse(settings.enableTunOnStart)
         XCTAssertTrue(settings.disableTunOnQuit)
         XCTAssertEqual(settings.statusBarDisplayMode, .stackedSpeed)
         XCTAssertFalse(settings.statusBarCustomTemplate.isEmpty)
+        XCTAssertTrue(settings.dashboardHiddenSectionIDs.isEmpty)
+        XCTAssertEqual(settings.coreProcessName, ChumenRuntimeSettings.defaultCoreProcessName)
+        XCTAssertEqual(settings.managedCoreExecutableName, "chumen-door")
         XCTAssertFalse(settings.usesPlaceholderSecret)
         XCTAssertNotEqual(settings.secret, ChumenRuntimeSettings.placeholderSecret)
     }
@@ -321,7 +325,7 @@ final class ChumenConfigurationBuilderTests: XCTestCase {
         try "".write(to: oldCore, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: oldCore.path)
 
-        let newCore = root.appendingPathComponent("bin/mihomo")
+        let newCore = root.appendingPathComponent("bin/chumen-door")
         try FileManager.default.createDirectory(at: newCore.deletingLastPathComponent(), withIntermediateDirectories: true)
         try "".write(to: newCore, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: newCore.path)
@@ -465,6 +469,18 @@ final class ChumenConfigurationBuilderTests: XCTestCase {
         XCTAssertTrue(ChumenConfigProtection.isProtected(storedProfiles))
         XCTAssertTrue(try String(data: ChumenConfigProtection.decrypt(storedSettings, key: key), encoding: .utf8)?.contains(legacy.path) == true)
         XCTAssertTrue(try String(data: ChumenConfigProtection.decrypt(storedProfiles, key: key), encoding: .utf8)?.contains(legacy.path) == true)
+    }
+
+    func testCoreProcessNameBuildsChumenExecutableName() {
+        var settings = ChumenRuntimeSettings(coreProcessName: "chumen-door")
+        XCTAssertEqual(settings.coreProcessName, "door")
+        XCTAssertEqual(settings.managedCoreExecutableName, "chumen-door")
+
+        settings.coreProcessName = "my/core name"
+        XCTAssertEqual(settings.managedCoreExecutableName, "chumen-my-core-name")
+
+        settings.coreProcessName = "   "
+        XCTAssertEqual(settings.managedCoreExecutableName, "chumen-door")
     }
 
     private func yamlLines(_ yaml: String) -> Set<String> {

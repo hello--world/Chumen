@@ -13,7 +13,7 @@ public enum ChumenError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .missingCorePath:
-            "Please choose a mihomo or verge-mihomo executable first."
+            "Please choose a chumen-door, mihomo, or verge-mihomo executable first."
         case let .coreNotExecutable(path):
             "Core is not executable: \(path)"
         case .processAlreadyRunning:

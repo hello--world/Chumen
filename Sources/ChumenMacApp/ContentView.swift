@@ -70,6 +70,7 @@ struct ContentView: View {
                             .tabItem { Label(model.t(.appSettings), systemImage: "gearshape") }
                             .tag(AppTab.settings)
                     }
+                    .focusable(false)
                     .padding(.top, 8)
                 }
 
@@ -215,6 +216,7 @@ struct ContentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusable(false)
         .opacity(globalSearchPresented ? 0 : 1)
         .frame(height: 34)
     }
@@ -503,6 +505,7 @@ struct ContentView: View {
         globalSearchResults = []
         globalSearchPresented = false
         globalSearchScope = .all
+        clearWindowFirstResponder()
     }
 
     private func clearGlobalSearch() {
@@ -515,6 +518,9 @@ struct ContentView: View {
     // first-run sheets clear transient search focus so the setup UI owns the visual stack.
     private func clearBlockingOverlayFocus() {
         dismissGlobalSearch()
+    }
+
+    private func clearWindowFirstResponder() {
         DispatchQueue.main.async {
             NSApp.keyWindow?.makeFirstResponder(nil)
         }

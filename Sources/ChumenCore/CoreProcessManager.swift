@@ -81,15 +81,12 @@ public final class CoreProcessManager: @unchecked Sendable {
 
     public func start(settings: ChumenRuntimeSettings, profileAppendixYAML: String = "") throws {
         guard !isRunning else { throw ChumenError.processAlreadyRunning }
-        guard !settings.corePath.isEmpty else { throw ChumenError.missingCorePath }
-        guard fileManager.isExecutableFile(atPath: settings.corePath) else {
-            throw ChumenError.coreNotExecutable(settings.corePath)
-        }
+        let launchSettings = try managedLaunchSettings(from: settings)
 
         // 每次启动都重新生成并测试 runtime YAML，确保 GUI 设置和订阅内容同步到 mihomo。
         try terminateManagedSidecars(waitForExit: true)
         let runtimeConfigURL = try ChumenConfigurationBuilder.writeRuntimeConfig(
-            settings: settings,
+            settings: launchSettings,
             paths: paths,
             profileAppendixYAML: profileAppendixYAML,
             protectionKeyStore: protectionKeyStore,
@@ -97,12 +94,12 @@ public final class CoreProcessManager: @unchecked Sendable {
         )
         do {
             try prepareLogFile()
-            let ageSecretKey = try runtimeAgeSecretKey(settings: settings)
-            try validateRuntimeConfig(settings: settings, runtimeConfigURL: runtimeConfigURL, ageSecretKey: ageSecretKey)
+            let ageSecretKey = try runtimeAgeSecretKey(settings: launchSettings)
+            try validateRuntimeConfig(settings: launchSettings, runtimeConfigURL: runtimeConfigURL, ageSecretKey: ageSecretKey)
 
-            if settings.enableTun {
+            if launchSettings.enableTun {
                 // TUN 通常需要特权网络能力，交给 helper 以 LaunchDaemon 方式启动内核。
-                try startPrivileged(settings: settings, runtimeConfigURL: runtimeConfigURL, ageSecretKey: ageSecretKey)
+                try startPrivileged(settings: launchSettings, runtimeConfigURL: runtimeConfigURL, ageSecretKey: ageSecretKey)
                 activeRuntimeConfigURL = runtimeConfigURL
                 scheduleLegacyRuntimeCleanup(runtimeConfigURL)
                 return
@@ -110,7 +107,7 @@ public final class CoreProcessManager: @unchecked Sendable {
 
             // 普通代理模式用当前用户直接拉起 mihomo，并通过 Unix socket 暴露 controller。
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: settings.corePath)
+            process.executableURL = URL(fileURLWithPath: launchSettings.corePath)
             process.currentDirectoryURL = paths.appHome
             process.arguments = [
                 "-d",
@@ -143,7 +140,7 @@ public final class CoreProcessManager: @unchecked Sendable {
             self.process = process
             activeRuntimeConfigURL = runtimeConfigURL
             scheduleLegacyRuntimeCleanup(runtimeConfigURL)
-            appendLog("[core started] \(settings.corePath)\n")
+            appendLog("[core started] \(launchSettings.corePath)\n")
         } catch {
             ChumenConfigurationBuilder.cleanupRuntimePlaintextFile(runtimeConfigURL, paths: paths)
             throw error
@@ -215,6 +212,38 @@ public final class CoreProcessManager: @unchecked Sendable {
             try? logHandle?.write(contentsOf: data)
         }
         onLog?(text)
+    }
+
+    private func managedLaunchSettings(from settings: ChumenRuntimeSettings) throws -> ChumenRuntimeSettings {
+        guard !settings.corePath.isEmpty else { throw ChumenError.missingCorePath }
+        guard fileManager.isExecutableFile(atPath: settings.corePath) else {
+            throw ChumenError.coreNotExecutable(settings.corePath)
+        }
+
+        var launchSettings = settings
+        launchSettings.corePath = try prepareManagedCoreExecutable(
+            sourcePath: settings.corePath,
+            executableName: settings.managedCoreExecutableName
+        )
+        return launchSettings
+    }
+
+    private func prepareManagedCoreExecutable(sourcePath: String, executableName: String) throws -> String {
+        // Process names come from the executable basename. Use a Chumen-controlled symlink basename
+        // instead of copying the binary so core updates are picked up immediately and no stale 40 MB
+        // managed copy can be launched after the user changes or upgrades the selected core.
+        try paths.ensureDirectories(fileManager: fileManager)
+        let sourceURL = URL(fileURLWithPath: sourcePath)
+        let targetURL = paths.managedCoreDirectoryURL.appendingPathComponent(executableName)
+        if sourceURL.standardizedFileURL.path == targetURL.standardizedFileURL.path {
+            return targetURL.path
+        }
+        let existingSymlink = try? fileManager.destinationOfSymbolicLink(atPath: targetURL.path)
+        if fileManager.fileExists(atPath: targetURL.path) || existingSymlink != nil {
+            try fileManager.removeItem(at: targetURL)
+        }
+        try fileManager.createSymbolicLink(at: targetURL, withDestinationURL: sourceURL)
+        return targetURL.path
     }
 
     private func validateRuntimeConfig(settings: ChumenRuntimeSettings, runtimeConfigURL: URL, ageSecretKey: String?) throws {

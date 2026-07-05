@@ -14,6 +14,17 @@ enum L10n {
         case coreSettings
         case appSettings
         case quickSettings
+        case editDashboard
+        case editQuickControls
+        case dashboardConfiguration
+        case quickControlsConfiguration
+        case dashboardCommandStatus
+        case dashboardQuickActions
+        case dashboardLinks
+        case dashboardCommandBar
+        case dashboardMainGrid
+        case resetDashboardLayout
+        case resetQuickControls
         case all
         case globalSearch
         case globalSearchPlaceholder
@@ -213,6 +224,9 @@ enum L10n {
         case clearLogs
         case executable
         case useDetectedCore
+        case coreProcessName
+        case coreProcessExecutableName
+        case coreProcessNameHint
         case secret
         case ports
         case controllerHost
@@ -317,6 +331,7 @@ enum L10n {
         case nameservers
         case autoStartCoreOnLaunch
         case setProxyOnStart
+        case enableTunOnStart
         case clearProxyOnStop
         case disableTunOnQuit
         case files
@@ -451,6 +466,17 @@ enum L10n {
         .coreSettings: "内核",
         .appSettings: "设置",
         .quickSettings: "快捷设置",
+        .editDashboard: "编辑总览",
+        .editQuickControls: "编辑快捷控制",
+        .dashboardConfiguration: "总览配置",
+        .quickControlsConfiguration: "快捷控制配置",
+        .dashboardCommandStatus: "顶部状态",
+        .dashboardQuickActions: "快捷操作",
+        .dashboardLinks: "重要入口",
+        .dashboardCommandBar: "快捷栏",
+        .dashboardMainGrid: "内容区",
+        .resetDashboardLayout: "恢复默认",
+        .resetQuickControls: "恢复默认快捷控制",
         .all: "全部",
         .globalSearch: "搜索",
         .globalSearchPlaceholder: "搜索任意内容",
@@ -650,6 +676,9 @@ enum L10n {
         .clearLogs: "清空日志",
         .executable: "内核程序",
         .useDetectedCore: "使用检测到的内核",
+        .coreProcessName: "内核进程名",
+        .coreProcessExecutableName: "实际进程名",
+        .coreProcessNameHint: "填写后缀即可，例如 door；启动或重启内核后实际进程名会变为 chumen-door。",
         .secret: "密钥",
         .ports: "端口",
         .controllerHost: "控制地址",
@@ -754,6 +783,7 @@ enum L10n {
         .nameservers: "DNS 服务器",
         .autoStartCoreOnLaunch: "打开 Chumen 后自动启动内核",
         .setProxyOnStart: "启动后自动开启系统代理",
+        .enableTunOnStart: "启动后自动开启 TUN",
         .clearProxyOnStop: "停止时自动清理系统代理",
         .disableTunOnQuit: "退出时自动关闭 TUN",
         .files: "文件",
@@ -793,7 +823,7 @@ enum L10n {
         .deleted: "已删除",
         .subscriptionURLEmpty: "订阅地址为空",
         .coreDetected: "已找到可执行内核",
-        .coreNotFound: "未找到可执行的 mihomo 内核",
+        .coreNotFound: "未找到可执行的 chumen-door/mihomo 内核",
         .connectionsClosed: "连接已关闭",
         .systemProxyEnabled: "系统代理已开启",
         .systemProxyDisabled: "系统代理已关闭",
@@ -879,6 +909,17 @@ enum L10n {
         .coreSettings: "Core",
         .appSettings: "Settings",
         .quickSettings: "Quick Settings",
+        .editDashboard: "Edit Dashboard",
+        .editQuickControls: "Edit Quick Controls",
+        .dashboardConfiguration: "Dashboard Configuration",
+        .quickControlsConfiguration: "Quick Controls Configuration",
+        .dashboardCommandStatus: "Command Status",
+        .dashboardQuickActions: "Quick Actions",
+        .dashboardLinks: "Important Links",
+        .dashboardCommandBar: "Command Bar",
+        .dashboardMainGrid: "Content Area",
+        .resetDashboardLayout: "Reset Defaults",
+        .resetQuickControls: "Reset Quick Controls",
         .all: "All",
         .globalSearch: "Search",
         .globalSearchPlaceholder: "Search anything",
@@ -1082,6 +1123,9 @@ enum L10n {
         .clearLogs: "Clear Logs",
         .executable: "Executable",
         .useDetectedCore: "Use Detected Core",
+        .coreProcessName: "Core process name",
+        .coreProcessExecutableName: "Effective process name",
+        .coreProcessNameHint: "Enter only the suffix, for example door. After the core starts or restarts, the process name becomes chumen-door.",
         .secret: "Secret",
         .ports: "Ports",
         .controllerHost: "Controller host",
@@ -1188,6 +1232,7 @@ enum L10n {
         .nameservers: "DNS servers",
         .autoStartCoreOnLaunch: "Start core when Chumen opens",
         .setProxyOnStart: "Set system proxy after start",
+        .enableTunOnStart: "Enable TUN after start",
         .clearProxyOnStop: "Clear system proxy on stop",
         .disableTunOnQuit: "Disable TUN on quit",
         .files: "Files",
@@ -1227,7 +1272,7 @@ enum L10n {
         .deleted: "Deleted",
         .subscriptionURLEmpty: "Subscription URL is empty",
         .coreDetected: "Core detected",
-        .coreNotFound: "No executable mihomo candidate found",
+        .coreNotFound: "No executable chumen-door/mihomo candidate found",
         .connectionsClosed: "Connections closed",
         .systemProxyEnabled: "System proxy enabled",
         .systemProxyDisabled: "System proxy disabled",

@@ -11,6 +11,7 @@ protocol DashboardSectionProvider: Sendable {
 }
 
 enum DashboardItemStyle {
+    case summary
     case command
     case state
     case metric
@@ -27,6 +28,15 @@ enum DashboardItemAction {
     case restartCore
     case toggleSystemProxy
     case toggleTun
+    case toggleAutoStartCoreOnLaunch
+    case toggleSetSystemProxyOnStart
+    case toggleEnableTunOnStart
+    case toggleClearSystemProxyOnStop
+    case toggleDisableTunOnQuit
+    case toggleAllowLAN
+    case toggleIPv6
+    case toggleUnifiedDelay
+    case toggleDNS
     case openDashboardURL
 }
 
@@ -67,19 +77,62 @@ struct DashboardItem: Identifiable {
     }
 }
 
+enum DashboardSectionPlacement {
+    case commandBar
+    case mainGrid
+}
+
+struct DashboardSectionConfiguration {
+    let placement: DashboardSectionPlacement
+    let maxVisibleItems: Int?
+    let isVisible: Bool
+    let isUserConfigurable: Bool
+
+    static let mainGrid = DashboardSectionConfiguration(placement: .mainGrid)
+    static let commandBar = DashboardSectionConfiguration(placement: .commandBar)
+
+    init(
+        placement: DashboardSectionPlacement,
+        maxVisibleItems: Int? = nil,
+        isVisible: Bool = true,
+        isUserConfigurable: Bool = true
+    ) {
+        self.placement = placement
+        self.maxVisibleItems = maxVisibleItems
+        self.isVisible = isVisible
+        self.isUserConfigurable = isUserConfigurable
+    }
+}
+
 struct DashboardSection: Identifiable {
     let id: String
     let title: String
     let detail: String
     let priority: Int
+    let configuration: DashboardSectionConfiguration
     var items: [DashboardItem]
+
+    init(
+        id: String,
+        title: String,
+        detail: String,
+        priority: Int,
+        configuration: DashboardSectionConfiguration = .mainGrid,
+        items: [DashboardItem]
+    ) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.priority = priority
+        self.configuration = configuration
+        self.items = items
+    }
 }
 
 enum DashboardSectionRegistry {
-    static let quickActionsID = "quick-actions"
-
     @MainActor
     private static let providers: [any DashboardSectionProvider] = [
+        CommandStatusDashboardProvider(),
         QuickActionsDashboardProvider(),
         RuntimeDashboardProvider(),
         TrafficDashboardProvider(),
@@ -89,13 +142,34 @@ enum DashboardSectionRegistry {
 
     @MainActor
     static func sections(for model: AppModel) -> [DashboardSection] {
-        allSections(for: model)
-            .filter { $0.id != quickActionsID }
+        sections(for: model, placement: .mainGrid)
     }
 
     @MainActor
-    static func quickActions(for model: AppModel) -> DashboardSection? {
-        allSections(for: model).first { $0.id == quickActionsID }
+    static func sections(for model: AppModel, placement: DashboardSectionPlacement) -> [DashboardSection] {
+        let hiddenSectionIDs = Set(model.settings.dashboardHiddenSectionIDs)
+        return allSections(for: model)
+            .filter { section in
+                section.configuration.isVisible &&
+                    section.configuration.placement == placement &&
+                    !hiddenSectionIDs.contains(section.id)
+            }
+    }
+
+    @MainActor
+    static func configurableSections(for model: AppModel) -> [DashboardSection] {
+        allSections(for: model)
+            .filter { section in
+                section.configuration.isVisible && section.configuration.isUserConfigurable
+            }
+    }
+
+    @MainActor
+    static func configurableQuickActions(for model: AppModel) -> [DashboardItem] {
+        QuickActionsDashboardProvider.items(for: model)
+            .sorted { lhs, rhs in
+                lhs.priority == rhs.priority ? lhs.id < rhs.id : lhs.priority < rhs.priority
+            }
     }
 
     @MainActor
@@ -110,9 +184,10 @@ enum DashboardSectionRegistry {
                     title: section.title,
                     detail: section.detail,
                     priority: section.priority,
+                    configuration: section.configuration,
                     items: section.items.sorted { lhs, rhs in
                         lhs.priority == rhs.priority ? lhs.id < rhs.id : lhs.priority < rhs.priority
-                    }
+                    }.limited(to: section.configuration.maxVisibleItems)
                 )
             }
             .sorted { lhs, rhs in
@@ -145,36 +220,216 @@ enum DashboardStateFormatting {
     }
 
     @MainActor
-    static func controllerState(for model: AppModel) -> (value: String, detail: String, tint: Color) {
-        let status = model.apiText.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func commandStatus(for model: AppModel) -> DashboardItem {
+        DashboardItem(
+            id: "command.status",
+            title: commandTitle(for: model),
+            value: commandBadge(for: model),
+            detail: commandSubtitle(for: model),
+            systemImage: commandIcon(for: model),
+            tint: commandTint(for: model),
+            style: .summary,
+            priority: 0,
+            action: commandAction(for: model),
+            isEnabled: !model.isCoreTransitioning
+        )
+    }
+
+    @MainActor
+    private static func commandTitle(for model: AppModel) -> String {
+        if !model.isRunning {
+            return model.t(.coreNotRunning)
+        }
+        if isAPIUnavailable(for: model) {
+            return model.t(.apiUnavailable)
+        }
+        if isAPINotTested(for: model) {
+            return model.t(.running)
+        }
+        return model.t(.apiConnected)
+    }
+
+    @MainActor
+    private static func commandSubtitle(for model: AppModel) -> String {
+        if !model.isRunning {
+            let failure = commandFailureText(for: model)
+            if !failure.isEmpty {
+                return failure
+            }
+            return "\(model.t(.coreNotRunningHint)) \(model.t(.activeProfile)): \(model.activeProfile?.name ?? "-")"
+        }
+        if isAPIUnavailable(for: model) {
+            return "\(model.t(.apiUnavailableHint)) \(controllerAddress(for: model))"
+        }
+        if isAPINotTested(for: model) {
+            return model.t(.apiNotTestedHint)
+        }
+
+        let status = model.statusText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !status.isEmpty else { return model.t(.apiConnectedHint) }
         let lowercased = status.lowercased()
-        let address = "\(model.settings.externalControllerHost):\(model.settings.externalControllerPort)"
-        if status.isEmpty ||
-            status == model.t(.apiNotTested) ||
-            status == L10n.text(.apiNotTested, language: .en) {
-            return (model.t(.pending), address, .blue)
+        let suppressedStatuses = [
+            model.t(.running),
+            model.t(.stopped),
+            model.t(.controllerUnavailable),
+            model.t(.tunEnabled),
+            model.t(.tunDisabled),
+            L10n.text(.controllerUnavailable, language: .en)
+        ]
+        return suppressedStatuses.contains(status)
+            || lowercased.contains("could not connect")
+            || lowercased.contains("cannot connect")
+            ? model.t(.apiConnectedHint)
+            : status
+    }
+
+    @MainActor
+    private static func commandFailureText(for model: AppModel) -> String {
+        let status = model.statusText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !status.isEmpty else { return "" }
+        let suppressed = [
+            model.t(.running),
+            model.t(.stopped),
+            model.t(.coreNotRunning),
+            model.t(.controllerUnavailable),
+            L10n.text(.controllerUnavailable, language: .en)
+        ]
+        if suppressed.contains(status) {
+            return ""
         }
-        if status == model.t(.controllerUnavailable) ||
-            status == L10n.text(.controllerUnavailable, language: .en) ||
-            lowercased.contains("could not connect") ||
-            lowercased.contains("cannot connect") ||
-            lowercased.contains("connection refused") {
-            return (model.t(.controllerUnavailable), address, .orange)
+        return status
+    }
+
+    @MainActor
+    private static func commandBadge(for model: AppModel) -> String {
+        if !model.isRunning {
+            return model.t(.actionStartCore)
         }
-        return (model.t(.apiConnected), status, .green)
+        if isAPIUnavailable(for: model) {
+            return model.t(.actionCheckAPI)
+        }
+        if isAPINotTested(for: model) {
+            return model.t(.pending)
+        }
+        return model.t(.ready)
+    }
+
+    @MainActor
+    private static func commandIcon(for model: AppModel) -> String {
+        if !model.isRunning {
+            return "power"
+        }
+        if isAPIUnavailable(for: model) {
+            return "exclamationmark.triangle.fill"
+        }
+        if isAPINotTested(for: model) {
+            return "clock"
+        }
+        return "checkmark.circle.fill"
+    }
+
+    @MainActor
+    private static func commandTint(for model: AppModel) -> Color {
+        if !model.isRunning {
+            return ChumenStyle.mutedText
+        }
+        if isAPIUnavailable(for: model) {
+            return .orange
+        }
+        if isAPINotTested(for: model) {
+            return .blue
+        }
+        return .green
+    }
+
+    @MainActor
+    private static func commandAction(for model: AppModel) -> DashboardItemAction {
+        if !model.isRunning {
+            return .startCore
+        }
+        if isAPIUnavailable(for: model) {
+            return .refreshAll
+        }
+        return .none
+    }
+
+    @MainActor
+    private static func isAPINotTested(for model: AppModel) -> Bool {
+        let status = normalizedAPIText(for: model)
+        return status.isEmpty
+            || status == model.t(.apiNotTested)
+            || status == L10n.text(.apiNotTested, language: .en)
+    }
+
+    @MainActor
+    private static func isAPIUnavailable(for model: AppModel) -> Bool {
+        let status = normalizedAPIText(for: model)
+        let lowercased = status.lowercased()
+        return status == model.t(.controllerUnavailable)
+            || status == L10n.text(.controllerUnavailable, language: .en)
+            || lowercased.contains("could not connect")
+            || lowercased.contains("cannot connect")
+            || lowercased.contains("connection refused")
+    }
+
+    @MainActor
+    private static func normalizedAPIText(for model: AppModel) -> String {
+        model.apiText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    @MainActor
+    private static func controllerAddress(for model: AppModel) -> String {
+        "\(model.settings.externalControllerHost):\(model.settings.externalControllerPort)"
     }
 }
 
-private struct QuickActionsDashboardProvider: DashboardSectionProvider {
+private extension Array {
+    func limited(to maxCount: Int?) -> [Element] {
+        guard let maxCount else { return self }
+        return Array(prefix(Swift.max(0, maxCount)))
+    }
+}
+
+private struct CommandStatusDashboardProvider: DashboardSectionProvider {
     let priority = 0
 
     func dashboardSection(for model: AppModel) -> DashboardSection? {
         DashboardSection(
-            id: DashboardSectionRegistry.quickActionsID,
-            title: model.t(.quickSettings),
+            id: "command-status",
+            title: model.t(.dashboardCommandStatus),
+            detail: model.t(.apiConnectedHint),
+            priority: priority,
+            configuration: .commandBar,
+            items: [DashboardStateFormatting.commandStatus(for: model)]
+        )
+    }
+}
+
+private struct QuickActionsDashboardProvider: DashboardSectionProvider {
+    let priority = 5
+
+    func dashboardSection(for model: AppModel) -> DashboardSection? {
+        DashboardSection(
+            id: "quick-actions",
+            title: model.t(.dashboardQuickActions),
             detail: model.t(.dashboard),
             priority: priority,
-            items: [
+            configuration: .commandBar,
+            items: Self.visibleItems(for: model)
+        )
+    }
+
+    @MainActor
+    static func visibleItems(for model: AppModel) -> [DashboardItem] {
+        let hiddenIDs = Set(model.settings.dashboardHiddenQuickActionIDs)
+        return items(for: model).filter { item in
+            !hiddenIDs.contains(item.id)
+        }
+    }
+
+    @MainActor
+    static func items(for model: AppModel) -> [DashboardItem] {
+        [
                 DashboardItem(
                     id: "actions.start",
                     title: model.t(.start),
@@ -191,7 +446,7 @@ private struct QuickActionsDashboardProvider: DashboardSectionProvider {
                     title: model.t(.stop),
                     value: model.t(.stop),
                     systemImage: "stop.fill",
-                    tint: ChumenStyle.mutedText,
+                    tint: .red,
                     style: .command,
                     priority: 20,
                     action: .stopCore,
@@ -202,7 +457,7 @@ private struct QuickActionsDashboardProvider: DashboardSectionProvider {
                     title: model.t(.restart),
                     value: model.t(.restart),
                     systemImage: "arrow.clockwise",
-                    tint: ChumenStyle.mutedText,
+                    tint: .orange,
                     style: .command,
                     priority: 30,
                     action: .restartCore,
@@ -213,17 +468,17 @@ private struct QuickActionsDashboardProvider: DashboardSectionProvider {
                     title: model.t(.refresh),
                     value: model.t(.refresh),
                     systemImage: "arrow.triangle.2.circlepath",
-                    tint: ChumenStyle.mutedText,
+                    tint: .blue,
                     style: .command,
                     priority: 40,
                     action: .refreshAll
                 ),
                 DashboardItem(
                     id: "actions.system-proxy",
-                    title: model.systemProxyEnabled ? model.t(.disableProxy) : model.t(.enableProxy),
-                    value: model.systemProxyEnabled ? model.t(.disableProxy) : model.t(.enableProxy),
+                    title: model.t(.systemProxy),
+                    value: model.systemProxyEnabled ? model.t(.on) : model.t(.off),
                     systemImage: "network",
-                    tint: model.systemProxyEnabled ? .green : ChumenStyle.mutedText,
+                    tint: model.systemProxyEnabled ? .green : .teal,
                     style: .command,
                     priority: 50,
                     action: .toggleSystemProxy,
@@ -231,15 +486,107 @@ private struct QuickActionsDashboardProvider: DashboardSectionProvider {
                 ),
                 DashboardItem(
                     id: "actions.tun",
-                    title: model.settings.enableTun ? model.t(.disableTun) : model.t(.enableTun),
-                    value: model.settings.enableTun ? model.t(.disableTun) : model.t(.enableTun),
+                    title: model.t(.tunMode),
+                    value: DashboardStateFormatting.tunStateText(for: model),
                     detail: model.tunRuntimeFailed ? model.tunRuntimeFailureDetail : "",
                     systemImage: "shield.lefthalf.filled",
-                    tint: DashboardStateFormatting.tunTint(for: model),
+                    tint: model.settings.enableTun || model.tunRuntimeFailed
+                        ? DashboardStateFormatting.tunTint(for: model)
+                        : .indigo,
                     style: .command,
                     priority: 60,
                     action: .toggleTun,
                     isEnabled: !model.isCoreTransitioning
+                ),
+                DashboardItem(
+                    id: "actions.auto-start",
+                    title: model.t(.autoStartCoreOnLaunch),
+                    value: model.settings.autoStartCoreOnLaunch ? model.t(.on) : model.t(.off),
+                    systemImage: "power.circle",
+                    tint: model.settings.autoStartCoreOnLaunch ? .green : ChumenStyle.mutedText,
+                    style: .command,
+                    priority: 70,
+                    action: .toggleAutoStartCoreOnLaunch
+                ),
+                DashboardItem(
+                    id: "actions.proxy-on-start",
+                    title: model.t(.setProxyOnStart),
+                    value: model.settings.setSystemProxyOnStart ? model.t(.on) : model.t(.off),
+                    systemImage: "checkmark.shield",
+                    tint: model.settings.setSystemProxyOnStart ? .green : ChumenStyle.mutedText,
+                    style: .command,
+                    priority: 80,
+                    action: .toggleSetSystemProxyOnStart
+                ),
+                DashboardItem(
+                    id: "actions.tun-on-start",
+                    title: model.t(.enableTunOnStart),
+                    value: model.settings.enableTunOnStart ? model.t(.on) : model.t(.off),
+                    systemImage: "shield",
+                    tint: model.settings.enableTunOnStart ? .green : ChumenStyle.mutedText,
+                    style: .command,
+                    priority: 90,
+                    action: .toggleEnableTunOnStart
+                ),
+                DashboardItem(
+                    id: "actions.clear-proxy-on-stop",
+                    title: model.t(.clearProxyOnStop),
+                    value: model.settings.clearSystemProxyOnStop ? model.t(.on) : model.t(.off),
+                    systemImage: "shield.slash",
+                    tint: model.settings.clearSystemProxyOnStop ? .green : ChumenStyle.mutedText,
+                    style: .command,
+                    priority: 100,
+                    action: .toggleClearSystemProxyOnStop
+                ),
+                DashboardItem(
+                    id: "actions.disable-tun-on-quit",
+                    title: model.t(.disableTunOnQuit),
+                    value: model.settings.disableTunOnQuit ? model.t(.on) : model.t(.off),
+                    systemImage: "rectangle.portrait.and.arrow.right",
+                    tint: model.settings.disableTunOnQuit ? .green : ChumenStyle.mutedText,
+                    style: .command,
+                    priority: 110,
+                    action: .toggleDisableTunOnQuit
+                ),
+                DashboardItem(
+                    id: "actions.allow-lan",
+                    title: model.t(.allowLAN),
+                    value: model.settings.allowLAN ? model.t(.on) : model.t(.off),
+                    systemImage: "network.badge.shield.half.filled",
+                    tint: model.settings.allowLAN ? .green : ChumenStyle.mutedText,
+                    style: .command,
+                    priority: 120,
+                    action: .toggleAllowLAN
+                ),
+                DashboardItem(
+                    id: "actions.ipv6",
+                    title: model.t(.ipv6),
+                    value: model.settings.ipv6 ? model.t(.on) : model.t(.off),
+                    systemImage: "6.circle",
+                    tint: model.settings.ipv6 ? .green : ChumenStyle.mutedText,
+                    style: .command,
+                    priority: 130,
+                    action: .toggleIPv6
+                ),
+                DashboardItem(
+                    id: "actions.unified-delay",
+                    title: model.t(.unifiedDelay),
+                    value: model.settings.unifiedDelay ? model.t(.on) : model.t(.off),
+                    systemImage: "timer",
+                    tint: model.settings.unifiedDelay ? .green : ChumenStyle.mutedText,
+                    style: .command,
+                    priority: 140,
+                    action: .toggleUnifiedDelay
+                ),
+                DashboardItem(
+                    id: "actions.dns",
+                    title: model.t(.enableDNS),
+                    value: model.settings.enableDNS ? model.t(.on) : model.t(.off),
+                    systemImage: "server.rack",
+                    tint: model.settings.enableDNS ? .green : ChumenStyle.mutedText,
+                    style: .command,
+                    priority: 150,
+                    action: .toggleDNS
                 ),
                 DashboardItem(
                     id: "actions.profiles",
@@ -248,7 +595,7 @@ private struct QuickActionsDashboardProvider: DashboardSectionProvider {
                     systemImage: "doc.text",
                     tint: .blue,
                     style: .command,
-                    priority: 70,
+                    priority: 200,
                     action: .openTab(.profiles)
                 ),
                 DashboardItem(
@@ -258,7 +605,7 @@ private struct QuickActionsDashboardProvider: DashboardSectionProvider {
                     systemImage: "text.alignleft",
                     tint: .blue,
                     style: .command,
-                    priority: 80,
+                    priority: 210,
                     action: .openTab(.logs)
                 ),
                 DashboardItem(
@@ -268,7 +615,7 @@ private struct QuickActionsDashboardProvider: DashboardSectionProvider {
                     systemImage: "gearshape.2",
                     tint: .indigo,
                     style: .command,
-                    priority: 90,
+                    priority: 220,
                     action: .openTab(.core)
                 ),
                 DashboardItem(
@@ -278,11 +625,10 @@ private struct QuickActionsDashboardProvider: DashboardSectionProvider {
                     systemImage: "gearshape",
                     tint: .purple,
                     style: .command,
-                    priority: 100,
+                    priority: 230,
                     action: .openTab(.settings)
                 )
             ]
-        )
     }
 }
 
@@ -290,8 +636,7 @@ private struct RuntimeDashboardProvider: DashboardSectionProvider {
     let priority = 10
 
     func dashboardSection(for model: AppModel) -> DashboardSection? {
-        let controller = DashboardStateFormatting.controllerState(for: model)
-        return DashboardSection(
+        DashboardSection(
             id: "runtime",
             title: model.t(.runtime),
             detail: model.t(.apiConnectedHint),
@@ -308,16 +653,6 @@ private struct RuntimeDashboardProvider: DashboardSectionProvider {
                     priority: 10
                 ),
                 DashboardItem(
-                    id: "runtime.api",
-                    title: model.t(.apiConnected),
-                    value: controller.value,
-                    detail: controller.detail,
-                    systemImage: "network",
-                    tint: controller.tint,
-                    style: .state,
-                    priority: 20
-                ),
-                DashboardItem(
                     id: "runtime.profile",
                     title: model.t(.activeProfile),
                     value: model.activeProfile?.name ?? "-",
@@ -325,7 +660,7 @@ private struct RuntimeDashboardProvider: DashboardSectionProvider {
                     systemImage: "doc.text",
                     tint: .blue,
                     style: .link,
-                    priority: 30,
+                    priority: 20,
                     action: .openTab(.profiles)
                 ),
                 DashboardItem(
@@ -335,7 +670,7 @@ private struct RuntimeDashboardProvider: DashboardSectionProvider {
                     systemImage: "arrow.triangle.branch",
                     tint: .purple,
                     style: .state,
-                    priority: 40
+                    priority: 30
                 ),
                 DashboardItem(
                     id: "runtime.system-proxy",
@@ -345,7 +680,7 @@ private struct RuntimeDashboardProvider: DashboardSectionProvider {
                     systemImage: model.systemProxyEnabled ? "checkmark.shield" : "shield",
                     tint: model.systemProxyEnabled ? .green : ChumenStyle.mutedText,
                     style: .state,
-                    priority: 50,
+                    priority: 40,
                     action: .toggleSystemProxy,
                     isEnabled: !model.isCoreTransitioning
                 ),
@@ -357,7 +692,7 @@ private struct RuntimeDashboardProvider: DashboardSectionProvider {
                     systemImage: "shield.lefthalf.filled",
                     tint: DashboardStateFormatting.tunTint(for: model),
                     style: .state,
-                    priority: 60,
+                    priority: 50,
                     action: .toggleTun,
                     isEnabled: !model.isCoreTransitioning
                 )
@@ -545,7 +880,7 @@ private struct NavigationDashboardProvider: DashboardSectionProvider {
 
         return DashboardSection(
             id: "links",
-            title: model.t(.quickSettings),
+            title: model.t(.dashboardLinks),
             detail: model.t(.globalSearch),
             priority: priority,
             items: items

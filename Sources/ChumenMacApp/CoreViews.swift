@@ -221,6 +221,25 @@ struct CoreSettingsView: View {
                             Label(model.t(.useDetectedCore), systemImage: "magnifyingglass")
                         }
 
+                        TextField(model.t(.coreProcessName), text: $model.settings.coreProcessName)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit {
+                                model.settings.coreProcessName = ChumenRuntimeSettings.sanitizedCoreProcessName(
+                                    model.settings.coreProcessName
+                                )
+                            }
+                        HStack {
+                            Label(model.t(.coreProcessExecutableName), systemImage: "door.left.hand.open")
+                            Spacer()
+                            Text(model.settings.managedCoreExecutableName)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(ChumenStyle.mutedText)
+                                .textSelection(.enabled)
+                        }
+                        Text(model.t(.coreProcessNameHint))
+                            .font(.caption)
+                            .foregroundStyle(ChumenStyle.mutedText)
+
                         TextField(model.t(.secret), text: $model.settings.secret)
                             .textFieldStyle(.roundedBorder)
                         Toggle(model.t(.autoStartCoreOnLaunch), isOn: $model.settings.autoStartCoreOnLaunch)

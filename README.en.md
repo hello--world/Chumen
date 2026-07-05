@@ -98,8 +98,11 @@ Download the local `mihomo` binary:
 bash ./scripts/download_mihomo.sh
 ```
 
-The result is written to `bin/mihomo`, which is not tracked by git. When `corePath` is empty or the
-old path is not executable, the GUI and CLI prefer this local binary automatically.
+The result is written to `bin/chumen-door`, which is not tracked by git. When `corePath` is empty
+or the old path is not executable, the GUI and CLI prefer this local binary automatically. Before
+starting the core, Chumen creates a managed link using the configured process-name suffix. The
+default suffix is `door`, so the default process name is `chumen-door`, distinct from a
+system-installed `mihomo` in process lists.
 
 Default ports intentionally avoid common proxy clients:
 
@@ -123,7 +126,7 @@ dist/Chumen.app
 Bundle a specific core binary:
 
 ```bash
-CHUMEN_CORE_PATH="$PWD/bin/mihomo" bash ./scripts/build_app.sh
+CHUMEN_CORE_PATH="$PWD/bin/chumen-door" bash ./scripts/build_app.sh
 ```
 
 ## Features

@@ -20,7 +20,7 @@ esac
 
 CORE_DIR="$ROOT_DIR/bin"
 CORE_GZ="$CORE_DIR/mihomo-darwin-$ASSET_ARCH-v$VERSION.gz"
-CORE_BIN="$CORE_DIR/mihomo"
+CORE_BIN="$CORE_DIR/chumen-door"
 URL="https://github.com/MetaCubeX/mihomo/releases/download/v$VERSION/mihomo-darwin-$ASSET_ARCH-v$VERSION.gz"
 
 mkdir -p "$CORE_DIR"

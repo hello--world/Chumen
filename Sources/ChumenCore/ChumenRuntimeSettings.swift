@@ -108,6 +108,22 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
     public static let defaultExternalControllerPort = 19897
     public static let defaultDNSListen = "127.0.0.1:1053"
     public static let defaultStatusBarCustomTemplate = "↑{up}/s ↓{down}/s"
+    public static let defaultCoreProcessName = "door"
+    public static let defaultDashboardHiddenQuickActionIDs = [
+        "actions.profiles",
+        "actions.logs",
+        "actions.core-settings",
+        "actions.app-settings",
+        "actions.auto-start",
+        "actions.proxy-on-start",
+        "actions.tun-on-start",
+        "actions.clear-proxy-on-stop",
+        "actions.disable-tun-on-quit",
+        "actions.allow-lan",
+        "actions.ipv6",
+        "actions.unified-delay",
+        "actions.dns"
+    ]
     public static let defaultNameservers = [
         "https://dns.alidns.com/dns-query",
         "https://doh.pub/dns-query"
@@ -136,6 +152,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
     private static let previousAppBundleName = "Lu" + "men.app"
 
     public var corePath: String
+    public var coreProcessName: String
     public var profilePath: String?
     public var mixedPort: Int
     public var socksPort: Int
@@ -159,12 +176,15 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
     public var activeProfileID: String?
     public var autoStartCoreOnLaunch: Bool
     public var setSystemProxyOnStart: Bool
+    public var enableTunOnStart: Bool
     public var clearSystemProxyOnStop: Bool
     public var disableTunOnQuit: Bool
     public var language: AppLanguage?
     public var showStatusBarItem: Bool
     public var statusBarDisplayMode: StatusBarDisplayMode
     public var statusBarCustomTemplate: String
+    public var dashboardHiddenSectionIDs: [String]
+    public var dashboardHiddenQuickActionIDs: [String]
     public var allowLAN: Bool
     public var ipv6: Bool
     public var unifiedDelay: Bool
@@ -210,6 +230,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
 
     public init(
         corePath: String = "",
+        coreProcessName: String = Self.defaultCoreProcessName,
         profilePath: String? = nil,
         mixedPort: Int = Self.defaultMixedPort,
         socksPort: Int = Self.defaultSocksPort,
@@ -233,12 +254,15 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         activeProfileID: String? = nil,
         autoStartCoreOnLaunch: Bool = true,
         setSystemProxyOnStart: Bool = false,
+        enableTunOnStart: Bool = false,
         clearSystemProxyOnStop: Bool = true,
         disableTunOnQuit: Bool = true,
         language: AppLanguage? = nil,
         showStatusBarItem: Bool = true,
         statusBarDisplayMode: StatusBarDisplayMode = .stackedSpeed,
         statusBarCustomTemplate: String = Self.defaultStatusBarCustomTemplate,
+        dashboardHiddenSectionIDs: [String] = [],
+        dashboardHiddenQuickActionIDs: [String] = Self.defaultDashboardHiddenQuickActionIDs,
         allowLAN: Bool = false,
         ipv6: Bool = true,
         unifiedDelay: Bool = true,
@@ -283,6 +307,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         ai: ChumenAISettings = ChumenAISettings()
     ) {
         self.corePath = corePath
+        self.coreProcessName = Self.sanitizedCoreProcessName(coreProcessName)
         self.profilePath = profilePath
         self.mixedPort = mixedPort
         self.socksPort = socksPort
@@ -306,12 +331,15 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         self.activeProfileID = activeProfileID
         self.autoStartCoreOnLaunch = autoStartCoreOnLaunch
         self.setSystemProxyOnStart = setSystemProxyOnStart
+        self.enableTunOnStart = enableTunOnStart
         self.clearSystemProxyOnStop = clearSystemProxyOnStop
         self.disableTunOnQuit = disableTunOnQuit
         self.language = language
         self.showStatusBarItem = showStatusBarItem
         self.statusBarDisplayMode = statusBarDisplayMode
         self.statusBarCustomTemplate = statusBarCustomTemplate
+        self.dashboardHiddenSectionIDs = dashboardHiddenSectionIDs
+        self.dashboardHiddenQuickActionIDs = dashboardHiddenQuickActionIDs
         self.allowLAN = allowLAN
         self.ipv6 = ipv6
         self.unifiedDelay = unifiedDelay
@@ -361,6 +389,29 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         return normalized.isEmpty || normalized == Self.placeholderSecret
     }
 
+    public var managedCoreExecutableName: String {
+        "chumen-\(Self.sanitizedCoreProcessName(coreProcessName))"
+    }
+
+    public static func sanitizedCoreProcessName(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = trimmed.hasPrefix("chumen-")
+            ? String(trimmed.dropFirst("chumen-".count))
+            : trimmed
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        let characters = suffix.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let cleaned = String(characters)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
+        if cleaned.isEmpty {
+            return Self.defaultCoreProcessName
+        }
+        return String(cleaned.prefix(48))
+    }
+
     @discardableResult
     public mutating func ensureRandomSecret() -> Bool {
         guard usesPlaceholderSecret else { return false }
@@ -381,6 +432,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case corePath
+        case coreProcessName
         case profilePath
         case mixedPort
         case socksPort
@@ -404,12 +456,15 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         case activeProfileID
         case autoStartCoreOnLaunch
         case setSystemProxyOnStart
+        case enableTunOnStart
         case clearSystemProxyOnStop
         case disableTunOnQuit
         case language
         case showStatusBarItem
         case statusBarDisplayMode
         case statusBarCustomTemplate
+        case dashboardHiddenSectionIDs
+        case dashboardHiddenQuickActionIDs
         case allowLAN
         case ipv6
         case unifiedDelay
@@ -462,6 +517,8 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
             : (decodedStatusBarTemplate ?? Self.defaultStatusBarCustomTemplate)
         self.init(
             corePath: try container.decodeIfPresent(String.self, forKey: .corePath) ?? "",
+            coreProcessName: try container.decodeIfPresent(String.self, forKey: .coreProcessName)
+                ?? Self.defaultCoreProcessName,
             profilePath: try container.decodeIfPresent(String.self, forKey: .profilePath),
             mixedPort: try container.decodeIfPresent(Int.self, forKey: .mixedPort) ?? Self.defaultMixedPort,
             socksPort: try container.decodeIfPresent(Int.self, forKey: .socksPort) ?? Self.defaultSocksPort,
@@ -485,12 +542,18 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
             activeProfileID: try container.decodeIfPresent(String.self, forKey: .activeProfileID),
             autoStartCoreOnLaunch: try container.decodeIfPresent(Bool.self, forKey: .autoStartCoreOnLaunch) ?? true,
             setSystemProxyOnStart: try container.decodeIfPresent(Bool.self, forKey: .setSystemProxyOnStart) ?? false,
+            enableTunOnStart: try container.decodeIfPresent(Bool.self, forKey: .enableTunOnStart) ?? false,
             clearSystemProxyOnStop: try container.decodeIfPresent(Bool.self, forKey: .clearSystemProxyOnStop) ?? true,
             disableTunOnQuit: try container.decodeIfPresent(Bool.self, forKey: .disableTunOnQuit) ?? true,
             language: try container.decodeIfPresent(AppLanguage.self, forKey: .language),
             showStatusBarItem: try container.decodeIfPresent(Bool.self, forKey: .showStatusBarItem) ?? true,
             statusBarDisplayMode: (try? container.decode(StatusBarDisplayMode.self, forKey: .statusBarDisplayMode)) ?? .stackedSpeed,
             statusBarCustomTemplate: statusBarCustomTemplate,
+            dashboardHiddenSectionIDs: try container.decodeIfPresent([String].self, forKey: .dashboardHiddenSectionIDs) ?? [],
+            dashboardHiddenQuickActionIDs: try container.decodeIfPresent(
+                [String].self,
+                forKey: .dashboardHiddenQuickActionIDs
+            ) ?? Self.defaultDashboardHiddenQuickActionIDs,
             allowLAN: try container.decodeIfPresent(Bool.self, forKey: .allowLAN) ?? false,
             ipv6: try container.decodeIfPresent(Bool.self, forKey: .ipv6) ?? true,
             unifiedDelay: try container.decodeIfPresent(Bool.self, forKey: .unifiedDelay) ?? true,
@@ -589,6 +652,12 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         }
 
         candidates.append(contentsOf: [
+            "/opt/homebrew/bin/chumen-door",
+            "/usr/local/bin/chumen-door",
+            "/usr/bin/chumen-door",
+            "/opt/homebrew/bin/chumen-mihomo",
+            "/usr/local/bin/chumen-mihomo",
+            "/usr/bin/chumen-mihomo",
             "/opt/homebrew/bin/mihomo",
             "/usr/local/bin/mihomo",
             "/usr/bin/mihomo"
@@ -604,6 +673,8 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
     }
 
     private static let coreNames = [
+        "chumen-door",
+        "chumen-mihomo",
         "verge-mihomo",
         "verge-mihomo-alpha",
         "verge-mihomo-aarch64-apple-darwin",

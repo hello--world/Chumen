@@ -178,6 +178,11 @@ struct ChumenCLI {
             settings.setSystemProxyOnStart = try parseBool(arguments[1])
             try context.settingsStore.save(settings)
             print("setSystemProxyOnStart=\(settings.setSystemProxyOnStart)")
+        case "set-tun-on-start":
+            guard arguments.count >= 2 else { throw CLIError.usage("settings set-tun-on-start <true|false>") }
+            settings.enableTunOnStart = try parseBool(arguments[1])
+            try context.settingsStore.save(settings)
+            print("enableTunOnStart=\(settings.enableTunOnStart)")
         case "set-clear-proxy-on-stop":
             guard arguments.count >= 2 else { throw CLIError.usage("settings set-clear-proxy-on-stop <true|false>") }
             settings.clearSystemProxyOnStop = try parseBool(arguments[1])
@@ -682,6 +687,7 @@ struct ChumenCLI {
               settings set-status-bar-template <template>
               settings set-auto-start-core <true|false>
               settings set-proxy-on-start <true|false>
+              settings set-tun-on-start <true|false>
               settings set-clear-proxy-on-stop <true|false>
               profile list
               profile show <id>

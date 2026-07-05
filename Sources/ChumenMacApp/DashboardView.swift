@@ -4,6 +4,7 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
     @Binding var selectedTab: AppTab
+    @State private var quickActionConfigurationPresented = false
 
     var body: some View {
         ScrollView {
@@ -128,29 +129,11 @@ struct DashboardView: View {
     }
 
     private var commandPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 14) {
-                    commandSummary
-                    Spacer(minLength: 12)
-                    modeControl
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    commandSummary
-                    modeControl
-                }
-            }
-
-            Divider()
-
-            ViewThatFits(in: .horizontal) {
-                quickActionStrip
-                ScrollView(.horizontal, showsIndicators: false) {
-                    quickActionStrip
-                }
-            }
+        ViewThatFits(in: .horizontal) {
+            commandPanelWide
+            commandPanelStacked
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
@@ -160,45 +143,132 @@ struct DashboardView: View {
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                 .strokeBorder(ChumenStyle.border)
         )
+        .sheet(isPresented: $quickActionConfigurationPresented) {
+            QuickActionConfigurationSheet()
+                .environmentObject(model)
+        }
     }
 
-    private var commandSummary: some View {
+    private var commandPanelWide: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 16) {
+                if !commandStatusItems.isEmpty {
+                    commandStatusStrip
+                }
+                if !commandActionItems.isEmpty {
+                    commandActionGrid(columnCount: 4)
+                        .frame(minWidth: 600, maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            commandModeRow
+        }
+    }
+
+    private var commandPanelStacked: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !commandStatusItems.isEmpty {
+                commandStatusStrip
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !commandActionItems.isEmpty {
+                commandActionGrid(columnCount: 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            commandModeRow
+        }
+    }
+
+    private var commandModeRow: some View {
+        modeControl
+    }
+
+    private var commandBarItems: [DashboardItem] {
+        DashboardSectionRegistry.sections(for: model, placement: .commandBar)
+            .flatMap(\.items)
+    }
+
+    private var commandStatusItems: [DashboardItem] {
+        commandBarItems.filter { item in
+            if case .summary = item.style {
+                return true
+            }
+            return false
+        }
+    }
+
+    private var commandActionItems: [DashboardItem] {
+        commandBarItems.filter { item in
+            if case .command = item.style {
+                return true
+            }
+            return false
+        }
+    }
+
+    private var commandStatusStrip: some View {
+        HStack(spacing: 10) {
+            ForEach(commandStatusItems) { item in
+                commandStatusItem(item)
+            }
+        }
+        .frame(minWidth: 250, idealWidth: 320, maxWidth: 360, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func commandStatusItem(_ item: DashboardItem) -> some View {
+        if isActionable(item.action) {
+            Button {
+                perform(item.action)
+            } label: {
+                commandStatusContent(item)
+            }
+            .buttonStyle(.plain)
+            .disabled(!item.isEnabled)
+            .help(quickActionHelp(item))
+        } else {
+            commandStatusContent(item)
+        }
+    }
+
+    private func commandStatusContent(_ item: DashboardItem) -> some View {
         HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                    .fill(commandAccent.opacity(0.10))
-                Image(systemName: commandIcon)
+                    .fill(item.tint.opacity(0.10))
+                Image(systemName: item.systemImage)
                     .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(commandAccent)
+                    .foregroundStyle(item.tint)
             }
             .frame(width: 38, height: 38)
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
-                    Text(commandTitle)
+                    Text(item.title)
                         .font(.headline.weight(.semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
 
-                    Text(commandBadge)
+                    Text(item.value)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(commandAccent)
+                        .foregroundStyle(item.tint)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
                         .background(
                             Capsule(style: .continuous)
-                                .fill(commandAccent.opacity(0.10))
+                                .fill(item.tint.opacity(0.10))
                         )
                 }
 
-                Text(commandSubtitle)
+                Text(item.detail)
                     .font(.caption)
                     .foregroundStyle(ChumenStyle.mutedText)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .opacity(item.isEnabled ? 1 : 0.52)
+        .contentShape(Rectangle())
     }
 
     private var modeControl: some View {
@@ -206,15 +276,80 @@ struct DashboardView: View {
             Text(model.t(.mode))
                 .font(.callout.weight(.medium))
                 .foregroundStyle(ChumenStyle.mutedText)
-            modePicker
+            dashboardModePicker
                 .frame(width: 270)
         }
         .frame(maxWidth: 340, alignment: .leading)
     }
 
-    private var quickActionStrip: some View {
+    private var dashboardModePicker: some View {
+        HStack(spacing: 2) {
+            ForEach(ProxyMode.allCases) { mode in
+                Button {
+                    if model.settings.mode != mode {
+                        model.applyMode(mode)
+                    }
+                } label: {
+                    Text(mode.rawValue)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(model.settings.mode == mode ? Color.white : Color.primary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(model.settings.mode == mode ? Color.blue : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(ChumenStyle.controlFill)
+        )
+    }
+
+    private var dashboardEditButton: some View {
+        Button {
+            quickActionConfigurationPresented = true
+        } label: {
+            Label(model.t(.editQuickControls), systemImage: "slider.horizontal.3")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(Color.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+                .background(
+                    RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                        .fill(ChumenStyle.controlFill)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(model.t(.quickControlsConfiguration))
+    }
+
+    private func commandActionGrid(columnCount: Int) -> some View {
+        let columns = Array(
+            repeating: GridItem(.flexible(minimum: 142, maximum: 190), spacing: 8),
+            count: columnCount
+        )
+
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+            ForEach(commandActionItems) { item in
+                quickActionButton(item)
+            }
+            dashboardEditButton
+        }
+        .controlSize(.regular)
+    }
+
+    private func quickActionStrip(_ items: [DashboardItem]) -> some View {
         HStack(spacing: 8) {
-            ForEach(DashboardSectionRegistry.quickActions(for: model)?.items ?? []) { item in
+            ForEach(items) { item in
                 quickActionButton(item)
             }
         }
@@ -223,16 +358,15 @@ struct DashboardView: View {
 
     @ViewBuilder
     private func quickActionButton(_ item: DashboardItem) -> some View {
-        if isPrimaryCommand(item.action) {
+        if let isOn = toggleValue(for: item.action) {
             Button {
-                perform(item.action)
+                setToggleValue(!isOn, for: item.action)
             } label: {
-                quickActionLabel(item)
+                quickToggleLabel(item, isOn: isOn)
             }
-            .buttonStyle(.borderedProminent)
-            .labelStyle(.titleAndIcon)
+            .buttonStyle(.plain)
             .disabled(!item.isEnabled)
-            .tint(item.tint)
+            .frame(maxWidth: .infinity)
             .help(quickActionHelp(item))
         } else {
             Button {
@@ -240,163 +374,91 @@ struct DashboardView: View {
             } label: {
                 quickActionLabel(item)
             }
-            .buttonStyle(.bordered)
-            .labelStyle(.titleAndIcon)
+            .buttonStyle(.plain)
             .disabled(!item.isEnabled)
-            .tint(item.tint)
+            .frame(maxWidth: .infinity)
             .help(quickActionHelp(item))
         }
     }
 
     private func quickActionLabel(_ item: DashboardItem) -> some View {
         Label(item.title, systemImage: item.systemImage)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(quickActionForeground(for: item))
             .lineLimit(1)
             .minimumScaleFactor(0.78)
-            .padding(.horizontal, 2)
-            .frame(minWidth: 76)
+            .padding(.horizontal, 12)
+            .frame(minWidth: 142)
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .fill(quickActionBackground(for: item))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .strokeBorder(quickActionBorder(for: item))
+            )
+            .opacity(item.isEnabled ? 1 : 0.42)
+    }
+
+    private func quickToggleLabel(_ item: DashboardItem, isOn: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: item.systemImage)
+                .font(.callout.weight(.semibold))
+                .frame(width: 18)
+            Text(item.title)
+                .font(.callout.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+            Spacer(minLength: 6)
+            switchGlyph(isOn: isOn, tint: item.tint)
+        }
+        .foregroundStyle(quickActionForeground(for: item))
+        .padding(.horizontal, 12)
+        .frame(minWidth: 142)
+        .frame(maxWidth: .infinity)
+        .frame(height: 36)
+        .background(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(quickActionBackground(for: item))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .strokeBorder(quickActionBorder(for: item))
+        )
+        .opacity(item.isEnabled ? 1 : 0.42)
+    }
+
+    private func switchGlyph(isOn: Bool, tint: Color) -> some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(isOn ? tint.opacity(0.92) : ChumenStyle.mutedText.opacity(0.22))
+            .frame(width: 26, height: 14)
+            .overlay(alignment: isOn ? .trailing : .leading) {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 10, height: 10)
+                    .padding(2)
+            }
     }
 
     private func quickActionHelp(_ item: DashboardItem) -> String {
         item.detail.isEmpty ? item.title : "\(item.title): \(item.detail)"
     }
 
-    private var commandTitle: String {
-        if !model.isRunning {
-            return model.t(.coreNotRunning)
-        }
-        if isAPIUnavailable {
-            return model.t(.apiUnavailable)
-        }
-        if isAPINotTested {
-            return model.t(.running)
-        }
-        return model.t(.apiConnected)
+    private func quickActionForeground(for item: DashboardItem) -> Color {
+        guard item.isEnabled else { return ChumenStyle.mutedText }
+        return isPrimaryCommand(item.action) ? .white : item.tint
     }
 
-    private var commandSubtitle: String {
-        if !model.isRunning {
-            let failure = commandFailureText
-            if !failure.isEmpty {
-                return failure
-            }
-            return "\(model.t(.coreNotRunningHint)) \(model.t(.activeProfile)): \(model.activeProfile?.name ?? "-")"
-        }
-        if isAPIUnavailable {
-            return "\(model.t(.apiUnavailableHint)) \(controllerAddress)"
-        }
-        if isAPINotTested {
-            return model.t(.apiNotTestedHint)
-        }
-
-        let status = model.statusText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !status.isEmpty else { return model.t(.apiConnectedHint) }
-        let lowercased = status.lowercased()
-        let suppressedStatuses = [
-            model.t(.running),
-            model.t(.stopped),
-            model.t(.controllerUnavailable),
-            model.t(.tunEnabled),
-            model.t(.tunDisabled),
-            L10n.text(.controllerUnavailable, language: .en)
-        ]
-        return suppressedStatuses.contains(status)
-            || lowercased.contains("could not connect")
-            || lowercased.contains("cannot connect")
-            ? model.t(.apiConnectedHint)
-            : status
+    private func quickActionBackground(for item: DashboardItem) -> Color {
+        guard item.isEnabled else { return ChumenStyle.controlFill }
+        return isPrimaryCommand(item.action) ? item.tint : item.tint.opacity(0.10)
     }
 
-    private var commandFailureText: String {
-        let status = model.statusText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !status.isEmpty else { return "" }
-        let suppressed = [
-            model.t(.running),
-            model.t(.stopped),
-            model.t(.coreNotRunning),
-            model.t(.controllerUnavailable),
-            L10n.text(.controllerUnavailable, language: .en)
-        ]
-        if suppressed.contains(status) {
-            return ""
-        }
-        return status
-    }
-
-    private var commandBadge: String {
-        if !model.isRunning {
-            return model.t(.actionStartCore)
-        }
-        if isAPIUnavailable {
-            return model.t(.actionCheckAPI)
-        }
-        if isAPINotTested {
-            return model.t(.pending)
-        }
-        return model.t(.ready)
-    }
-
-    private var commandIcon: String {
-        if !model.isRunning {
-            return "power"
-        }
-        if isAPIUnavailable {
-            return "exclamationmark.triangle.fill"
-        }
-        if isAPINotTested {
-            return "clock"
-        }
-        return "checkmark.circle.fill"
-    }
-
-    private var commandAccent: Color {
-        if !model.isRunning {
-            return ChumenStyle.mutedText
-        }
-        if isAPIUnavailable {
-            return .orange
-        }
-        if isAPINotTested {
-            return .blue
-        }
-        return .green
-    }
-
-    private var controllerAddress: String {
-        "\(model.settings.externalControllerHost):\(model.settings.externalControllerPort)"
-    }
-
-    private var isAPINotTested: Bool {
-        let status = normalizedAPIText
-        return status.isEmpty
-            || status == model.t(.apiNotTested)
-            || status == L10n.text(.apiNotTested, language: .en)
-    }
-
-    private var isAPIUnavailable: Bool {
-        let status = normalizedAPIText
-        let lowercased = status.lowercased()
-        return status == model.t(.controllerUnavailable)
-            || status == L10n.text(.controllerUnavailable, language: .en)
-            || lowercased.contains("could not connect")
-            || lowercased.contains("cannot connect")
-            || lowercased.contains("connection refused")
-    }
-
-    private var normalizedAPIText: String {
-        model.apiText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var modePicker: some View {
-        Picker(model.t(.mode), selection: Binding(
-            get: { model.settings.mode },
-            set: { model.applyMode($0) }
-        )) {
-            ForEach(ProxyMode.allCases) { mode in
-                Text(mode.rawValue).tag(mode)
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.segmented)
+    private func quickActionBorder(for item: DashboardItem) -> Color {
+        guard item.isEnabled else { return ChumenStyle.border }
+        return isPrimaryCommand(item.action) ? item.tint.opacity(0.18) : item.tint.opacity(0.16)
     }
 
     private func perform(_ action: DashboardItemAction) {
@@ -417,8 +479,95 @@ struct DashboardView: View {
             model.toggleSystemProxy()
         case .toggleTun:
             model.setTunEnabled(!model.settings.enableTun)
+        case .toggleAutoStartCoreOnLaunch:
+            setToggleValue(!model.settings.autoStartCoreOnLaunch, for: action)
+        case .toggleSetSystemProxyOnStart:
+            setToggleValue(!model.settings.setSystemProxyOnStart, for: action)
+        case .toggleEnableTunOnStart:
+            setToggleValue(!model.settings.enableTunOnStart, for: action)
+        case .toggleClearSystemProxyOnStop:
+            setToggleValue(!model.settings.clearSystemProxyOnStop, for: action)
+        case .toggleDisableTunOnQuit:
+            setToggleValue(!model.settings.disableTunOnQuit, for: action)
+        case .toggleAllowLAN:
+            setToggleValue(!model.settings.allowLAN, for: action)
+        case .toggleIPv6:
+            setToggleValue(!model.settings.ipv6, for: action)
+        case .toggleUnifiedDelay:
+            setToggleValue(!model.settings.unifiedDelay, for: action)
+        case .toggleDNS:
+            setToggleValue(!model.settings.enableDNS, for: action)
         case .openDashboardURL:
             model.openDashboardURL()
+        }
+    }
+
+    private func toggleValue(for action: DashboardItemAction) -> Bool? {
+        switch action {
+        case .toggleSystemProxy:
+            return model.systemProxyEnabled
+        case .toggleTun:
+            return model.settings.enableTun
+        case .toggleAutoStartCoreOnLaunch:
+            return model.settings.autoStartCoreOnLaunch
+        case .toggleSetSystemProxyOnStart:
+            return model.settings.setSystemProxyOnStart
+        case .toggleEnableTunOnStart:
+            return model.settings.enableTunOnStart
+        case .toggleClearSystemProxyOnStop:
+            return model.settings.clearSystemProxyOnStop
+        case .toggleDisableTunOnQuit:
+            return model.settings.disableTunOnQuit
+        case .toggleAllowLAN:
+            return model.settings.allowLAN
+        case .toggleIPv6:
+            return model.settings.ipv6
+        case .toggleUnifiedDelay:
+            return model.settings.unifiedDelay
+        case .toggleDNS:
+            return model.settings.enableDNS
+        default:
+            return nil
+        }
+    }
+
+    private func setToggleValue(_ isOn: Bool, for action: DashboardItemAction) {
+        switch action {
+        case .toggleSystemProxy:
+            if model.systemProxyEnabled != isOn {
+                model.toggleSystemProxy()
+            }
+        case .toggleTun:
+            model.setTunEnabled(isOn)
+        case .toggleAutoStartCoreOnLaunch:
+            model.settings.autoStartCoreOnLaunch = isOn
+            model.scheduleSettingsAutosave()
+        case .toggleSetSystemProxyOnStart:
+            model.settings.setSystemProxyOnStart = isOn
+            model.scheduleSettingsAutosave()
+        case .toggleEnableTunOnStart:
+            model.settings.enableTunOnStart = isOn
+            model.scheduleSettingsAutosave()
+        case .toggleClearSystemProxyOnStop:
+            model.settings.clearSystemProxyOnStop = isOn
+            model.scheduleSettingsAutosave()
+        case .toggleDisableTunOnQuit:
+            model.settings.disableTunOnQuit = isOn
+            model.scheduleSettingsAutosave()
+        case .toggleAllowLAN:
+            model.settings.allowLAN = isOn
+            model.scheduleSettingsAutosave()
+        case .toggleIPv6:
+            model.settings.ipv6 = isOn
+            model.scheduleSettingsAutosave()
+        case .toggleUnifiedDelay:
+            model.settings.unifiedDelay = isOn
+            model.scheduleSettingsAutosave()
+        case .toggleDNS:
+            model.settings.enableDNS = isOn
+            model.scheduleSettingsAutosave()
+        default:
+            break
         }
     }
 
@@ -443,6 +592,24 @@ struct DashboardView: View {
             return "arrow.clockwise"
         case .toggleSystemProxy, .toggleTun:
             return "switch.2"
+        case .toggleAutoStartCoreOnLaunch:
+            return "power.circle"
+        case .toggleSetSystemProxyOnStart:
+            return "checkmark.shield"
+        case .toggleEnableTunOnStart:
+            return "shield"
+        case .toggleClearSystemProxyOnStop:
+            return "shield.slash"
+        case .toggleDisableTunOnQuit:
+            return "rectangle.portrait.and.arrow.right"
+        case .toggleAllowLAN:
+            return "network.badge.shield.half.filled"
+        case .toggleIPv6:
+            return "6.circle"
+        case .toggleUnifiedDelay:
+            return "timer"
+        case .toggleDNS:
+            return "server.rack"
         case .openDashboardURL:
             return "arrow.up.forward.app"
         case .openTab:
@@ -463,6 +630,8 @@ struct DashboardView: View {
 
     private func valueFont(for style: DashboardItemStyle) -> Font {
         switch style {
+        case .summary:
+            return .system(size: 18, weight: .semibold)
         case .command:
             return .system(size: 16, weight: .semibold)
         case .state:
@@ -478,6 +647,8 @@ struct DashboardView: View {
 
     private func iconSize(for style: DashboardItemStyle) -> CGFloat {
         switch style {
+        case .summary:
+            return 19
         case .diagnostic:
             return 17
         default:
@@ -487,6 +658,8 @@ struct DashboardView: View {
 
     private func iconFillOpacity(for style: DashboardItemStyle) -> Double {
         switch style {
+        case .summary:
+            return 0.10
         case .link:
             return 0.08
         case .diagnostic:
@@ -516,6 +689,8 @@ struct DashboardView: View {
 
     private func minHeight(for style: DashboardItemStyle) -> CGFloat {
         switch style {
+        case .summary:
+            return 64
         case .diagnostic:
             return 96
         case .command:
@@ -523,5 +698,136 @@ struct DashboardView: View {
         default:
             return 82
         }
+    }
+}
+
+private struct QuickActionConfigurationSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    private var quickActions: [DashboardItem] {
+        DashboardSectionRegistry.configurableQuickActions(for: model)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 34, height: 34)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color.blue.opacity(0.10))
+                    )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.t(.quickControlsConfiguration))
+                        .font(.headline.weight(.semibold))
+                    Text(model.t(.dashboardQuickActions))
+                        .font(.caption)
+                        .foregroundStyle(ChumenStyle.mutedText)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(quickActions) { item in
+                        quickActionVisibilityToggle(item)
+                    }
+                }
+                .padding(16)
+            }
+
+            Divider()
+
+            HStack {
+                Button {
+                    model.settings.dashboardHiddenQuickActionIDs = ChumenRuntimeSettings.defaultDashboardHiddenQuickActionIDs
+                    model.scheduleSettingsAutosave()
+                } label: {
+                    Label(model.t(.resetQuickControls), systemImage: "arrow.counterclockwise")
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    dismiss()
+                } label: {
+                    Label(model.t(.close), systemImage: "xmark")
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding(16)
+        }
+        .frame(width: 500)
+        .frame(minHeight: 420)
+        .background(ChumenStyle.pageBackground)
+    }
+
+    private func quickActionVisibilityToggle(_ item: DashboardItem) -> some View {
+        Toggle(isOn: quickActionVisibleBinding(item.id)) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(item.tint.opacity(0.10))
+                    Image(systemName: item.systemImage)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(item.tint)
+                }
+                .frame(width: 34, height: 34)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.title)
+                        .font(.callout.weight(.medium))
+                    HStack(spacing: 6) {
+                        Text(item.value)
+                        if !item.detail.isEmpty {
+                            Text("·")
+                            Text(item.detail)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(ChumenStyle.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .fill(ChumenStyle.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .strokeBorder(ChumenStyle.border)
+            )
+        }
+        .toggleStyle(.switch)
+    }
+
+    private func quickActionVisibleBinding(_ itemID: String) -> Binding<Bool> {
+        Binding(
+            get: {
+                !model.settings.dashboardHiddenQuickActionIDs.contains(itemID)
+            },
+            set: { isVisible in
+                var hiddenActionIDs = Set(model.settings.dashboardHiddenQuickActionIDs)
+                if isVisible {
+                    hiddenActionIDs.remove(itemID)
+                } else {
+                    hiddenActionIDs.insert(itemID)
+                }
+                model.settings.dashboardHiddenQuickActionIDs = hiddenActionIDs.sorted()
+                model.scheduleSettingsAutosave()
+            }
+        )
     }
 }
