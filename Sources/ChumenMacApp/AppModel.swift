@@ -566,6 +566,17 @@ final class AppModel: ObservableObject {
         """
     }
 
+    private static let blankProfileTemplate = """
+    proxies: []
+    proxy-groups:
+      - name: PROXY
+        type: select
+        proxies:
+          - DIRECT
+    rules:
+      - MATCH,DIRECT
+    """
+
     private func isAgeIdentityMismatch(_ error: Error) -> Bool {
         let message = error.localizedDescription
         return message.contains("stored age identity cannot decrypt") ||
@@ -1425,6 +1436,24 @@ final class AppModel: ObservableObject {
             } catch {
                 statusText = displayError(error)
             }
+        }
+    }
+
+    func createBlankProfileForEditing() {
+        do {
+            var library = profileLibrary
+            let profile = try profileRepository.createBlankProfile(
+                name: t(.newProfile),
+                content: Self.blankProfileTemplate,
+                into: &library
+            )
+            profileLibrary = library
+            rebuildProfileContentCache(Self.blankProfileTemplate, for: profile)
+            startupImportPromptPresented = false
+            statusText = "\(t(.created)) \(profile.name)"
+            beginEditProfile(profile)
+        } catch {
+            statusText = displayError(error)
         }
     }
 

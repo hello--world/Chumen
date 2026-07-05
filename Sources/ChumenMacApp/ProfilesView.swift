@@ -4,153 +4,33 @@ import SwiftUI
 struct ProfilesView: View {
     @EnvironmentObject private var model: AppModel
     @Binding var choosingProfile: Bool
+    @State private var profileSearchText = ""
+    @State private var externalImportSearchText = ""
+
+    // The Profiles page is a high-frequency maintenance surface: users scan the current config,
+    // make one targeted change, then leave. Keep imports in the left rail and make each profile row
+    // read like a compact settings row, not a dashboard card with every action competing at once.
+    private enum Layout {
+        static let sidebarWidth: CGFloat = 320
+        static let pagePadding: CGFloat = 18
+        static let rowHorizontalPadding: CGFloat = 16
+        static let rowVerticalPadding: CGFloat = 14
+        static let actionWidth: CGFloat = 96
+        static let compactActionWidth: CGFloat = 80
+        static let actionHeight: CGFloat = 30
+        static let primaryActionWidth: CGFloat = 108
+    }
 
     var body: some View {
-        HSplitView {
-            VStack(alignment: .leading, spacing: 16) {
-                Button {
-                    choosingProfile = true
-                } label: {
-                    Label(model.t(.importLocal), systemImage: "square.and.arrow.down")
-                }
+        HStack(alignment: .top, spacing: 0) {
+            profileImportSidebar
+                .frame(width: Layout.sidebarWidth)
 
-                Divider()
+            Divider()
 
-                TextField(model.t(.subscriptionURL), text: $model.remoteProfileURL)
-                    .textFieldStyle(.roundedBorder)
-                TextField(model.t(.displayName), text: $model.remoteProfileName)
-                    .textFieldStyle(.roundedBorder)
-                Button {
-                    model.importRemoteProfile()
-                } label: {
-                    Label(model.t(.importSubscription), systemImage: "arrow.down.doc")
-                }
-
-                Divider()
-
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(model.t(.importFromClients))
-                            .font(.headline)
-                        Text(model.t(.externalImportHint))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        HStack {
-                            Button {
-                                model.scanExternalProfiles()
-                            } label: {
-                                Label(model.t(.scanClients), systemImage: "magnifyingglass")
-                            }
-
-                            Button {
-                                model.importExternalProfiles()
-                            } label: {
-                                Label(model.t(.importAllFound), systemImage: "tray.and.arrow.down")
-                            }
-                            .disabled(model.externalProfileCandidates.isEmpty)
-                        }
-
-                        if model.externalProfileCandidates.isEmpty && model.externalProfileScanCompleted {
-                            Text(model.t(.noExternalProfilesFound))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if !model.externalProfileCandidates.isEmpty {
-                            ScrollView {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(model.externalProfileCandidates) { candidate in
-                                        HStack(alignment: .top, spacing: 8) {
-                                            VStack(alignment: .leading, spacing: 3) {
-                                                Text(candidate.name)
-                                                    .font(.subheadline.weight(.semibold))
-                                                    .lineLimit(1)
-                                                Text(candidate.sourceName)
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                                if candidate.remoteURL != nil {
-                                                    Label(model.t(.subscriptionURLFound), systemImage: "link.badge.plus")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(.secondary)
-                                                }
-                                                Text(candidate.filePath)
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.tertiary)
-                                                    .lineLimit(1)
-                                            }
-                                            Spacer(minLength: 8)
-                                            Button(model.t(.importOne)) {
-                                                model.importExternalProfile(candidate)
-                                            }
-                                            .controlSize(.small)
-                                        }
-                                        .padding(8)
-                                        .background(ChumenStyle.groupedSurface.opacity(0.65))
-                                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                    }
-                                }
-                            }
-                            .frame(maxHeight: 210)
-                        }
-                    }
-                }
-
-                Divider()
-
-                Button {
-                    model.beginEditGlobalProfileAppendix()
-                } label: {
-                    Label(model.t(.globalExtendOverrideConfig), systemImage: "doc.badge.gearshape")
-                }
-
-                Spacer()
-            }
-            .padding(18)
-            .frame(minWidth: 300, idealWidth: 340, maxWidth: 380)
-
-            List {
-                ForEach(model.profileLibrary.profiles) { profile in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(profile.name)
-                                    .font(.headline)
-                                Text(profile.filePath)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                if let sourceClient = profile.sourceClient, !sourceClient.isEmpty {
-                                    Label("\(model.t(.importedFromClient)) \(sourceClient)", systemImage: "tray.and.arrow.down")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                                if let remoteURL = profile.remoteURL, !remoteURL.isEmpty {
-                                    Label(remoteURL, systemImage: "link")
-                                        .font(.caption)
-                                        .foregroundStyle(.tertiary)
-                                        .lineLimit(1)
-                                }
-                            }
-                            Spacer()
-                            if profile.id == model.profileLibrary.activeProfileID {
-                                Label(model.t(.active), systemImage: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                            }
-                        }
-
-                        profileActionButtons(profile)
-                    }
-                    .padding(.vertical, 6)
-                    .contextMenu {
-                        profileActionMenu(profile)
-                    }
-                }
-            }
+            profileListPane
         }
-        .sheet(item: $model.editingProfileMetadata) { profile in
-            ProfileMetadataEditorSheet(profile: profile)
-                .environmentObject(model)
-        }
+        .background(ChumenStyle.pageBackground)
         .sheet(item: $model.editingProfile) { profile in
             ProfileEditorSheet(profile: profile)
                 .environmentObject(model)
@@ -165,153 +45,448 @@ struct ProfilesView: View {
         }
     }
 
-    private var profileActionColumns: [GridItem] {
-        [
-            GridItem(.adaptive(minimum: 118, maximum: 170), spacing: 8, alignment: .leading)
-        ]
-    }
-
-    @ViewBuilder
-    private func profileActionButtons(_ profile: ProxyProfile) -> some View {
-        LazyVGrid(columns: profileActionColumns, alignment: .leading, spacing: 8) {
-            if profile.id == model.profileLibrary.activeProfileID {
-                Label(model.t(.currentActive), systemImage: "checkmark.circle.fill")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.green)
-                    .lineLimit(1)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color.green.opacity(0.10))
-                    )
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .strokeBorder(Color.green.opacity(0.28))
-                    )
-            } else {
+    private var profileImportSidebar: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
                 Button {
-                    model.activateProfile(profile)
+                    model.createBlankProfileForEditing()
                 } label: {
-                    Label(model.t(.activate), systemImage: "checkmark.circle")
+                    Label(model.t(.createProfile), systemImage: "doc.badge.plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                profileSidebarSection(title: model.t(.importLocal), systemImage: "square.and.arrow.down") {
+                    Button {
+                        choosingProfile = true
+                    } label: {
+                        Label(model.t(.importLocal), systemImage: "plus.document")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                profileSidebarSection(title: model.t(.importSubscription), systemImage: "link.badge.plus") {
+                    TextField(model.t(.subscriptionURL), text: $model.remoteProfileURL)
+                        .textFieldStyle(.roundedBorder)
+                    TextField(model.t(.displayName), text: $model.remoteProfileName)
+                        .textFieldStyle(.roundedBorder)
+                    Button {
+                        model.importRemoteProfile()
+                    } label: {
+                        Label(model.t(.importSubscription), systemImage: "arrow.down.doc")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                profileSidebarSection(title: model.t(.importFromClients), systemImage: "tray.and.arrow.down") {
+                    Text(model.t(.externalImportHint))
+                        .font(.callout)
+                        .foregroundStyle(ChumenStyle.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 8) {
+                        Button {
+                            model.scanExternalProfiles()
+                        } label: {
+                            Label(model.t(.scanClients), systemImage: "magnifyingglass")
+                                .frame(maxWidth: .infinity)
+                        }
+
+                        Button {
+                            model.importExternalProfiles(filteredExternalProfileCandidates)
+                        } label: {
+                            Label(model.t(.importAllFound), systemImage: "tray.and.arrow.down")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .disabled(filteredExternalProfileCandidates.isEmpty)
+                    }
+
+                    externalProfileCandidatesList
+                }
+
+                profileSidebarSection(title: model.t(.globalExtendOverrideConfig), systemImage: "doc.badge.gearshape") {
+                    Button {
+                        model.beginEditGlobalProfileAppendix()
+                    } label: {
+                        Label(model.t(.globalExtendOverrideConfig), systemImage: "doc.badge.gearshape")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
-
-            Button {
-                model.beginEditProfileMetadata(profile)
-            } label: {
-                Label(model.t(.editInfo), systemImage: "info.circle")
-            }
-
-            Button {
-                model.beginEditProfile(profile)
-            } label: {
-                Label(model.t(.editFile), systemImage: "doc.text")
-            }
-
-            Button {
-                model.beginEditProfileSection(profile, kind: .rules)
-            } label: {
-                Label(model.t(.editRules), systemImage: ProfileSectionEditorKind.rules.systemImage)
-            }
-
-            Button {
-                model.beginEditProfileSection(profile, kind: .proxies)
-            } label: {
-                Label(model.t(.editNodes), systemImage: ProfileSectionEditorKind.proxies.systemImage)
-            }
-
-            Button {
-                model.beginEditProfileSection(profile, kind: .proxyGroups)
-            } label: {
-                Label(model.t(.editProxyGroups), systemImage: ProfileSectionEditorKind.proxyGroups.systemImage)
-            }
-
-            Button {
-                model.beginEditProfileAppendix(profile)
-            } label: {
-                Label(model.t(.extendOverrideConfig), systemImage: "doc.badge.gearshape")
-            }
-
-            Button {
-                model.noteProfileScriptUnsupported()
-            } label: {
-                Label(model.t(.extendScript), systemImage: "curlybraces")
-            }
-
-            Button {
-                model.openProfileFile(profile)
-            } label: {
-                Label(model.t(.openFile), systemImage: "arrow.up.right.square")
-            }
-
-            Button {
-                model.updateProfile(profile)
-            } label: {
-                Label(model.t(.update), systemImage: "arrow.clockwise")
-            }
-            .disabled(profile.remoteURL == nil)
-
-            Button {
-                model.updateProfileViaProxy(profile)
-            } label: {
-                Label(model.t(.updateViaProxy), systemImage: "point.3.connected.trianglepath.dotted")
-            }
-            .disabled(profile.remoteURL == nil)
-
-            Button(role: .destructive) {
-                model.deleteProfile(profile)
-            } label: {
-                Label(model.t(.delete), systemImage: "trash")
-            }
+            .padding(Layout.pagePadding)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .labelStyle(.titleAndIcon)
-        .lineLimit(1)
+        .background(ChumenStyle.pageBackground)
     }
 
     @ViewBuilder
-    private func profileActionMenu(_ profile: ProxyProfile) -> some View {
-        Button {
-            model.activateProfile(profile)
-        } label: {
-            Label(model.t(.useProfile), systemImage: "checkmark.circle")
+    private func profileSidebarSection<Content: View>(
+        title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            content()
         }
-        .disabled(profile.id == model.profileLibrary.activeProfileID)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(ChumenStyle.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .strokeBorder(ChumenStyle.border)
+        )
+    }
 
-        Button {
-            model.beginEditProfileMetadata(profile)
-        } label: {
-            Label(model.t(.editInfo), systemImage: "info.circle")
+    @ViewBuilder
+    private var externalProfileCandidatesList: some View {
+        if model.externalProfileCandidates.isEmpty && model.externalProfileScanCompleted {
+            Text(model.t(.noExternalProfilesFound))
+                .font(.callout)
+                .foregroundStyle(ChumenStyle.mutedText)
+        } else if !model.externalProfileCandidates.isEmpty {
+            TextField(model.t(.importSearchPlaceholder), text: $externalImportSearchText)
+                .textFieldStyle(.roundedBorder)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(filteredExternalProfileCandidates) { candidate in
+                        HStack(alignment: .center, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(candidate.name)
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                Text(candidate.sourceName)
+                                    .font(.caption)
+                                    .foregroundStyle(ChumenStyle.mutedText)
+                                if candidate.remoteURL != nil {
+                                    Label(model.t(.subscriptionURLFound), systemImage: "link.badge.plus")
+                                        .font(.caption)
+                                        .foregroundStyle(ChumenStyle.mutedText)
+                                }
+                                Text(candidate.filePath)
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            Spacer(minLength: 8)
+                            Button(model.t(.importOne)) {
+                                model.importExternalProfile(candidate)
+                            }
+                            .controlSize(.small)
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(ChumenStyle.identityFill)
+                        )
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
         }
+    }
 
-        Button {
-            model.beginEditProfile(profile)
-        } label: {
-            Label(model.t(.editFile), systemImage: "doc.text")
+    private var profileListPane: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.t(.profileLibrary))
+                        .font(.title3.weight(.semibold))
+                    Text("\(filteredProfiles.count) / \(model.profileLibrary.profiles.count)")
+                        .font(.callout)
+                        .foregroundStyle(ChumenStyle.mutedText)
+                }
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(ChumenStyle.mutedText)
+                    TextField(model.t(.profileSearchPlaceholder), text: $profileSearchText)
+                        .textFieldStyle(.plain)
+                }
+                .padding(.horizontal, 12)
+                .frame(width: 320, height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                        .fill(ChumenStyle.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                        .strokeBorder(ChumenStyle.border)
+                )
+            }
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if filteredProfiles.isEmpty {
+                        emptyProfilesState
+                    } else {
+                        ForEach(filteredProfiles) { profile in
+                            profileRow(profile)
+                            if profile.id != filteredProfiles.last?.id {
+                                Divider()
+                                    .padding(.leading, 58)
+                            }
+                        }
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                        .fill(ChumenStyle.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                        .strokeBorder(ChumenStyle.border)
+                )
+            }
         }
+        .padding(Layout.pagePadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(ChumenStyle.pageBackground)
+    }
 
-        Divider()
-
-        Button {
-            model.beginEditProfileSection(profile, kind: .rules)
-        } label: {
-            Label(model.t(.editRules), systemImage: ProfileSectionEditorKind.rules.systemImage)
+    private var filteredProfiles: [ProxyProfile] {
+        let query = profileSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return model.profileLibrary.profiles }
+        return model.profileLibrary.profiles.filter { profile in
+            [profile.name, profile.filePath, profile.remoteURL ?? "", profile.sourceClient ?? ""]
+                .contains { $0.localizedCaseInsensitiveContains(query) }
         }
+    }
 
-        Button {
-            model.beginEditProfileSection(profile, kind: .proxies)
-        } label: {
-            Label(model.t(.editNodes), systemImage: ProfileSectionEditorKind.proxies.systemImage)
+    private var filteredExternalProfileCandidates: [ExternalProfileCandidate] {
+        let query = externalImportSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return model.externalProfileCandidates }
+        return model.externalProfileCandidates.filter { candidate in
+            [candidate.name, candidate.sourceName, candidate.filePath, candidate.remoteURL ?? ""]
+                .contains { $0.localizedCaseInsensitiveContains(query) }
         }
+    }
 
+    private var emptyProfilesState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "tray")
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(ChumenStyle.mutedText)
+            Text(profileSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? model.t(.noProfiles) : model.t(.noMatchingProfiles))
+                .font(.headline)
+            Button {
+                model.createBlankProfileForEditing()
+            } label: {
+                Label(model.t(.createProfile), systemImage: "doc.badge.plus")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, minHeight: 220)
+        .foregroundStyle(ChumenStyle.mutedText)
+    }
+
+    private func profileRow(_ profile: ProxyProfile) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            profileStatusIcon(profile)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(profile.name)
+                        .font(.headline.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if profile.id == model.profileLibrary.activeProfileID {
+                        activeStatusPill
+                    }
+                }
+
+                profileMetadata(profile)
+            }
+
+            Spacer(minLength: 12)
+
+            VStack(alignment: .trailing, spacing: 8) {
+                if profile.id != model.profileLibrary.activeProfileID {
+                    profileActivationControl(profile)
+                }
+                profileActionBar(profile)
+            }
+        }
+        .padding(.horizontal, Layout.rowHorizontalPadding)
+        .padding(.vertical, Layout.rowVerticalPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .contextMenu {
+            profileActionMenu(profile)
+        }
+    }
+
+    private func profileStatusIcon(_ profile: ProxyProfile) -> some View {
+        Image(systemName: profile.id == model.profileLibrary.activeProfileID ? "checkmark.circle.fill" : "doc.text")
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(profile.id == model.profileLibrary.activeProfileID ? Color.green : ChumenStyle.mutedText)
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill((profile.id == model.profileLibrary.activeProfileID ? Color.green : ChumenStyle.mutedText).opacity(0.10))
+            )
+    }
+
+    private var activeStatusPill: some View {
+        Label(model.t(.currentActive), systemImage: "checkmark.circle.fill")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.green)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.green.opacity(0.10))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(Color.green.opacity(0.28))
+            )
+    }
+
+    private func profileMetadata(_ profile: ProxyProfile) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            metadataLine(systemImage: "folder", text: profile.filePath, color: ChumenStyle.mutedText)
+
+            if let sourceClient = profile.sourceClient, !sourceClient.isEmpty {
+                metadataLine(
+                    systemImage: "tray.and.arrow.down",
+                    text: "\(model.t(.importedFromClient)) \(sourceClient)",
+                    color: ChumenStyle.mutedText
+                )
+            }
+
+            if let remoteURL = profile.remoteURL, !remoteURL.isEmpty {
+                metadataLine(systemImage: "link", text: remoteURL, color: Color(nsColor: .tertiaryLabelColor))
+            }
+        }
+    }
+
+    private func metadataLine(systemImage: String, text: String, color: Color) -> some View {
+        Label {
+            Text(text)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        } icon: {
+            Image(systemName: systemImage)
+        }
+        .font(.callout)
+        .foregroundStyle(color)
+    }
+
+    @ViewBuilder
+    private func profileActivationControl(_ profile: ProxyProfile) -> some View {
+        if profile.id == model.profileLibrary.activeProfileID {
+            activeStatusPill
+        } else {
+            Button {
+                model.activateProfile(profile)
+            } label: {
+                Label(model.t(.activate), systemImage: "checkmark.circle.fill")
+                    .frame(width: Layout.primaryActionWidth)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
+    private func profileActionBar(_ profile: ProxyProfile) -> some View {
+        profileActionBarContent(profile)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func profileActionBarContent(_ profile: ProxyProfile) -> some View {
+        HStack(spacing: 8) {
+            profileActionButton(title: model.t(.edit), systemImage: "square.and.pencil", width: Layout.compactActionWidth, prominent: true) {
+                model.beginEditProfile(profile)
+            }
+
+            profileActionButton(title: model.t(.editRules), systemImage: ProfileSectionEditorKind.rules.systemImage) {
+                model.beginEditProfileSection(profile, kind: .rules)
+            }
+
+            profileActionButton(title: model.t(.editNodes), systemImage: ProfileSectionEditorKind.proxies.systemImage) {
+                model.beginEditProfileSection(profile, kind: .proxies)
+            }
+
+            profileActionButton(title: model.t(.update), systemImage: "arrow.clockwise", width: Layout.compactActionWidth, disabled: profile.remoteURL == nil) {
+                model.updateProfile(profile)
+            }
+
+            profileMoreMenu(profile)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func profileActionButton(
+        title: String,
+        systemImage: String,
+        width: CGFloat = Layout.actionWidth,
+        disabled: Bool = false,
+        prominent: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            profileActionLabel(title: title, systemImage: systemImage, width: width, prominent: prominent)
+                .opacity(disabled ? 0.45 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .help(title)
+    }
+
+    private func profileMoreMenu(_ profile: ProxyProfile) -> some View {
+        Menu {
+            profileSecondaryActionMenu(profile)
+        } label: {
+            profileActionLabel(title: model.t(.more), systemImage: "ellipsis.circle", width: Layout.compactActionWidth, prominent: false)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(model.t(.more))
+    }
+
+    private func profileActionLabel(title: String, systemImage: String, width: CGFloat, prominent: Bool) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+            Text(title)
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+        }
+        .foregroundStyle(prominent ? Color.white : Color.primary)
+        .frame(width: width, height: Layout.actionHeight)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(prominent ? Color.accentColor : ChumenStyle.controlFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(prominent ? Color.accentColor.opacity(0.35) : ChumenStyle.border.opacity(0.55))
+        )
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func profileSecondaryActionMenu(_ profile: ProxyProfile) -> some View {
         Button {
             model.beginEditProfileSection(profile, kind: .proxyGroups)
         } label: {
             Label(model.t(.editProxyGroups), systemImage: ProfileSectionEditorKind.proxyGroups.systemImage)
         }
+
+        Divider()
 
         Button {
             model.beginEditProfileAppendix(profile)
@@ -334,13 +509,6 @@ struct ProfilesView: View {
         }
 
         Button {
-            model.updateProfile(profile)
-        } label: {
-            Label(model.t(.update), systemImage: "arrow.clockwise")
-        }
-        .disabled(profile.remoteURL == nil)
-
-        Button {
             model.updateProfileViaProxy(profile)
         } label: {
             Label(model.t(.updateViaProxy), systemImage: "point.3.connected.trianglepath.dotted")
@@ -355,42 +523,43 @@ struct ProfilesView: View {
             Label(model.t(.delete), systemImage: "trash")
         }
     }
-}
-private struct ProfileMetadataEditorSheet: View {
-    @EnvironmentObject private var model: AppModel
-    let profile: ProxyProfile
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.t(.editInfo))
-                        .font(.headline)
-                    Text(profile.filePath)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Button(model.t(.cancel)) {
-                    model.cancelProfileMetadataEditor()
-                }
-                Button(model.t(.save)) {
-                    model.saveProfileMetadataEditor()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-
-            TextField(model.t(.displayName), text: $model.profileMetadataEditorName)
-                .textFieldStyle(.roundedBorder)
-            TextField(model.t(.subscriptionURL), text: $model.profileMetadataEditorRemoteURL)
-                .textFieldStyle(.roundedBorder)
-            Text(model.t(.subscriptionEditHint))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    @ViewBuilder
+    private func profileActionMenu(_ profile: ProxyProfile) -> some View {
+        Button {
+            model.activateProfile(profile)
+        } label: {
+            Label(model.t(.useProfile), systemImage: "checkmark.circle")
         }
-        .padding(18)
-        .frame(minWidth: 520)
+        .disabled(profile.id == model.profileLibrary.activeProfileID)
+
+        Button {
+            model.beginEditProfile(profile)
+        } label: {
+            Label(model.t(.edit), systemImage: "square.and.pencil")
+        }
+
+        Divider()
+
+        Button {
+            model.beginEditProfileSection(profile, kind: .rules)
+        } label: {
+            Label(model.t(.editRules), systemImage: ProfileSectionEditorKind.rules.systemImage)
+        }
+
+        Button {
+            model.beginEditProfileSection(profile, kind: .proxies)
+        } label: {
+            Label(model.t(.editNodes), systemImage: ProfileSectionEditorKind.proxies.systemImage)
+        }
+
+        Button {
+            model.beginEditProfileSection(profile, kind: .proxyGroups)
+        } label: {
+            Label(model.t(.editProxyGroups), systemImage: ProfileSectionEditorKind.proxyGroups.systemImage)
+        }
+
+        profileSecondaryActionMenu(profile)
     }
 }
 
@@ -402,7 +571,7 @@ private struct ProfileEditorSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(model.t(.editFile))
+                    Label(model.t(.edit), systemImage: "square.and.pencil")
                         .font(.headline)
                     Text(profile.filePath)
                         .font(.caption)
@@ -420,6 +589,24 @@ private struct ProfileEditorSheet: View {
                 .disabled(model.profileEditorIsLoading)
             }
 
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                GridRow {
+                    Text(model.t(.displayName))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(ChumenStyle.mutedText)
+                    TextField(model.t(.displayName), text: $model.profileEditorName)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                GridRow {
+                    Text(model.t(.subscriptionURL))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(ChumenStyle.mutedText)
+                    TextField(model.t(.subscriptionURL), text: $model.profileEditorRemoteURL)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+
             ZStack {
                 LiveYAMLCodeEditor(text: $model.profileEditorText, sections: $model.profileEditorVisualSections)
                     .frame(minWidth: 980, minHeight: 520)
@@ -434,7 +621,7 @@ private struct ProfileEditorSheet: View {
             }
         }
         .padding(18)
-        .frame(width: 1040, height: 620)
+        .frame(width: 1040, height: 680)
     }
 }
 

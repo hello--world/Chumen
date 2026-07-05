@@ -27,6 +27,27 @@ final class ProfileRepositoryTests: XCTestCase {
         XCTAssertTrue(ChumenConfigProtection.isProtected(try Data(contentsOf: URL(fileURLWithPath: profile.filePath))))
     }
 
+    func testCreateBlankProfileWritesEncryptedProfileAndPersistsLibrary() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("chumen-profile-create-test-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let paths = ChumenPaths(appHome: root.appendingPathComponent("app", isDirectory: true))
+        let repository = ProfileRepository(paths: paths)
+        var library = ProfileLibrary()
+        let template = "proxies: []\nproxy-groups: []\nrules:\n  - MATCH,DIRECT\n"
+
+        let profile = try repository.createBlankProfile(name: "New Profile", content: template, into: &library)
+        let reloaded = repository.load()
+
+        XCTAssertEqual(library.activeProfileID, profile.id)
+        XCTAssertEqual(reloaded.profiles.first?.name, "New Profile")
+        XCTAssertEqual(try repository.profileContent(profile), template)
+        XCTAssertTrue(ChumenConfigProtection.isProtected(try Data(contentsOf: URL(fileURLWithPath: profile.filePath))))
+    }
+
     func testDeleteActiveProfileSelectsNextProfile() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("chumen-profile-delete-test-\(UUID().uuidString)", isDirectory: true)

@@ -90,6 +90,12 @@ enum L10n {
         case noExternalProfilesFound
         case externalProfilesFound
         case subscriptionURLFound
+        case createProfile
+        case newProfile
+        case profileLibrary
+        case profileSearchPlaceholder
+        case noProfiles
+        case noMatchingProfiles
         case useProfile
         case activate
         case active
@@ -341,6 +347,7 @@ enum L10n {
         case on
         case off
         case imported
+        case created
         case skipped
         case failed
         case updated
@@ -520,6 +527,12 @@ enum L10n {
         .noExternalProfilesFound: "未发现可导入配置",
         .externalProfilesFound: "发现可导入配置",
         .subscriptionURLFound: "订阅 URL 已读取",
+        .createProfile: "新建配置",
+        .newProfile: "新建配置",
+        .profileLibrary: "配置库",
+        .profileSearchPlaceholder: "搜索配置",
+        .noProfiles: "暂无配置",
+        .noMatchingProfiles: "没有匹配的配置",
         .useProfile: "使用",
         .activate: "启用",
         .active: "已启用",
@@ -771,6 +784,7 @@ enum L10n {
         .on: "开",
         .off: "关",
         .imported: "已导入",
+        .created: "已创建",
         .skipped: "已跳过",
         .failed: "失败",
         .updated: "已更新",
@@ -941,6 +955,12 @@ enum L10n {
         .noExternalProfilesFound: "No importable configs found",
         .externalProfilesFound: "Importable configs found",
         .subscriptionURLFound: "Subscription URL found",
+        .createProfile: "New Profile",
+        .newProfile: "New Profile",
+        .profileLibrary: "Profile Library",
+        .profileSearchPlaceholder: "Search profiles",
+        .noProfiles: "No profiles",
+        .noMatchingProfiles: "No matching profiles",
         .useProfile: "Use",
         .activate: "Activate",
         .active: "Active",
@@ -1192,6 +1212,7 @@ enum L10n {
         .on: "On",
         .off: "Off",
         .imported: "Imported",
+        .created: "Created",
         .skipped: "Skipped",
         .failed: "Failed",
         .updated: "Updated",

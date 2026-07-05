@@ -166,22 +166,8 @@ struct ContentView: View {
 
     private var headerIdentity: some View {
         HStack(spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                    .fill(ChumenStyle.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                            .fill((model.isRunning ? Color.green : ChumenStyle.accent).opacity(0.06))
-                    )
-                Image(systemName: model.isRunning ? "bolt.horizontal.fill" : "bolt.horizontal")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(model.isRunning ? .green : ChumenStyle.accent)
-            }
-            .frame(width: 38, height: 38)
-            .overlay(
-                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                    .strokeBorder(ChumenStyle.border)
-            )
+            ChumenHeaderIcon()
+                .frame(width: 38, height: 38)
 
             VStack(alignment: .leading, spacing: 5) {
                 Text("Chumen")
@@ -679,5 +665,132 @@ struct ContentView: View {
             connections: model.connections,
             rules: model.rules
         )
+    }
+}
+
+// Compact brand mark for the app shell. It mirrors the packaged AppIcon's doorway/path metaphor
+// without depending on bundle resources, so SwiftPM debug launches and packaged builds match.
+private struct ChumenHeaderIcon: View {
+    var body: some View {
+        GeometryReader { proxy in
+            let side = min(proxy.size.width, proxy.size.height)
+            let unit = side / 38
+            let originX = (proxy.size.width - side) / 2
+            let originY = (proxy.size.height - side) / 2
+
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: ChumenStyle.radius * unit, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.87, green: 0.98, blue: 1.00),
+                                Color(red: 0.29, green: 0.72, blue: 0.96),
+                                Color(red: 0.13, green: 0.47, blue: 0.88)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: side, height: side)
+
+                Path { path in
+                    path.addEllipse(in: CGRect(x: -8 * unit, y: -2 * unit, width: 30 * unit, height: 19 * unit))
+                    path.addEllipse(in: CGRect(x: 23 * unit, y: 25 * unit, width: 20 * unit, height: 10 * unit))
+                }
+                .fill(Color.white.opacity(0.28))
+
+                RoundedRectangle(cornerRadius: 5.2 * unit, style: .continuous)
+                    .fill(Color.white.opacity(0.97))
+                    .frame(width: 20 * unit, height: 27 * unit)
+                    .position(x: 17.5 * unit, y: 21 * unit)
+
+                RoundedRectangle(cornerRadius: 3.3 * unit, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 1.00, green: 0.88, blue: 0.32),
+                                Color(red: 0.37, green: 0.86, blue: 0.93),
+                                Color(red: 0.13, green: 0.47, blue: 0.88)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 11.6 * unit, height: 21.6 * unit)
+                    .position(x: 17.2 * unit, y: 21.6 * unit)
+
+                Circle()
+                    .fill(Color(red: 1.00, green: 0.86, blue: 0.34))
+                    .frame(width: 4.2 * unit, height: 4.2 * unit)
+                    .position(x: 20.8 * unit, y: 15.2 * unit)
+
+                Path { path in
+                    path.move(to: CGPoint(x: 22.2 * unit, y: 10.6 * unit))
+                    path.addLine(to: CGPoint(x: 31.5 * unit, y: 6.8 * unit))
+                    path.addLine(to: CGPoint(x: 31.5 * unit, y: 33.2 * unit))
+                    path.addLine(to: CGPoint(x: 22.2 * unit, y: 29.3 * unit))
+                    path.closeSubpath()
+                }
+                .fill(Color(red: 0.96, green: 0.99, blue: 1.00))
+                .shadow(color: Color.black.opacity(0.10), radius: 1.6 * unit, x: 0, y: 0.8 * unit)
+
+                Path { path in
+                    path.move(to: CGPoint(x: 22.2 * unit, y: 10.6 * unit))
+                    path.addLine(to: CGPoint(x: 31.5 * unit, y: 6.8 * unit))
+                    path.addLine(to: CGPoint(x: 31.5 * unit, y: 33.2 * unit))
+                    path.addLine(to: CGPoint(x: 22.2 * unit, y: 29.3 * unit))
+                    path.closeSubpath()
+                }
+                .stroke(Color(red: 0.45, green: 0.68, blue: 0.80).opacity(0.54), lineWidth: 1.1 * unit)
+
+                Circle()
+                    .fill(Color(red: 0.36, green: 0.64, blue: 0.76))
+                    .frame(width: 2.6 * unit, height: 2.6 * unit)
+                    .position(x: 27.6 * unit, y: 20.8 * unit)
+
+                routePath(unit: unit)
+                    .stroke(
+                        Color.white.opacity(0.96),
+                        style: StrokeStyle(lineWidth: 4.6 * unit, lineCap: .round, lineJoin: .round)
+                    )
+
+                routePath(unit: unit)
+                    .stroke(
+                        Color(red: 0.05, green: 0.69, blue: 0.78),
+                        style: StrokeStyle(lineWidth: 2.25 * unit, lineCap: .round, lineJoin: .round)
+                    )
+
+                Path { path in
+                    path.move(to: CGPoint(x: 22.2 * unit, y: 19.2 * unit))
+                    path.addLine(to: CGPoint(x: 19.3 * unit, y: 19.0 * unit))
+                    path.addLine(to: CGPoint(x: 21.2 * unit, y: 16.8 * unit))
+                    path.closeSubpath()
+                }
+                .fill(Color(red: 0.05, green: 0.69, blue: 0.78))
+
+                RoundedRectangle(cornerRadius: ChumenStyle.radius * unit, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.55), lineWidth: 0.9 * unit)
+                    .frame(width: side, height: side)
+            }
+            .frame(width: side, height: side)
+            .offset(x: originX, y: originY)
+            .clipShape(RoundedRectangle(cornerRadius: ChumenStyle.radius * unit, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: ChumenStyle.radius * unit, style: .continuous)
+                    .strokeBorder(ChumenStyle.border, lineWidth: 1)
+                    .offset(x: originX, y: originY)
+            )
+        }
+    }
+
+    private func routePath(unit: CGFloat) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: 5.8 * unit, y: 29.0 * unit))
+            path.addCurve(
+                to: CGPoint(x: 23.1 * unit, y: 17.7 * unit),
+                control1: CGPoint(x: 12.2 * unit, y: 28.0 * unit),
+                control2: CGPoint(x: 17.6 * unit, y: 23.2 * unit)
+            )
+        }
     }
 }

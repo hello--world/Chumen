@@ -176,6 +176,33 @@ public final class ProfileRepository {
         return profile
     }
 
+    public func createBlankProfile(
+        name: String,
+        content: String,
+        into library: inout ProfileLibrary
+    ) throws -> ProxyProfile {
+        try paths.ensureDirectories(fileManager: fileManager)
+
+        let id = UUID().uuidString
+        let targetURL = paths.profilesDirectoryURL.appendingPathComponent("\(id).yaml")
+        try writeProfileData(Data(content.utf8), to: targetURL)
+
+        let profile = ProxyProfile(
+            id: id,
+            name: uniqueName(
+                cleanName(name, fallback: "New Profile"),
+                existingNames: Set(library.profiles.map(\.name))
+            ),
+            filePath: targetURL.path
+        )
+        library.profiles.append(profile)
+        if library.activeProfileID == nil {
+            library.activeProfileID = profile.id
+        }
+        try save(library)
+        return profile
+    }
+
     public func discoverExternalProfiles(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> [ExternalProfileCandidate] {
         ExternalProfileImporter.discover(
             sources: ExternalProfileImporter.defaultSources(homeDirectory: homeDirectory),

@@ -157,6 +157,23 @@ The import prompt appears after security setup when no profile exists.
 - Imported profiles must not keep the original app name in the display title; source app belongs in
   metadata or notes.
 
+### Profile Library
+
+The Profiles page is a profile-library management surface, not a page where every import form and
+every profile action is flattened into one visual layer.
+
+- The left rail contains entry points: new profile, import local YAML, import subscription, scan
+  other clients, and global override config.
+- New profile is the highest-priority entry. Clicking it creates a minimal runnable YAML profile and
+  opens the editor immediately.
+- The right side is a profile list; each profile is a scannable row, not a large card.
+- Inline row actions are limited to common tasks: edit, edit rules, edit nodes, update, and more.
+- Low-frequency or risky actions belong under "More": edit proxy groups, override config, script,
+  open file, update via proxy, and delete.
+- The active profile shows a single "current" status. Do not show both active and current at once.
+- Source client, subscription URL, and file path are metadata, not part of the primary title.
+- The profile list needs local search by name, path, source client, and subscription URL.
+
 ### Search
 
 The header search is a launcher. Activating it opens a larger Spotlight-style overlay.
