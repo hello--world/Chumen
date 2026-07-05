@@ -150,37 +150,36 @@ struct DashboardView: View {
     }
 
     private var commandPanelWide: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 16) {
-                if !commandStatusItems.isEmpty {
-                    commandStatusStrip
-                }
-                if !commandActionItems.isEmpty {
-                    commandActionGrid(columnCount: 4)
-                        .frame(minWidth: 600, maxWidth: .infinity, alignment: .leading)
-                }
-            }
+        HStack(alignment: .top, spacing: 16) {
+            commandStateColumn
+                .frame(width: 360, alignment: .leading)
 
-            commandModeRow
+            if !commandActionItems.isEmpty {
+                commandActionGrid(columnCount: 4)
+                    .frame(minWidth: 600, maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
     private var commandPanelStacked: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if !commandStatusItems.isEmpty {
-                commandStatusStrip
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            commandStateColumn
+                .frame(maxWidth: .infinity, alignment: .leading)
             if !commandActionItems.isEmpty {
                 commandActionGrid(columnCount: 3)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            commandModeRow
         }
     }
 
-    private var commandModeRow: some View {
-        modeControl
+    private var commandStateColumn: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !commandStatusItems.isEmpty {
+                commandStatusStrip
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            modeControl
+        }
     }
 
     private var commandBarItems: [DashboardItem] {
@@ -212,7 +211,7 @@ struct DashboardView: View {
                 commandStatusItem(item)
             }
         }
-        .frame(minWidth: 250, idealWidth: 320, maxWidth: 360, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -277,9 +276,9 @@ struct DashboardView: View {
                 .font(.callout.weight(.medium))
                 .foregroundStyle(ChumenStyle.mutedText)
             dashboardModePicker
-                .frame(width: 270)
+                .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: 340, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var dashboardModePicker: some View {
