@@ -3,8 +3,8 @@ import Foundation
 import SwiftUI
 
 // AI assistant presentation is isolated from ContentView so the app shell only coordinates
-// search scheduling and navigation. The assistant is now a fixed right rail: it does not cover page
-// controls, can be collapsed by the user, and preserves the review-before-apply security boundary.
+// search scheduling and navigation. The assistant can be embedded in the dashboard workspace
+// without owning routing, and it preserves the review-before-apply security boundary.
 struct AIAssistantOverlayView: View {
     @EnvironmentObject private var model: AppModel
     @Binding var isPresented: Bool
@@ -57,7 +57,7 @@ struct AIAssistantOverlayView: View {
                     aiInputFocused = false
                     isPresented = false
                 } label: {
-                    Image(systemName: "sidebar.right")
+                    Image(systemName: "xmark")
                 }
                 .buttonStyle(.borderless)
                 .help(model.t(.aiCloseAssistant))
@@ -354,16 +354,17 @@ struct AIAssistantOverlayView: View {
             }
             aiMessageContent(message.content)
                 .font(.callout)
+                .lineSpacing(3)
                 .textSelection(.enabled)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                         .fill(isUser ? Color.accentColor.opacity(0.14) : ChumenStyle.groupedSurface)
                 )
-                .frame(maxWidth: 330, alignment: isUser ? .trailing : .leading)
+                .frame(maxWidth: isUser ? 520 : 700, alignment: isUser ? .trailing : .leading)
             if !isUser {
-                Spacer(minLength: 36)
+                Spacer(minLength: 14)
             }
         }
         .frame(maxWidth: .infinity)
@@ -375,10 +376,70 @@ struct AIAssistantOverlayView: View {
     // need richer block layout such as tables or syntax-highlighted fenced code.
     @ViewBuilder
     private func aiMessageContent(_ content: String) -> some View {
-        if let markdown = aiMarkdownAttributedString(content) {
+        let blocks = aiMessageBlocks(from: content)
+        if blocks.count == 1, case .paragraph = blocks[0].kind {
+            aiInlineText(blocks[0].text)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(blocks) { block in
+                    aiMessageBlock(block)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func aiMessageBlock(_ block: AIMessageBlock) -> some View {
+        switch block.kind {
+        case .heading:
+            aiInlineText(block.text)
+                .font(.callout.weight(.semibold))
+                .padding(.top, 2)
+        case .paragraph:
+            aiInlineText(block.text)
+                .lineSpacing(3)
+        case .bullet:
+            HStack(alignment: .top, spacing: 7) {
+                Text("•")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(ChumenStyle.mutedText)
+                    .padding(.top, 2)
+                aiInlineText(block.text)
+                    .lineSpacing(3)
+            }
+        case .numbered(let marker):
+            HStack(alignment: .top, spacing: 7) {
+                Text(marker)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(ChumenStyle.mutedText)
+                    .frame(minWidth: 18, alignment: .trailing)
+                    .padding(.top, 2)
+                aiInlineText(block.text)
+                    .lineSpacing(3)
+            }
+        case .code:
+            ScrollView(.horizontal, showsIndicators: true) {
+                Text(block.text)
+                    .font(.system(.caption, design: .monospaced))
+                    .padding(8)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(ChumenStyle.surface.opacity(0.82))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(ChumenStyle.border)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func aiInlineText(_ text: String) -> some View {
+        if let markdown = aiMarkdownAttributedString(text) {
             Text(markdown)
         } else {
-            Text(content)
+            Text(text)
         }
     }
 
@@ -396,6 +457,114 @@ struct AIAssistantOverlayView: View {
             markdown: content,
             options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .full)
         )
+    }
+
+    private struct AIMessageBlock: Identifiable {
+        enum Kind {
+            case heading
+            case paragraph
+            case bullet
+            case numbered(String)
+            case code
+        }
+
+        let id = UUID()
+        let kind: Kind
+        let text: String
+    }
+
+    private func aiMessageBlocks(from content: String) -> [AIMessageBlock] {
+        var blocks: [AIMessageBlock] = []
+        var paragraphLines: [String] = []
+        var codeLines: [String] = []
+        var inCodeBlock = false
+
+        func flushParagraph() {
+            let text = paragraphLines
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                blocks.append(AIMessageBlock(kind: .paragraph, text: text))
+            }
+            paragraphLines.removeAll()
+        }
+
+        for rawLine in content.components(separatedBy: .newlines) {
+            let trimmedLine = rawLine.trimmingCharacters(in: .whitespaces)
+
+            if trimmedLine.hasPrefix("```") {
+                if inCodeBlock {
+                    blocks.append(AIMessageBlock(kind: .code, text: codeLines.joined(separator: "\n")))
+                    codeLines.removeAll()
+                    inCodeBlock = false
+                } else {
+                    flushParagraph()
+                    inCodeBlock = true
+                }
+                continue
+            }
+
+            if inCodeBlock {
+                codeLines.append(rawLine)
+                continue
+            }
+
+            if trimmedLine.isEmpty {
+                flushParagraph()
+                continue
+            }
+
+            if let heading = aiHeadingText(trimmedLine) {
+                flushParagraph()
+                blocks.append(AIMessageBlock(kind: .heading, text: heading))
+                continue
+            }
+
+            if let bullet = aiBulletText(trimmedLine) {
+                flushParagraph()
+                blocks.append(AIMessageBlock(kind: .bullet, text: bullet))
+                continue
+            }
+
+            if let numbered = aiNumberedText(trimmedLine) {
+                flushParagraph()
+                blocks.append(AIMessageBlock(kind: .numbered(numbered.marker), text: numbered.text))
+                continue
+            }
+
+            paragraphLines.append(trimmedLine)
+        }
+
+        if inCodeBlock {
+            blocks.append(AIMessageBlock(kind: .code, text: codeLines.joined(separator: "\n")))
+        }
+        flushParagraph()
+        return blocks.isEmpty ? [AIMessageBlock(kind: .paragraph, text: content)] : blocks
+    }
+
+    private func aiHeadingText(_ line: String) -> String? {
+        let hashes = line.prefix(while: { $0 == "#" }).count
+        guard (1...4).contains(hashes) else { return nil }
+        let text = line.dropFirst(hashes).trimmingCharacters(in: .whitespaces)
+        return text.isEmpty ? nil : text
+    }
+
+    private func aiBulletText(_ line: String) -> String? {
+        for prefix in ["- ", "* ", "• "] where line.hasPrefix(prefix) {
+            return String(line.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+        }
+        return nil
+    }
+
+    private func aiNumberedText(_ line: String) -> (marker: String, text: String)? {
+        let parts = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        guard parts.count == 2,
+              let marker = parts.first,
+              marker.hasSuffix("."),
+              marker.dropLast().allSatisfy(\.isNumber) else {
+            return nil
+        }
+        return (String(marker), String(parts[1]).trimmingCharacters(in: .whitespaces))
     }
 
     // When AI is disabled or incomplete, the assistant intentionally remains useful as search.

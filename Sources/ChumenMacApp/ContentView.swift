@@ -38,55 +38,56 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     header
                     Divider()
-                    HStack(spacing: 0) {
-                        TabView(selection: $selectedTab) {
-                            DashboardView(selectedTab: $selectedTab)
-                                .tabItem { Label(model.t(.dashboard), systemImage: "gauge.with.dots.needle.50percent") }
-                                .tag(AppTab.dashboard)
-                            ProfilesView(choosingProfile: $choosingProfile)
-                                .tabItem { Label(model.t(.profiles), systemImage: "doc.text") }
-                                .tag(AppTab.profiles)
-                            ProxiesView()
-                                .tabItem { Label(model.t(.proxies), systemImage: "point.3.connected.trianglepath.dotted") }
-                                .tag(AppTab.proxies)
-                            ProvidersView()
-                                .tabItem { Label(model.t(.providers), systemImage: "tray.full") }
-                                .tag(AppTab.providers)
-                            ConnectionsView()
-                                .tabItem { Label(model.t(.connections), systemImage: "link") }
-                                .tag(AppTab.connections)
-                            RulesView()
-                                .tabItem { Label(model.t(.rules), systemImage: "list.bullet.rectangle") }
-                                .tag(AppTab.rules)
-                            CoreSettingsView(choosingCore: $choosingCore)
-                                .tabItem { Label(model.t(.coreSettings), systemImage: "gearshape.2") }
-                                .tag(AppTab.core)
-                            CoreToolsView()
-                                .tabItem { Label(model.t(.coreTools), systemImage: "terminal") }
-                                .tag(AppTab.coreTools)
-                            LogsView()
-                                .tabItem { Label(model.t(.logs), systemImage: "text.alignleft") }
-                                .tag(AppTab.logs)
-                            AppSettingsView()
-                                .tabItem { Label(model.t(.appSettings), systemImage: "gearshape") }
-                                .tag(AppTab.settings)
-                        }
-                        .focusable(false)
-                        .padding(.top, 8)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                        if shouldShowDashboardAssistantRail {
-                            Divider()
-
-                            if aiAssistantPresented {
-                                aiAssistantLayer
-                                    .frame(width: ChumenStyle.aiSidebarWidth)
-                            } else {
-                                aiAssistantCollapsedRail
-                                    .frame(width: ChumenStyle.aiCollapsedSidebarWidth)
-                            }
-                        }
+                    TabView(selection: $selectedTab) {
+                        DashboardView(
+                            selectedTab: $selectedTab,
+                            aiAssistantPresented: $aiAssistantPresented,
+                            aiSearchResults: aiSearchResults,
+                            onAISearchChanged: {
+                                scheduleAISearch()
+                            },
+                            onAISearchImmediately: {
+                                scheduleAISearch(delay: .zero)
+                            },
+                            onAIClearSearchResults: {
+                                aiSearchResults = []
+                            },
+                            onAISubmit: submitAIInput,
+                            onAISelectSearchResult: selectAISearchResult
+                        )
+                        .tabItem { Label(model.t(.dashboard), systemImage: "gauge.with.dots.needle.50percent") }
+                        .tag(AppTab.dashboard)
+                        ProfilesView(choosingProfile: $choosingProfile)
+                            .tabItem { Label(model.t(.profiles), systemImage: "doc.text") }
+                            .tag(AppTab.profiles)
+                        ProxiesView()
+                            .tabItem { Label(model.t(.proxies), systemImage: "point.3.connected.trianglepath.dotted") }
+                            .tag(AppTab.proxies)
+                        ProvidersView()
+                            .tabItem { Label(model.t(.providers), systemImage: "tray.full") }
+                            .tag(AppTab.providers)
+                        ConnectionsView()
+                            .tabItem { Label(model.t(.connections), systemImage: "link") }
+                            .tag(AppTab.connections)
+                        RulesView()
+                            .tabItem { Label(model.t(.rules), systemImage: "list.bullet.rectangle") }
+                            .tag(AppTab.rules)
+                        CoreSettingsView(choosingCore: $choosingCore)
+                            .tabItem { Label(model.t(.coreSettings), systemImage: "gearshape.2") }
+                            .tag(AppTab.core)
+                        CoreToolsView()
+                            .tabItem { Label(model.t(.coreTools), systemImage: "terminal") }
+                            .tag(AppTab.coreTools)
+                        LogsView()
+                            .tabItem { Label(model.t(.logs), systemImage: "text.alignleft") }
+                            .tag(AppTab.logs)
+                        AppSettingsView()
+                            .tabItem { Label(model.t(.appSettings), systemImage: "gearshape") }
+                            .tag(AppTab.settings)
                     }
+                    .focusable(false)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
                 if globalSearchPresented {
@@ -134,13 +135,6 @@ struct ContentView: View {
                 clearBlockingOverlayFocus()
             }
         }
-    }
-
-    private var shouldShowDashboardAssistantRail: Bool {
-        // The fixed assistant rail belongs to the overview command surface. Other pages such as
-        // profiles, proxies, providers, and connections need the full 1080-pt workspace for dense
-        // tables/forms; reserving 320 pt globally caused clipped controls and unreadable rows.
-        selectedTab == .dashboard
     }
 
     private var header: some View {
@@ -229,64 +223,6 @@ struct ContentView: View {
         .focusable(false)
         .opacity(globalSearchPresented ? 0 : 1)
         .frame(height: 34)
-    }
-
-    private var aiAssistantLayer: some View {
-        // The assistant is a fixed right rail. ContentView keeps navigation callbacks here so local
-        // search results can switch tabs without letting the assistant own app routing.
-        AIAssistantOverlayView(
-            isPresented: $aiAssistantPresented,
-            searchResults: aiSearchResults,
-            onSearchChanged: {
-                scheduleAISearch()
-            },
-            onSearchImmediately: {
-                scheduleAISearch(delay: .zero)
-            },
-            onClearSearchResults: {
-                aiSearchResults = []
-            },
-            onSubmit: submitAIInput,
-            onSelectSearchResult: selectAISearchResult
-        )
-    }
-
-    private var aiAssistantCollapsedRail: some View {
-        // Closed state remains a right-side rail instead of a floating button. This preserves the
-        // "assistant lives on the right" mental model while giving users the full main workspace.
-        VStack(spacing: 10) {
-            Button {
-                aiAssistantPresented = true
-                if !model.aiReady {
-                    scheduleAISearch(delay: .zero)
-                }
-            } label: {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 30, height: 30)
-                    .foregroundStyle(Color.accentColor)
-                    .background(
-                        RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.10))
-                    )
-            }
-            .buttonStyle(.plain)
-            .help(model.t(.aiOpenAssistant))
-
-            if !model.aiPendingChanges.isEmpty {
-                Text("\(model.aiPendingChanges.count)")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.orange))
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.top, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ChumenStyle.surface)
     }
 
     private var globalSearchOverlay: some View {

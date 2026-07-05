@@ -1912,6 +1912,8 @@ final class AppModel: ObservableObject {
         Never claim a proposed change has been applied. Say it is waiting for review.
         Do not propose destructive delete operations.
         Reply in the configured Chumen UI language unless the user explicitly asks otherwise.
+        Keep replies easy to scan: no greeting, lead with the answer, use at most 4 short bullets by default, avoid nested lists, and avoid long paragraphs.
+        Do not output full YAML or large code blocks unless the user asks; summarize the proposed diff and leave exact changes in the review queue.
         """
     }
 

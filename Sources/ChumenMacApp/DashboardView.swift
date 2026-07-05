@@ -4,130 +4,92 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
     @Binding var selectedTab: AppTab
+    @Binding var aiAssistantPresented: Bool
+    let aiSearchResults: [GlobalSearchResult]
+    let onAISearchChanged: () -> Void
+    let onAISearchImmediately: () -> Void
+    let onAIClearSearchResults: () -> Void
+    let onAISubmit: () -> Void
+    let onAISelectSearchResult: (GlobalSearchResult) -> Void
+
     @State private var quickActionConfigurationPresented = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18 * ChumenStyle.dashboardVerticalScale) {
-                commandPanel
-                dashboardSections
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
-            .padding(.bottom, 28)
-            // Keep dashboard width inherited from the available main pane. The current design
-            // request is height-only growth; horizontal restraint is handled by the fixed AI rail.
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+        VStack(alignment: .leading, spacing: 14) {
+            commandPanel
+            dashboardAssistantWorkspace
         }
+        .padding(.horizontal, 18)
+        .padding(.top, 18)
+        .padding(.bottom, 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(ChumenStyle.pageBackground)
     }
 
-    private var dashboardSections: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            ForEach(DashboardSectionRegistry.sections(for: model)) { section in
-                dashboardSection(section)
-            }
-        }
+    // The overview is now agent-first: quick controls stay on top, while the lower half is a single
+    // assistant workspace. Runtime, traffic, and log facts are already injected into the AI prompt by
+    // AppModel, so repeating them as large dashboard cards just creates noise and competes with chat.
+    private var dashboardAssistantWorkspace: some View {
+        assistantWorkbench
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minHeight: 560)
     }
 
-    private func dashboardSection(_ section: DashboardSection) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(section.title)
-                    .font(.headline.weight(.semibold))
-                if !section.detail.isEmpty {
-                    Text(section.detail)
-                        .font(.caption)
-                        .foregroundStyle(ChumenStyle.mutedText)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                Spacer(minLength: 0)
-            }
-
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 260, maximum: 420), spacing: 12)],
-                alignment: .leading,
-                spacing: 12
-            ) {
-                ForEach(section.items) { item in
-                    dashboardItem(item)
-                }
-            }
-        }
-    }
-
-    private func dashboardItem(_ item: DashboardItem) -> some View {
+    private var assistantWorkbench: some View {
         Group {
-            if isActionable(item.action) {
-                Button {
-                    perform(item.action)
-                } label: {
-                    dashboardItemContent(item)
-                }
-                .buttonStyle(.plain)
-                .disabled(!item.isEnabled)
+            if aiAssistantPresented {
+                AIAssistantOverlayView(
+                    isPresented: $aiAssistantPresented,
+                    searchResults: aiSearchResults,
+                    onSearchChanged: onAISearchChanged,
+                    onSearchImmediately: onAISearchImmediately,
+                    onClearSearchResults: onAIClearSearchResults,
+                    onSubmit: onAISubmit,
+                    onSelectSearchResult: onAISelectSearchResult
+                )
             } else {
-                dashboardItemContent(item)
+                assistantClosedPlaceholder
             }
         }
-        .opacity(item.isEnabled ? 1 : 0.52)
-    }
-
-    private func dashboardItemContent(_ item: DashboardItem) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(item.tint.opacity(iconFillOpacity(for: item.style)))
-                Image(systemName: item.systemImage)
-                    .font(.system(size: iconSize(for: item.style), weight: .semibold))
-                    .foregroundStyle(item.tint)
-            }
-            .frame(width: 38, height: 38)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(item.title)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(ChumenStyle.mutedText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(item.value)
-                    .font(valueFont(for: item.style))
-                    .foregroundStyle(Color.primary)
-                    .lineLimit(valueLineLimit(for: item.style))
-                    .minimumScaleFactor(0.74)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !item.detail.isEmpty {
-                    Text(item.detail)
-                        .font(.caption)
-                        .foregroundStyle(ChumenStyle.mutedText)
-                        .lineLimit(detailLineLimit(for: item.style))
-                        .truncationMode(.middle)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            if isActionable(item.action) {
-                Image(systemName: actionIcon(for: item.action))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(ChumenStyle.mutedText)
-                    .frame(width: 16)
-            }
-        }
-        .padding(12 * ChumenStyle.dashboardVerticalScale)
-        .frame(minHeight: minHeight(for: item.style) * ChumenStyle.dashboardVerticalScale, alignment: .leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .fill(ChumenStyle.surface)
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ChumenStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                 .strokeBorder(ChumenStyle.border)
         )
-        .contentShape(RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous))
+    }
+
+    private var assistantClosedPlaceholder: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 54, height: 54)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.10))
+                )
+
+            Text(model.t(.aiAssistant))
+                .font(.title3.weight(.semibold))
+            Text(model.t(.aiNoMessages))
+                .font(.callout)
+                .foregroundStyle(ChumenStyle.mutedText)
+                .multilineTextAlignment(.center)
+
+            Button {
+                aiAssistantPresented = true
+                if !model.aiReady {
+                    onAISearchImmediately()
+                }
+            } label: {
+                Label(model.t(.aiOpenAssistant), systemImage: "sparkles")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var commandPanel: some View {
@@ -638,77 +600,6 @@ struct DashboardView: View {
         }
     }
 
-    private func valueFont(for style: DashboardItemStyle) -> Font {
-        switch style {
-        case .summary:
-            return .system(size: 18, weight: .semibold)
-        case .command:
-            return .system(size: 16, weight: .semibold)
-        case .state:
-            return .system(size: 19, weight: .semibold)
-        case .metric:
-            return .system(size: 18, weight: .semibold)
-        case .diagnostic:
-            return .system(size: 16, weight: .semibold)
-        case .link:
-            return .system(size: 16, weight: .semibold)
-        }
-    }
-
-    private func iconSize(for style: DashboardItemStyle) -> CGFloat {
-        switch style {
-        case .summary:
-            return 19
-        case .diagnostic:
-            return 17
-        default:
-            return 18
-        }
-    }
-
-    private func iconFillOpacity(for style: DashboardItemStyle) -> Double {
-        switch style {
-        case .summary:
-            return 0.10
-        case .link:
-            return 0.08
-        case .diagnostic:
-            return 0.10
-        default:
-            return 0.09
-        }
-    }
-
-    private func valueLineLimit(for style: DashboardItemStyle) -> Int {
-        switch style {
-        case .metric, .diagnostic:
-            return 2
-        default:
-            return 1
-        }
-    }
-
-    private func detailLineLimit(for style: DashboardItemStyle) -> Int {
-        switch style {
-        case .diagnostic:
-            return 2
-        default:
-            return 1
-        }
-    }
-
-    private func minHeight(for style: DashboardItemStyle) -> CGFloat {
-        switch style {
-        case .summary:
-            return 64
-        case .diagnostic:
-            return 96
-        case .command:
-            return 54
-        default:
-            return 82
-        }
-    }
 }
 
 private struct CommandActionFlowLayout: Layout {
