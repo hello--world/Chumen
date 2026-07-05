@@ -83,13 +83,16 @@ final class ChumenNotificationService: NSObject, ObservableObject {
 
     var onLog: ((String) -> Void)?
 
-    private let center: UNUserNotificationCenter
+    private let center: UNUserNotificationCenter?
     private var dismissalTask: Task<Void, Never>?
 
-    init(center: UNUserNotificationCenter = .current()) {
+    init(center: UNUserNotificationCenter? = ChumenNotificationService.systemNotificationCenterIfAvailable()) {
         self.center = center
         super.init()
-        center.delegate = self
+        center?.delegate = self
+        if center == nil {
+            authorizationState = .denied
+        }
     }
 
     func requestAuthorizationIfNeeded() {
@@ -127,6 +130,12 @@ final class ChumenNotificationService: NSObject, ObservableObject {
     }
 
     private func deliver(_ notification: ChumenInAppNotification) async {
+        guard let center else {
+            log(notification, phase: "fallback=in-app reason=system-notifications-unavailable")
+            presentInApp(notification)
+            return
+        }
+
         let state = await resolveAuthorization(requestIfNeeded: true)
         log(notification, phase: "authorization=\(state.logName)")
         guard state == .authorized else {
@@ -156,6 +165,12 @@ final class ChumenNotificationService: NSObject, ObservableObject {
     }
 
     private func resolveAuthorization(requestIfNeeded: Bool) async -> ChumenNotificationAuthorizationState {
+        guard let center else {
+            authorizationState = .denied
+            log("authorization state denied reason=system-notifications-unavailable")
+            return .denied
+        }
+
         let settings = await center.notificationSettings()
         let state = authorizationState(from: settings.authorizationStatus)
         if authorizationState != state {
@@ -217,6 +232,15 @@ final class ChumenNotificationService: NSObject, ObservableObject {
 
     private func log(_ message: String) {
         onLog?("notification-service \(message)")
+    }
+
+    private nonisolated static func systemNotificationCenterIfAvailable() -> UNUserNotificationCenter? {
+        let bundleURL = Bundle.main.bundleURL
+        guard bundleURL.pathExtension == "app",
+              Bundle.main.bundleIdentifier != nil else {
+            return nil
+        }
+        return .current()
     }
 }
 

@@ -73,6 +73,11 @@ struct ProfileSectionEditorSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Label(model.t(editor.kind.titleKey), systemImage: editor.kind.systemImage)
                         .font(.headline)
+                    HStack(spacing: 6) {
+                        sectionPatchChip(model.t(.prependAppend), color: .blue)
+                        sectionPatchChip(model.t(.appendAppend), color: .green)
+                        sectionPatchChip(model.t(.deleteOriginalItems), color: .red)
+                    }
                     Text(editor.profile.name)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -90,7 +95,11 @@ struct ProfileSectionEditorSheet: View {
             }
 
             ZStack {
-                LiveYAMLCodeEditor(text: $model.profileSectionEditorText, sections: $model.profileSectionEditorVisualSections)
+                ProfileSectionPatchEditor(
+                    kind: editor.kind,
+                    text: $model.profileSectionEditorText,
+                    sections: $model.profileSectionEditorVisualSections
+                )
                     .frame(minWidth: 980, minHeight: 520)
                     .opacity(model.profileSectionEditorIsLoading ? 0.35 : 1)
 
@@ -104,6 +113,16 @@ struct ProfileSectionEditorSheet: View {
         }
         .padding(18)
         .frame(width: 1040, height: 620)
+    }
+
+    private func sectionPatchChip(_ title: String, color: Color) -> some View {
+        Text(title)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.10), in: Capsule())
+            .overlay(Capsule().strokeBorder(color.opacity(0.28)))
     }
 }
 

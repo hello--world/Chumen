@@ -127,35 +127,33 @@ struct ContentView: View {
     private var header: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 0)
-            let horizontalPadding: CGFloat = width < 1000 ? 16 : 20
+            let isCompact = width < 1280
+            let horizontalPadding: CGFloat = width < 1000 ? 16 : 22
             let availableWidth = max(0, width - horizontalPadding * 2)
-            let identityWidth = min(CGFloat(176), max(CGFloat(172), availableWidth * 0.17))
-            let searchWidth = min(CGFloat(232), max(CGFloat(220), availableWidth * 0.22))
+            let identityWidth = isCompact ? CGFloat(160) : CGFloat(172)
+            let leftStatusWidth = isCompact ? CGFloat(109) : CGFloat(118)
+            let rightStatusWidth = isCompact ? CGFloat(222) : CGFloat(254)
+            let fixedWidth = identityWidth + leftStatusWidth + rightStatusWidth + 42
+            let searchWidth = min(isCompact ? CGFloat(192) : CGFloat(240), max(CGFloat(180), availableWidth - fixedWidth))
 
             ZStack(alignment: .topLeading) {
-                ZStack {
-                    HStack(alignment: .center, spacing: 8) {
-                        headerIdentity
-                            .frame(width: identityWidth, alignment: .leading)
-
-                        headerLeftStatusPills
-
-                        Spacer(minLength: 0)
-
-                        headerRightStatusPills
-                    }
-
+                HStack(alignment: .center, spacing: 14) {
+                    headerIdentity
+                        .frame(width: identityWidth, alignment: .leading)
+                    headerLeftStatusPills(width: leftStatusWidth)
                     globalSearchBox
                         .frame(width: searchWidth)
                         .zIndex(20)
+                    headerRightStatusPills(width: rightStatusWidth)
+                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, horizontalPadding)
-                .padding(.vertical, 10)
+                .padding(.vertical, 9)
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
         }
-        .frame(height: 64)
+        .frame(height: 84)
         .background(ChumenStyle.pageBackground)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -267,61 +265,62 @@ struct ContentView: View {
         )
     }
 
-    private var headerLeftStatusPills: some View {
-        HStack(spacing: 6) {
-            headerStatusPill(
-                title: "API",
-                value: headerAPIVersionText,
-                icon: "globe",
-                accent: model.apiText == model.t(.apiNotTested) ? ChumenStyle.mutedText : .blue,
-                width: 88,
-                help: "API: \(model.apiText)"
-            )
+    private func headerLeftStatusPills(width: CGFloat) -> some View {
+        // The header keeps one horizontal shell, but related statuses are stacked vertically so
+        // wide windows do not turn small status facts into an unreadable long ribbon.
+        VStack(alignment: .leading, spacing: 5) {
+            headerAPIStatusPill(width: width)
             headerStatusPill(
                 title: model.t(.configUpdated),
                 value: model.activeProfileConfigUpdateText,
                 icon: "clock",
                 accent: .orange,
-                width: 126,
+                width: width,
                 help: "\(model.t(.configUpdated)): \(model.activeProfileConfigUpdateText)"
             )
         }
+        .frame(width: width, alignment: .leading)
     }
 
-    private var headerRightStatusPills: some View {
-        HStack(spacing: 6) {
-            headerProxyChainPill
-            headerStatusPill(
-                title: model.t(.mode),
-                value: model.settings.mode.rawValue,
-                icon: "arrow.triangle.branch",
-                accent: .purple,
-                width: 82,
-                help: "\(model.t(.mode)): \(model.settings.mode.rawValue)"
-            )
-            headerStatusPill(
-                title: "TUN",
-                value: headerTunStateText,
-                icon: "shield.lefthalf.filled",
-                accent: headerTunAccent,
-                width: 84,
-                help: "\(model.t(.tunMode)): \(headerTunStateText)"
-            )
+    private func headerAPIStatusPill(width: CGFloat) -> some View {
+        headerStatusPill(
+            title: "API",
+            value: headerAPIVersionText,
+            icon: "globe",
+            accent: headerAPIAccent,
+            width: width,
+            help: headerAPIHelpText
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard headerAPIIsError else { return }
+            selectedTab = .logs
         }
     }
 
-    private var runtimeProfileBadge: some View {
-        HStack(spacing: 0) {
-            Image(systemName: model.isRunning ? "checkmark.circle.fill" : "pause.circle.fill")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(model.isRunning ? .green : ChumenStyle.mutedText)
-                .padding(.trailing, 3)
-            Text(headerRuntimeProfileText)
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-                .foregroundStyle(model.isRunning ? .green : ChumenStyle.mutedText)
+    private func headerRightStatusPills(width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            headerProxyChainPill(width: width)
+            HStack(spacing: 6) {
+                headerStatusPill(
+                    title: model.t(.mode),
+                    value: model.settings.mode.rawValue,
+                    icon: "arrow.triangle.branch",
+                    accent: .purple,
+                    width: max(116, (width - 6) * 0.54),
+                    help: "\(model.t(.mode)): \(model.settings.mode.rawValue)"
+                )
+                headerStatusPill(
+                    title: "TUN",
+                    value: headerTunStateText,
+                    icon: "shield.lefthalf.filled",
+                    accent: headerTunAccent,
+                    width: max(96, (width - 6) * 0.46),
+                    help: "\(model.t(.tunMode)): \(headerTunStateText)"
+                )
+            }
         }
-        .help("\(model.isRunning ? model.t(.running) : model.t(.stopped))\(headerRuntimeProfileSeparator)\(headerActiveProfileName)")
+        .frame(width: width, alignment: .leading)
     }
 
     private func headerStatusPill(title: String, value: String, icon: String, accent: Color, width: CGFloat, help: String) -> some View {
@@ -343,7 +342,7 @@ struct ContentView: View {
                 .allowsTightening(true)
         }
         .padding(.horizontal, 7)
-        .frame(width: width, height: 34, alignment: .leading)
+        .frame(width: width, height: 29, alignment: .leading)
         .clipped()
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
@@ -356,7 +355,7 @@ struct ContentView: View {
         .help(help)
     }
 
-    private var headerProxyChainPill: some View {
+    private func headerProxyChainPill(width: CGFloat) -> some View {
         HStack(spacing: 4) {
             Image(systemName: model.systemProxyEnabled ? "checkmark.shield" : "shield")
                 .font(.system(size: 11, weight: .semibold))
@@ -387,7 +386,7 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 7)
-        .frame(width: headerProxyEndpointText == nil ? 106 : 208, height: 34, alignment: .leading)
+        .frame(width: width, height: 29, alignment: .leading)
         .clipped()
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
@@ -400,13 +399,80 @@ struct ContentView: View {
         .help("\(model.t(.systemProxy)): \(model.systemProxyStateText)")
     }
 
+    private var runtimeProfileBadge: some View {
+        HStack(spacing: 0) {
+            Image(systemName: model.isRunning ? "checkmark.circle.fill" : "pause.circle.fill")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(model.isRunning ? .green : ChumenStyle.mutedText)
+                .padding(.trailing, 3)
+            Text(headerRuntimeProfileText)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .foregroundStyle(model.isRunning ? .green : ChumenStyle.mutedText)
+            Text(headerRuntimeProfileSeparator)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .foregroundStyle(ChumenStyle.mutedText)
+            Text(headerCompactProfileName)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .foregroundStyle(Color.blue)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            Capsule()
+                .fill((model.isRunning ? Color.green : ChumenStyle.mutedText).opacity(0.06))
+        )
+        .overlay {
+            Capsule()
+                .stroke((model.isRunning ? Color.green : ChumenStyle.mutedText).opacity(0.35), lineWidth: 1)
+        }
+        .help("\(model.isRunning ? model.t(.running) : model.t(.stopped))\(headerRuntimeProfileSeparator)\(headerActiveProfileName)")
+    }
+
     private var headerAPIVersionText: String {
         let text = model.apiText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !headerAPIIsError else {
+            return model.language == .zhHans ? "错误" : "Error"
+        }
         let primary = text.components(separatedBy: " / ").first ?? text
         if primary.hasPrefix("mihomo ") {
             return String(primary.dropFirst("mihomo ".count))
         }
         return primary
+    }
+
+    private var headerAPIAccent: Color {
+        if headerAPIIsError {
+            return .red
+        }
+        return model.apiText == model.t(.apiNotTested) ? ChumenStyle.mutedText : .blue
+    }
+
+    private var headerAPIHelpText: String {
+        if headerAPIIsError {
+            return model.language == .zhHans ? "API 错误，点击查看日志" : "API error. Click to view logs."
+        }
+        return "API: \(model.apiText)"
+    }
+
+    private var headerAPIIsError: Bool {
+        let text = model.apiText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+        if text == model.t(.apiNotTested) {
+            return false
+        }
+        if text.hasPrefix("mihomo ") {
+            return false
+        }
+        if text.hasPrefix(model.t(.mode)) {
+            return false
+        }
+        if text == model.t(.externalCoreDetectedHint) {
+            return false
+        }
+        return true
     }
 
     private var headerActiveProfileName: String {
@@ -426,7 +492,7 @@ struct ContentView: View {
     }
 
     private var headerRuntimeProfileText: String {
-        "\(model.isRunning ? model.t(.running) : model.t(.stopped))>\(headerCompactProfileName)"
+        model.isRunning ? model.t(.running) : model.t(.stopped)
     }
 
     private var headerRuntimeProfileSeparator: String {

@@ -214,6 +214,117 @@ final class ChumenConfigurationBuilderTests: XCTestCase {
         XCTAssertFalse(yaml.contains("global.example"))
     }
 
+    func testReplaceTopLevelBlockPreservesOtherProfileAppendixSections() {
+        let appendix = """
+        rules:
+          - DOMAIN,old.example,DIRECT
+        proxy-groups:
+          - name: Auto
+            type: select
+            proxies:
+              - DIRECT
+        """
+
+        let updated = ChumenConfigurationBuilder.replaceTopLevelBlock(
+            "rules",
+            in: appendix,
+            with: """
+            - DOMAIN,new.example,PROXY
+            - MATCH,DIRECT
+            """
+        )
+
+        XCTAssertTrue(updated.contains("rules:\n  - DOMAIN,new.example,PROXY\n  - MATCH,DIRECT"))
+        XCTAssertTrue(updated.contains("proxy-groups:\n  - name: Auto"))
+        XCTAssertFalse(updated.contains("old.example"))
+    }
+
+    func testRuntimeYamlAppliesRuleSectionPatch() {
+        let profile = """
+        rules:
+          - DOMAIN,remove.example,DIRECT
+          - DOMAIN,keep.example,DIRECT
+        """
+        let appendix = """
+        rules:
+          prepend:
+            - DOMAIN,first.example,PROXY
+          append:
+            - MATCH,DIRECT
+          delete:
+            - DOMAIN,remove.example,DIRECT
+        """
+
+        let yaml = ChumenConfigurationBuilder.runtimeYAML(
+            profileYAML: profile,
+            settings: ChumenRuntimeSettings(),
+            socketPath: nil,
+            profileAppendixYAML: appendix
+        )
+
+        XCTAssertTrue(yaml.contains("""
+        rules:
+          - DOMAIN,first.example,PROXY
+          - DOMAIN,keep.example,DIRECT
+          - MATCH,DIRECT
+        """))
+        XCTAssertFalse(yaml.contains("remove.example"))
+        XCTAssertFalse(yaml.contains("prepend:"))
+        XCTAssertFalse(yaml.contains("append:"))
+        XCTAssertFalse(yaml.contains("delete:"))
+    }
+
+    func testRuntimeYamlAppliesNamedSectionPatch() {
+        let profile = """
+        proxies:
+          - name: Old
+            type: direct
+          - name: Keep
+            type: direct
+        proxy-groups:
+          - name: OldGroup
+            type: select
+            proxies:
+              - Old
+          - name: KeepGroup
+            type: select
+            proxies:
+              - Keep
+        """
+        let appendix = """
+        proxies:
+          prepend:
+            - name: Extra
+              type: direct
+          append: []
+          delete:
+            - Old
+        proxy-groups:
+          prepend: []
+          append:
+            - name: ExtraGroup
+              type: select
+              proxies:
+                - Extra
+          delete:
+            - OldGroup
+        """
+
+        let yaml = ChumenConfigurationBuilder.runtimeYAML(
+            profileYAML: profile,
+            settings: ChumenRuntimeSettings(),
+            socketPath: nil,
+            profileAppendixYAML: appendix
+        )
+
+        XCTAssertTrue(yaml.contains("proxies:\n  - name: Extra\n    type: direct\n  - name: Keep\n    type: direct"))
+        XCTAssertTrue(yaml.contains("proxy-groups:\n  - name: KeepGroup"))
+        XCTAssertTrue(yaml.contains("  - name: ExtraGroup"))
+        XCTAssertFalse(yaml.contains("name: Old\n"))
+        XCTAssertFalse(yaml.contains("name: OldGroup"))
+        XCTAssertFalse(yaml.contains("prepend:"))
+    }
+
     func testRemoveTopLevelBlock() {
         let yaml = """
         secret:

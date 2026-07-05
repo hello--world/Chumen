@@ -136,6 +136,14 @@ enum L10n {
         case previewLimited
         case formEditor
         case selectSectionToEdit
+        case sectionPatchEditor
+        case prependAppend
+        case appendAppend
+        case deleteOriginalItems
+        case patchPrependHint
+        case patchAppendHint
+        case patchDeleteRuleHint
+        case patchDeleteNameHint
         case mixedPort
         case processMode
         case enabled
@@ -178,6 +186,8 @@ enum L10n {
         case save
         case cancel
         case delete
+        case deleteProfileConfirmTitle
+        case deleteProfileConfirmMessage
         case unsupportedFeature
         case refreshProxies
         case refreshProviders
@@ -188,8 +198,10 @@ enum L10n {
         case groupDelayTest
         case refreshConnections
         case searchConnections
+        case searchRules
         case noConnections
         case noMatchingConnections
+        case noMatchingRules
         case closeAll
         case activeConnections
         case close
@@ -205,6 +217,10 @@ enum L10n {
         case unknownRoute
         case historyTrend
         case refreshRules
+        case ruleHit
+        case ruleFallbackHit
+        case ruleMiss
+        case matchedRule
         case processLog
         case runtimeLog
         case logReport
@@ -563,7 +579,7 @@ enum L10n {
         .activate: "启用",
         .active: "已启用",
         .currentActive: "当前启用",
-        .update: "更新",
+        .update: "直连更新",
         .edit: "编辑",
         .editInfo: "编辑信息",
         .editFile: "编辑文件",
@@ -573,7 +589,7 @@ enum L10n {
         .extendOverrideConfig: "扩展覆写配置",
         .globalExtendOverrideConfig: "全局扩展覆写配置",
         .extendScript: "扩展脚本",
-        .updateViaProxy: "更新（代理）",
+        .updateViaProxy: "代理更新",
         .visualEditor: "可视化",
         .codeEditor: "代码",
         .addSection: "新增",
@@ -588,6 +604,14 @@ enum L10n {
         .previewLimited: "仅展示前 360 条",
         .formEditor: "表单",
         .selectSectionToEdit: "选择左侧项目开始编辑",
+        .sectionPatchEditor: "追加覆盖",
+        .prependAppend: "前置追加",
+        .appendAppend: "后置追加",
+        .deleteOriginalItems: "删除原始项",
+        .patchPrependHint: "这些条目会放在原始列表前面。",
+        .patchAppendHint: "这些条目会放在原始列表后面。",
+        .patchDeleteRuleHint: "填写要从原始规则中删除的完整规则行。",
+        .patchDeleteNameHint: "填写要从原始节点或代理组中删除的名称。",
         .mixedPort: "混合端口",
         .processMode: "进程匹配",
         .enabled: "启用",
@@ -630,6 +654,8 @@ enum L10n {
         .save: "保存",
         .cancel: "取消",
         .delete: "删除",
+        .deleteProfileConfirmTitle: "删除配置？",
+        .deleteProfileConfirmMessage: "删除后会从配置库移除“%@”。此操作不可撤销。",
         .unsupportedFeature: "暂未支持",
         .refreshProxies: "刷新代理",
         .refreshProviders: "刷新 Provider",
@@ -640,8 +666,10 @@ enum L10n {
         .groupDelayTest: "组测速",
         .refreshConnections: "刷新连接",
         .searchConnections: "搜索连接",
+        .searchRules: "搜索规则或输入域名/IP 测试命中",
         .noConnections: "暂无连接",
         .noMatchingConnections: "无匹配连接",
+        .noMatchingRules: "无匹配规则",
         .closeAll: "全部关闭",
         .activeConnections: "活跃连接",
         .close: "关闭",
@@ -657,6 +685,10 @@ enum L10n {
         .unknownRoute: "未知",
         .historyTrend: "历史曲线",
         .refreshRules: "刷新规则",
+        .ruleHit: "已命中",
+        .ruleFallbackHit: "兜底命中",
+        .ruleMiss: "未命中",
+        .matchedRule: "命中规则",
         .processLog: "进程日志",
         .runtimeLog: "运行日志",
         .logReport: "日志报表",
@@ -1008,7 +1040,7 @@ enum L10n {
         .activate: "Activate",
         .active: "Active",
         .currentActive: "Current",
-        .update: "Update",
+        .update: "Direct Update",
         .edit: "Edit",
         .editInfo: "Edit Info",
         .editFile: "Edit File",
@@ -1018,7 +1050,7 @@ enum L10n {
         .extendOverrideConfig: "Extend Override Config",
         .globalExtendOverrideConfig: "Global Extend Override Config",
         .extendScript: "Extend Script",
-        .updateViaProxy: "Update via Proxy",
+        .updateViaProxy: "Proxy Update",
         .visualEditor: "Visual",
         .codeEditor: "Code",
         .addSection: "Add",
@@ -1033,6 +1065,14 @@ enum L10n {
         .previewLimited: "Showing first 360 items",
         .formEditor: "Form",
         .selectSectionToEdit: "Select an item on the left",
+        .sectionPatchEditor: "Append Override",
+        .prependAppend: "Prepend",
+        .appendAppend: "Append",
+        .deleteOriginalItems: "Delete Originals",
+        .patchPrependHint: "Items here are placed before the original list.",
+        .patchAppendHint: "Items here are placed after the original list.",
+        .patchDeleteRuleHint: "Enter full rule lines to remove from the original rules.",
+        .patchDeleteNameHint: "Enter node or proxy-group names to remove from originals.",
         .mixedPort: "Mixed Port",
         .processMode: "Process Mode",
         .enabled: "Enabled",
@@ -1075,6 +1115,8 @@ enum L10n {
         .save: "Save",
         .cancel: "Cancel",
         .delete: "Delete",
+        .deleteProfileConfirmTitle: "Delete profile?",
+        .deleteProfileConfirmMessage: "This will remove \"%@\" from the profile library. This cannot be undone.",
         .unsupportedFeature: "Not supported yet",
         .refreshProxies: "Refresh Proxies",
         .refreshProviders: "Refresh Providers",
@@ -1085,8 +1127,10 @@ enum L10n {
         .groupDelayTest: "Test Group",
         .refreshConnections: "Refresh Connections",
         .searchConnections: "Search Connections",
+        .searchRules: "Search rules or test a domain/IP",
         .noConnections: "No Connections",
         .noMatchingConnections: "No Matching Connections",
+        .noMatchingRules: "No Matching Rules",
         .closeAll: "Close All",
         .activeConnections: "active",
         .close: "Close",
@@ -1102,6 +1146,10 @@ enum L10n {
         .unknownRoute: "Unknown",
         .historyTrend: "History",
         .refreshRules: "Refresh Rules",
+        .ruleHit: "Hit",
+        .ruleFallbackHit: "Fallback Hit",
+        .ruleMiss: "Miss",
+        .matchedRule: "Matched Rule",
         .processLog: "Process",
         .runtimeLog: "Runtime",
         .logReport: "Log Report",

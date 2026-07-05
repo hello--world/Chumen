@@ -1263,6 +1263,15 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func currentProfileVersion(_ profile: ProxyProfile) -> ProxyProfile {
+        profileLibrary.profiles.first { $0.id == profile.id } ?? profile
+    }
+
+    private nonisolated static func appendixTopLevelBlock(_ key: String, in profile: ProxyProfile) -> String? {
+        guard let yaml = profile.configAppendixYAML else { return nil }
+        return topLevelBlocks(in: yaml)[key]
+    }
+
     var connectionAnalysisSnapshot: ConnectionAnalysisSnapshot {
         ConnectionAnalyzer.analyze(connections)
     }
@@ -2031,36 +2040,17 @@ final class AppModel: ObservableObject {
 
     func beginEditProfileSection(_ profile: ProxyProfile, kind: ProfileSectionEditorKind) {
         profileSectionEditorLoadTask?.cancel()
-        profileSectionEditorText = "\(kind.yamlKey):\n"
+        profileSectionEditorLoadTask = nil
+        profileSectionEditorText = ChumenConfigurationBuilder.defaultSectionPatchBlock(for: kind.yamlKey)
         profileSectionEditorVisualSections = YAMLTopLevelSection.parse(profileSectionEditorText)
-        profileSectionEditorIsLoading = true
-        editingProfileSection = ProfileSectionEditorState(profile: profile, kind: kind)
+        profileSectionEditorIsLoading = false
+        let currentProfile = currentProfileVersion(profile)
+        editingProfileSection = ProfileSectionEditorState(profile: currentProfile, kind: kind)
 
-        if let entry = profileContentCache[profile.id] {
-            let block = Self.cachedTopLevelBlock(kind.yamlKey, in: entry)
-            profileSectionEditorVisualSections = Self.cachedVisualSections(kind.yamlKey, in: entry, fallbackBlock: block)
-            profileSectionEditorText = block
-            profileSectionEditorIsLoading = false
-            return
-        }
-
-        let repository = profileRepository
-        let yamlKey = kind.yamlKey
-        profileSectionEditorLoadTask = Task { [weak self] in
-            do {
-                let entry = try await Self.loadProfileContentCacheEntry(profile: profile, repository: repository)
-                guard !Task.isCancelled else { return }
-                let block = Self.cachedTopLevelBlock(yamlKey, in: entry)
-                self?.profileContentCache[profile.id] = entry
-                self?.profileSectionEditorVisualSections = Self.cachedVisualSections(yamlKey, in: entry, fallbackBlock: block)
-                self?.profileSectionEditorText = block
-                self?.profileSectionEditorIsLoading = false
-            } catch {
-                guard !Task.isCancelled else { return }
-                self?.profileSectionEditorIsLoading = false
-                self?.editingProfileSection = nil
-                self?.statusText = self?.displayError(error) ?? error.localizedDescription
-            }
+        if let appendixBlock = Self.appendixTopLevelBlock(kind.yamlKey, in: currentProfile),
+           ChumenConfigurationBuilder.isSectionPatchBlock(appendixBlock, key: kind.yamlKey) {
+            profileSectionEditorVisualSections = YAMLTopLevelSection.parse(appendixBlock)
+            profileSectionEditorText = appendixBlock
         }
     }
 
@@ -2071,21 +2061,17 @@ final class AppModel: ObservableObject {
         do {
             let editorText = focusedYAMLCodeEditorText() ?? profileSectionEditorText
             profileSectionEditorText = editorText
-            let current: String
-            if let cachedContent = profileContentCache[editingProfileSection.profile.id]?.content {
-                current = cachedContent
-            } else {
-                current = try profileRepository.profileContent(editingProfileSection.profile)
-            }
-            let content = Self.replacingTopLevelBlock(
+            let profile = currentProfileVersion(editingProfileSection.profile)
+            let appendix = ChumenConfigurationBuilder.replaceTopLevelBlock(
                 editingProfileSection.kind.yamlKey,
-                in: current,
+                in: profile.configAppendixYAML ?? "",
                 with: editorText
             )
             var library = profileLibrary
-            let updated = try profileRepository.saveContent(editingProfileSection.profile, content: content, in: &library)
+            // Profile section editors are scoped overrides, matching Verge's non-destructive model:
+            // the subscription file stays intact while the generated runtime config replaces this key.
+            let updated = try profileRepository.updateConfigAppendix(profile, yaml: appendix, in: &library)
             profileLibrary = library
-            rebuildProfileContentCache(content, for: updated)
             self.editingProfileSection = nil
             profileSectionEditorText = ""
             profileSectionEditorVisualSections = []
@@ -2219,29 +2205,6 @@ final class AppModel: ObservableObject {
 
         let text = block.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? "\(key):\n" : text
-    }
-
-    private nonisolated static func replacingTopLevelBlock(_ key: String, in yaml: String, with editedBlock: String) -> String {
-        let stripped = ChumenConfigurationBuilder.removeTopLevelKeys([key], from: yaml)
-        let normalizedBlock = normalizedTopLevelBlock(key, editedBlock)
-        return [stripped, normalizedBlock]
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .joined(separator: "\n\n")
-    }
-
-    private nonisolated static func normalizedTopLevelBlock(_ key: String, _ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "\(key): []" }
-
-        if let firstLine = trimmed.components(separatedBy: .newlines).first,
-           ChumenConfigurationBuilder.topLevelKey(in: firstLine) == key {
-            return trimmed
-        }
-
-        let nested = trimmed.components(separatedBy: .newlines)
-            .map { $0.isEmpty ? "" : "  \($0)" }
-            .joined(separator: "\n")
-        return "\(key):\n\(nested)"
     }
 
     private nonisolated static func indentation(of line: String) -> Int {

@@ -26,6 +26,72 @@ struct LiveYAMLCodeEditor: View {
     }
 }
 
+struct ProfileSectionPatchEditor: View {
+    @EnvironmentObject private var model: AppModel
+    let kind: ProfileSectionEditorKind
+    @Binding var text: String
+    @Binding var sections: [YAMLTopLevelSection]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(model.t(.sectionPatchEditor), systemImage: "plus.forwardslash.minus")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(ChumenStyle.mutedText)
+
+                YAMLSectionPatchForm(kind: kind, body: sectionBodyBinding)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(minWidth: 460, idealWidth: 500, maxWidth: .infinity, minHeight: 510)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Label(model.t(.codeEditor), systemImage: "chevron.left.forwardslash.chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(ChumenStyle.mutedText)
+
+                YAMLTextView(text: $text)
+                    .frame(minWidth: 480, minHeight: 510)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .onAppear {
+            ensurePatchText()
+        }
+        .onChange(of: text) {
+            sections = YAMLTopLevelSection.parse(text)
+        }
+    }
+
+    private var sectionBodyBinding: Binding<String> {
+        Binding(
+            get: { sectionBody },
+            set: { updateSectionBody($0) }
+        )
+    }
+
+    private var sectionBody: String {
+        YAMLTopLevelSection.parse(text).first { $0.key == kind.yamlKey }?.body ?? ""
+    }
+
+    private func updateSectionBody(_ body: String) {
+        let section = YAMLTopLevelSection(key: kind.yamlKey, body: body)
+        let rendered = YAMLTopLevelSection.render([section])
+        text = rendered
+        sections = YAMLTopLevelSection.parse(rendered)
+    }
+
+    private func ensurePatchText() {
+        guard YAMLTopLevelSection.parse(text).first(where: { $0.key == kind.yamlKey }) == nil else {
+            sections = YAMLTopLevelSection.parse(text)
+            return
+        }
+        text = ChumenConfigurationBuilder.defaultSectionPatchBlock(for: kind.yamlKey)
+        sections = YAMLTopLevelSection.parse(text)
+    }
+}
+
 private struct YAMLVisualEditor: View {
     @EnvironmentObject private var model: AppModel
     @Binding var text: String

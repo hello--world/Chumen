@@ -183,6 +183,16 @@ The header search is a launcher. Activating it opens a larger Spotlight-style ov
 - Searching must be debounced and must not block typing or Chinese IME composition.
 - Empty result count must reflect displayed results, not a hidden total.
 
+### Header Status Bar
+
+The header is a single utility shell, not a long horizontal status waterfall.
+
+- Keep app identity and the running profile fixed on the left.
+- Keep the search launcher at a moderate width; do not stretch it indefinitely on wide windows.
+- Stack `API` above config update as one group.
+- Put system proxy on the upper row, with `mode` and `TUN` side by side below it.
+- Tighten group widths before hiding these key states.
+
 ### Dashboard And Metrics
 
 Dashboard surfaces should be dense and calm:

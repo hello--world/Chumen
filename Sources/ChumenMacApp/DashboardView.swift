@@ -129,9 +129,12 @@ struct DashboardView: View {
     }
 
     private var commandPanel: some View {
-        ViewThatFits(in: .horizontal) {
-            commandPanelWide
-            commandPanelStacked
+        VStack(alignment: .leading, spacing: 12) {
+            commandPanelHeader
+            if !commandActionItems.isEmpty {
+                commandActionFlow
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -149,34 +152,21 @@ struct DashboardView: View {
         }
     }
 
-    private var commandPanelWide: some View {
-        HStack(alignment: .top, spacing: 8) {
-            commandStateColumn
-                .frame(width: 236, alignment: .leading)
-
-            if !commandActionItems.isEmpty {
-                commandActionFlow
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private var commandPanelHeader: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 18) {
+                commandStatusStrip
+                Spacer(minLength: 16)
+                modeControl
             }
+            commandPanelHeaderStacked
         }
     }
 
-    private var commandPanelStacked: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            commandStateColumn
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if !commandActionItems.isEmpty {
-                commandActionFlow
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    private var commandStateColumn: some View {
+    private var commandPanelHeaderStacked: some View {
         VStack(alignment: .leading, spacing: 10) {
             if !commandStatusItems.isEmpty {
                 commandStatusStrip
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             modeControl
         }
@@ -211,7 +201,7 @@ struct DashboardView: View {
                 commandStatusItem(item)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     @ViewBuilder
@@ -278,7 +268,7 @@ struct DashboardView: View {
             dashboardModePicker
                 .frame(width: 180)
         }
-        .frame(width: 236, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var dashboardModePicker: some View {
@@ -331,22 +321,54 @@ struct DashboardView: View {
     }
 
     private var commandActionFlow: some View {
-        CommandActionFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
-            ForEach(commandActionItems) { item in
-                quickActionButton(item)
+        VStack(alignment: .leading, spacing: 8) {
+            CommandActionFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+                ForEach(commandPinnedActionItems) { item in
+                    quickActionButton(item)
+                }
+                dashboardEditButton
             }
-            dashboardEditButton
+
+            if !commandExtensionActionItems.isEmpty {
+                commandActionRow(commandExtensionActionItems)
+            }
         }
         .controlSize(.regular)
     }
 
-    private func quickActionStrip(_ items: [DashboardItem]) -> some View {
-        HStack(spacing: 8) {
+    // The command bar has a fixed core row and an extension row. Start/stop/restart/refresh,
+    // system proxy, TUN, and quick-control editing are muscle-memory operations and should stay
+    // together; optional startup/network preferences belong below so enabling more shortcuts does
+    // not disrupt the primary controls.
+    private func commandActionRow(_ items: [DashboardItem]) -> some View {
+        CommandActionFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
             ForEach(items) { item in
                 quickActionButton(item)
             }
         }
-        .controlSize(.regular)
+    }
+
+    private var commandPinnedActionItems: [DashboardItem] {
+        commandActionItems.filter { item in
+            pinnedCommandActionIDs.contains(item.id)
+        }
+    }
+
+    private var commandExtensionActionItems: [DashboardItem] {
+        commandActionItems.filter { item in
+            !pinnedCommandActionIDs.contains(item.id)
+        }
+    }
+
+    private var pinnedCommandActionIDs: Set<String> {
+        [
+            "actions.start",
+            "actions.stop",
+            "actions.restart",
+            "actions.refresh",
+            "actions.system-proxy",
+            "actions.tun"
+        ]
     }
 
     @ViewBuilder

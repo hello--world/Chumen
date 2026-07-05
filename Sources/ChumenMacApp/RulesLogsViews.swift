@@ -4,40 +4,306 @@ import SwiftUI
 
 struct RulesView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var ruleSearchText = ""
+    @State private var ruleSearchState = RuleSearchViewState.empty
+    @State private var ruleSearchTask: Task<Void, Never>?
 
     var body: some View {
+        let query = ruleSearchQuery
+        let activeSearch = activeRuleSearchState(query: query)
+        let visibleRuleIndexes = visibleRuleIndexes(query: query, state: activeSearch)
+
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(spacing: 10) {
                 Button {
-                    Task { await model.refreshRules() }
+                    Task {
+                        await model.refreshRules()
+                        await MainActor.run {
+                            scheduleRuleSearch()
+                        }
+                    }
                 } label: {
                     Label(model.t(.refreshRules), systemImage: "arrow.triangle.2.circlepath")
                 }
+
+                ruleSearchField
+
                 Spacer()
-                Text("\(model.rules.count) \(model.t(.rules))")
+
+                Text(ruleCountText(query: query, state: activeSearch, visibleCount: visibleRuleIndexes.count))
                     .foregroundStyle(.secondary)
             }
 
+            ruleSearchSummary(query: query, state: activeSearch)
+
             List {
-                ForEach(Array(model.rules.enumerated()), id: \.offset) { index, rule in
-                    HStack {
-                        Text(rule.type ?? "unknown")
-                            .font(.caption.weight(.semibold))
-                            .frame(width: 90, alignment: .leading)
-                        Text(rule.payload ?? "")
-                            .lineLimit(1)
-                        Spacer()
-                        Text(rule.proxy ?? "")
-                            .foregroundStyle(.secondary)
-                        Button(rule.disabled == true ? model.t(.activate) : model.t(.disableProxy)) {
-                            model.setRuleDisabled(index: index, disabled: !(rule.disabled ?? false))
-                        }
+                if query.isEmpty {
+                    ForEach(model.rules.indices, id: \.self) { index in
+                        ruleRow(index: index, rule: model.rules[index], isMatched: false)
                     }
-                    .padding(.vertical, 3)
+                } else if activeSearch?.isSearching == false {
+                    ruleListContent(
+                        ruleIndexes: visibleRuleIndexes,
+                        matchedIndex: activeSearch?.match?.index
+                    )
+                } else {
+                    ProgressView(model.t(.loadingPreview))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 24)
                 }
             }
         }
         .padding(18)
+        .onAppear {
+            scheduleRuleSearch()
+        }
+        .onDisappear {
+            ruleSearchTask?.cancel()
+            ruleSearchTask = nil
+        }
+        .onChange(of: ruleSearchText) { _, _ in
+            scheduleRuleSearch()
+        }
+        .onChange(of: model.rules.count) { _, _ in
+            scheduleRuleSearch()
+        }
+    }
+
+    @ViewBuilder
+    private func ruleListContent(
+        ruleIndexes: [Int],
+        matchedIndex: Int?
+    ) -> some View {
+        if ruleIndexes.isEmpty {
+            Text(model.t(.noMatchingRules))
+                .foregroundStyle(ChumenStyle.mutedText)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 24)
+        } else {
+            ForEach(ruleIndexes, id: \.self) { index in
+                ruleRow(
+                    index: index,
+                    rule: model.rules[index],
+                    isMatched: index == matchedIndex
+                )
+            }
+        }
+    }
+
+    private var ruleSearchQuery: String {
+        ruleSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func activeRuleSearchState(query: String) -> RuleSearchViewState? {
+        guard !query.isEmpty else { return nil }
+        guard ruleSearchState.query == query,
+              ruleSearchState.rulesCount == model.rules.count else {
+            return RuleSearchViewState.searching(query: query, rulesCount: model.rules.count)
+        }
+        return ruleSearchState
+    }
+
+    private func visibleRuleIndexes(
+        query: String,
+        state: RuleSearchViewState?
+    ) -> [Int] {
+        guard !query.isEmpty else {
+            return []
+        }
+        guard let state, !state.isSearching else {
+            return []
+        }
+
+        return state.matchingIndexes.filter { index in
+            model.rules.indices.contains(index)
+        }
+    }
+
+    private func ruleCountText(
+        query: String,
+        state: RuleSearchViewState?,
+        visibleCount: Int
+    ) -> String {
+        guard !query.isEmpty else {
+            return "\(model.rules.count) \(model.t(.rules))"
+        }
+        if state?.isSearching != false {
+            return "\(model.t(.loadingPreview)) / \(model.rules.count) \(model.t(.rules))"
+        }
+        return "\(visibleCount) / \(model.rules.count) \(model.t(.rules))"
+    }
+
+    private var ruleSearchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(ChumenStyle.mutedText)
+            TextField(model.t(.searchRules), text: $ruleSearchText)
+                .textFieldStyle(.plain)
+            if !ruleSearchQuery.isEmpty {
+                Button {
+                    ruleSearchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(ChumenStyle.mutedText)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 9)
+        .frame(width: 360, height: 34)
+        .background(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(ChumenStyle.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .strokeBorder(ChumenStyle.border.opacity(0.75))
+        )
+    }
+
+    @ViewBuilder
+    private func ruleSearchSummary(query: String, state: RuleSearchViewState?) -> some View {
+        if !query.isEmpty {
+            let isSearching = state?.isSearching != false
+            let match = state?.match
+            let isFallback = state?.isFallbackMatch == true
+            let resultColor: Color = isSearching ? .blue : (match == nil ? .orange : (isFallback ? .blue : .green))
+
+            HStack(spacing: 8) {
+                if isSearching {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(model.t(.loadingPreview))
+                        .foregroundStyle(ChumenStyle.mutedText)
+                    Spacer(minLength: 8)
+                } else if let match {
+                    Label(
+                        isFallback ? model.t(.ruleFallbackHit) : model.t(.ruleHit),
+                        systemImage: isFallback ? "arrow.down.forward.circle" : "target"
+                    )
+                        .foregroundStyle(resultColor)
+                    Text("\(model.t(.matchedRule)):")
+                        .foregroundStyle(ChumenStyle.mutedText)
+                    Text(match.rule.type ?? "unknown")
+                        .font(.caption.weight(.semibold))
+                    Text(match.rule.payload ?? "-")
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(match.rule.proxy ?? "-")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label(model.t(.ruleMiss), systemImage: "xmark.circle")
+                        .foregroundStyle(.orange)
+                    Text(query)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                }
+            }
+            .font(.caption)
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .fill(resultColor.opacity(0.07))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .strokeBorder(resultColor.opacity(0.24))
+            )
+        }
+    }
+
+    private func ruleRow(index: Int, rule: MihomoRule, isMatched: Bool) -> some View {
+        HStack {
+            Text(rule.type ?? "unknown")
+                .font(.caption.weight(.semibold))
+                .frame(width: 90, alignment: .leading)
+            Text(rule.payload ?? "")
+                .lineLimit(1)
+            Spacer()
+            Text(rule.proxy ?? "")
+                .foregroundStyle(.secondary)
+            Button(rule.disabled == true ? model.t(.activate) : model.t(.disableProxy)) {
+                model.setRuleDisabled(index: index, disabled: !(rule.disabled ?? false))
+            }
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isMatched ? Color.green.opacity(0.08) : Color.clear)
+        )
+    }
+
+    private func scheduleRuleSearch() {
+        let query = ruleSearchQuery
+        ruleSearchTask?.cancel()
+
+        guard !query.isEmpty else {
+            ruleSearchState = .empty
+            ruleSearchTask = nil
+            return
+        }
+
+        let rules = model.rules
+        let rulesCount = rules.count
+        ruleSearchState = .searching(query: query, rulesCount: rulesCount)
+        ruleSearchTask = Task { [query, rules, rulesCount] in
+            do {
+                try await Task.sleep(for: .milliseconds(180))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+
+            let result = await Task.detached(priority: .userInitiated) {
+                RuleMatcher.search(for: query, in: rules)
+            }.value
+
+            await MainActor.run {
+                guard !Task.isCancelled,
+                      ruleSearchQuery == query else {
+                    return
+                }
+                ruleSearchState = RuleSearchViewState(
+                    query: query,
+                    rulesCount: rulesCount,
+                    match: result.match,
+                    isFallbackMatch: result.isFallbackMatch,
+                    matchingIndexes: result.matchingIndexes,
+                    isSearching: false
+                )
+            }
+        }
+    }
+}
+
+private struct RuleSearchViewState: Equatable {
+    let query: String
+    let rulesCount: Int
+    let match: RuleMatchResult?
+    let isFallbackMatch: Bool
+    let matchingIndexes: [Int]
+    let isSearching: Bool
+
+    static let empty = RuleSearchViewState(
+        query: "",
+        rulesCount: 0,
+        match: nil,
+        isFallbackMatch: false,
+        matchingIndexes: [],
+        isSearching: false
+    )
+
+    static func searching(query: String, rulesCount: Int) -> RuleSearchViewState {
+        RuleSearchViewState(
+            query: query,
+            rulesCount: rulesCount,
+            match: nil,
+            isFallbackMatch: false,
+            matchingIndexes: [],
+            isSearching: true
+        )
     }
 }
 

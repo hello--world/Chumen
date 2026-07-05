@@ -65,6 +65,206 @@ private enum YAMLVisualValue {
     }
 }
 
+private enum YAMLSectionPatchBody {
+    static let operations = ["prepend", "append", "delete"]
+
+    static func bucket(_ operation: String, in body: String) -> String {
+        var currentOperation: String?
+        var linesByOperation: [String: [String]] = [:]
+        let normalizedLines = unindented(body.components(separatedBy: .newlines))
+
+        for line in normalizedLines.components(separatedBy: .newlines) {
+            if let key = ChumenConfigurationBuilder.topLevelKey(in: line), operations.contains(key) {
+                currentOperation = key
+                let inline = inlineValue(in: line)
+                if inline.isEmpty || inline == "[]" {
+                    linesByOperation[key] = linesByOperation[key] ?? []
+                } else {
+                    linesByOperation[key, default: []].append(contentsOf: inlineListItems(inline))
+                }
+                continue
+            }
+
+            if let currentOperation {
+                linesByOperation[currentOperation, default: []].append(line)
+            }
+        }
+
+        return unindented(linesByOperation[operation] ?? [])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func replacing(_ operation: String, in body: String, with value: String) -> String {
+        var buckets = Dictionary(uniqueKeysWithValues: operations.map { ($0, bucket($0, in: body)) })
+        buckets[operation] = value
+        return render(prepend: buckets["prepend"] ?? "", append: buckets["append"] ?? "", delete: buckets["delete"] ?? "")
+    }
+
+    private static func render(prepend: String, append: String, delete: String) -> String {
+        operations.map { operation in
+            let value: String
+            switch operation {
+            case "prepend": value = prepend
+            case "append": value = append
+            default: value = delete
+            }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return "\(operation): []" }
+            return "\(operation):\n\(indented(trimmed, spaces: 2))"
+        }
+        .joined(separator: "\n")
+    }
+
+    private static func inlineValue(in line: String) -> String {
+        guard let colon = line.firstIndex(of: ":") else { return "" }
+        return String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func inlineListItems(_ value: String) -> [String] {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("["), trimmed.hasSuffix("]") else {
+            return ["- \(trimmed)"]
+        }
+        return trimmed.dropFirst().dropLast()
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r\"'")) }
+            .filter { !$0.isEmpty }
+            .map { "- \($0)" }
+    }
+
+    private static func unindented(_ lines: [String]) -> String {
+        let indents = lines
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { indentation(of: $0) }
+            .filter { $0 > 0 }
+        guard let commonIndent = indents.min() else {
+            return lines.joined(separator: "\n")
+        }
+        return lines.map { removeLeadingSpaces(commonIndent, from: $0) }.joined(separator: "\n")
+    }
+
+    private static func indented(_ text: String, spaces: Int) -> String {
+        let prefix = String(repeating: " ", count: spaces)
+        return text.components(separatedBy: .newlines)
+            .map { $0.isEmpty ? "" : prefix + $0 }
+            .joined(separator: "\n")
+    }
+
+    private static func indentation(of line: String) -> Int {
+        var count = 0
+        for character in line {
+            if character == " " {
+                count += 1
+            } else {
+                break
+            }
+        }
+        return count
+    }
+
+    private static func removeLeadingSpaces(_ count: Int, from line: String) -> String {
+        var index = line.startIndex
+        var removed = 0
+        while removed < count, index < line.endIndex, line[index] == " " {
+            index = line.index(after: index)
+            removed += 1
+        }
+        return String(line[index...])
+    }
+}
+
+struct YAMLSectionPatchForm: View {
+    @EnvironmentObject private var model: AppModel
+    let kind: ProfileSectionEditorKind
+    @Binding private var yamlBody: String
+
+    init(kind: ProfileSectionEditorKind, body: Binding<String>) {
+        self.kind = kind
+        _yamlBody = body
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                patchBucket(
+                    operation: "prepend",
+                    title: model.t(.prependAppend),
+                    hint: model.t(.patchPrependHint),
+                    color: .blue
+                )
+                patchBucket(
+                    operation: "append",
+                    title: model.t(.appendAppend),
+                    hint: model.t(.patchAppendHint),
+                    color: .green
+                )
+                patchBucket(
+                    operation: "delete",
+                    title: model.t(.deleteOriginalItems),
+                    hint: kind == .rules ? model.t(.patchDeleteRuleHint) : model.t(.patchDeleteNameHint),
+                    color: .red
+                )
+            }
+            .padding(2)
+        }
+    }
+
+    private func patchBucket(operation: String, title: String, hint: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(color)
+                Text(operation)
+                    .font(.system(.caption2, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(color.opacity(0.88))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(color.opacity(0.10), in: Capsule())
+                Spacer()
+                Text("\(itemCount(for: operation))")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(ChumenStyle.mutedText)
+            }
+
+            Text(hint)
+                .font(.caption2)
+                .foregroundStyle(ChumenStyle.mutedText)
+                .lineLimit(2)
+
+            TextEditor(text: bucketBinding(operation))
+                .font(.system(.caption, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: operation == "delete" ? 74 : 118)
+                .background(ChumenStyle.groupedSurface.opacity(0.35), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(color.opacity(0.24))
+                )
+        }
+        .padding(10)
+        .background(color.opacity(0.055), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(color.opacity(0.18))
+        )
+    }
+
+    private func bucketBinding(_ operation: String) -> Binding<String> {
+        Binding(
+            get: { YAMLSectionPatchBody.bucket(operation, in: yamlBody) },
+            set: { yamlBody = YAMLSectionPatchBody.replacing(operation, in: yamlBody, with: $0) }
+        )
+    }
+
+    private func itemCount(for operation: String) -> Int {
+        YAMLSectionPatchBody.bucket(operation, in: yamlBody)
+            .components(separatedBy: .newlines)
+            .filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix("-") }
+            .count
+    }
+}
+
 struct YAMLCommonScalarForm: View {
     @EnvironmentObject private var model: AppModel
     let sectionKey: String

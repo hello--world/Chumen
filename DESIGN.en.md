@@ -42,8 +42,9 @@
   and settings.
 - Content hierarchy: current runtime state first, then global search, then actions, key metrics,
   diagnostic summaries, and linked related information.
-- Header: one compact row with app/running state on the left, a modest-width search launcher, and a
-  persistent status strip for API, system proxy, mode, speed, traffic, and TUN.
+- Header: keep one outer row with app/running state on the left and a modest-width search launcher
+  in the middle. Status facts are grouped vertically by meaning: `API` above config update, and
+  system proxy above `mode + TUN`, so the header does not become an overlong horizontal ribbon.
 - Search: the header search is only a launcher. Activating it opens a Spotlight-style overlay that
   covers the header/search launcher so no duplicate search field or status leaks through. Results
   prioritize settings and core, then profiles, proxies, providers, rules, connections, and logs.
@@ -101,8 +102,9 @@
 - Supported surface: resizable macOS app window.
 - Dashboard sections and items wrap through an adaptive grid. A module may provide state, metrics,
   diagnostics, or links, but each item needs a stable title, value, priority, and action semantics.
-- Header search and status stay in one row. In narrow windows, horizontal status scrolling is better
-  than hiding important status chips.
+- The header shell stays in one row while status pills may stack inside their groups. In narrow
+  windows, tighten search/status group widths before hiding `API`, config update, system proxy,
+  mode, or TUN.
 
 ## Interaction States
 
@@ -155,6 +157,10 @@
 - Dashboard quick-action buttons must also be published through provider/item data. Start, stop,
   refresh, system proxy, TUN, settings entries, and module jumps all use the same quick-entry
   contract.
+- Dashboard quick controls must be layered by priority: start, stop, restart, refresh, system proxy,
+  TUN, and edit quick controls stay in the first pinned row; user-added startup/quit preferences,
+  network options, and module jumps may only appear in lower extension rows so they cannot disrupt
+  the core controls.
 - Performance: dashboard updates must remain cheap during traffic/connection streams.
 - Security: AI API keys are stored in Keychain; local Ollama does not require a key; model calls use
   user-configured OpenAI-compatible endpoints.
