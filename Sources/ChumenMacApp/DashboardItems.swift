@@ -486,7 +486,7 @@ private struct QuickActionsDashboardProvider: DashboardSectionProvider {
                 ),
                 DashboardItem(
                     id: "actions.tun",
-                    title: model.t(.tunMode),
+                    title: "TUN",
                     value: DashboardStateFormatting.tunStateText(for: model),
                     detail: model.tunRuntimeFailed ? model.tunRuntimeFailureDetail : "",
                     systemImage: "shield.lefthalf.filled",

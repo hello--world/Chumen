@@ -351,7 +351,12 @@ struct DashboardView: View {
             }
             dashboardEditButton
         }
+        .frame(width: commandActionGridWidth(columnCount: columnCount), alignment: .leading)
         .controlSize(.regular)
+    }
+
+    private func commandActionGridWidth(columnCount: Int) -> CGFloat {
+        CGFloat(columnCount * 118 + max(0, columnCount - 1) * 6)
     }
 
     private func quickActionStrip(_ items: [DashboardItem]) -> some View {
