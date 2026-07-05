@@ -276,9 +276,9 @@ struct DashboardView: View {
                 .font(.callout.weight(.medium))
                 .foregroundStyle(ChumenStyle.mutedText)
             dashboardModePicker
-                .frame(width: 236)
+                .frame(width: 180)
         }
-        .frame(width: 292, alignment: .leading)
+        .frame(width: 236, alignment: .leading)
     }
 
     private var dashboardModePicker: some View {
