@@ -192,12 +192,17 @@ The header is a single utility shell, not a long horizontal status waterfall.
 - Stack `API` above config update as one group.
 - Put system proxy on the upper row, with `mode` and `TUN` side by side below it.
 - Tighten group widths before hiding these key states.
+- On wide windows, the header status area uses `ChumenStyle.shellContentWidth(for:)` with the
+  dashboard, about 80% of available width by default, so search and status do not stretch to
+  opposite window edges.
 
 ### Dashboard And Metrics
 
 Dashboard surfaces should be dense and calm:
 
 - metrics are scan tiles, not marketing cards;
+- dashboard main content uses `ChumenStyle.shellContentWidth(for:)`, about 80% of available width by
+  default; command panels and metric sections use roughly 20% more vertical rhythm;
 - traffic and speed values need stable dimensions;
 - no large single-color sections;
 - status color follows state: green for active/healthy, gray for inactive, orange/red for failure.

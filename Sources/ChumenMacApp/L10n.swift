@@ -144,6 +144,12 @@ enum L10n {
         case patchAppendHint
         case patchDeleteRuleHint
         case patchDeleteNameHint
+        case optionalArgs
+        case generatedItem
+        case fillRequiredFields
+        case addGeneratedItem
+        case extraYAMLFields
+        case advancedBuckets
         case mixedPort
         case processMode
         case enabled
@@ -612,6 +618,12 @@ enum L10n {
         .patchAppendHint: "这些条目会放在原始列表后面。",
         .patchDeleteRuleHint: "填写要从原始规则中删除的完整规则行。",
         .patchDeleteNameHint: "填写要从原始节点或代理组中删除的名称。",
+        .optionalArgs: "附加参数",
+        .generatedItem: "生成",
+        .fillRequiredFields: "填写必要字段后会生成条目",
+        .addGeneratedItem: "添加",
+        .extraYAMLFields: "额外字段",
+        .advancedBuckets: "高级编辑",
         .mixedPort: "混合端口",
         .processMode: "进程匹配",
         .enabled: "启用",
@@ -1073,6 +1085,12 @@ enum L10n {
         .patchAppendHint: "Items here are placed after the original list.",
         .patchDeleteRuleHint: "Enter full rule lines to remove from the original rules.",
         .patchDeleteNameHint: "Enter node or proxy-group names to remove from originals.",
+        .optionalArgs: "Options",
+        .generatedItem: "Generated",
+        .fillRequiredFields: "Fill required fields to generate an item",
+        .addGeneratedItem: "Add",
+        .extraYAMLFields: "Extra Fields",
+        .advancedBuckets: "Advanced Buckets",
         .mixedPort: "Mixed Port",
         .processMode: "Process Mode",
         .enabled: "Enabled",

@@ -65,6 +65,14 @@ private enum YAMLVisualValue {
     }
 }
 
+private func orderedUniqueValues(_ values: [String]) -> [String] {
+    var seen = Set<String>()
+    return values
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .filter { seen.insert($0).inserted }
+}
+
 private enum YAMLSectionPatchBody {
     static let operations = ["prepend", "append", "delete"]
 
@@ -98,6 +106,20 @@ private enum YAMLSectionPatchBody {
         var buckets = Dictionary(uniqueKeysWithValues: operations.map { ($0, bucket($0, in: body)) })
         buckets[operation] = value
         return render(prepend: buckets["prepend"] ?? "", append: buckets["append"] ?? "", delete: buckets["delete"] ?? "")
+    }
+
+    static func appendingItem(_ item: String, operation: String, in body: String) -> String {
+        let normalized = normalizedListItem(item)
+        guard !normalized.isEmpty else { return body }
+        let current = bucket(operation, in: body)
+        let updated = YAMLVisualValue.appending(normalized, to: current)
+        return replacing(operation, in: body, with: updated)
+    }
+
+    private static func normalizedListItem(_ item: String) -> String {
+        let trimmed = item.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return trimmed.hasPrefix("-") ? trimmed : "- \(trimmed)"
     }
 
     private static func render(prepend: String, append: String, delete: String) -> String {
@@ -173,6 +195,505 @@ private enum YAMLSectionPatchBody {
     }
 }
 
+private enum SectionPatchOperation: String, CaseIterable, Identifiable {
+    case prepend
+    case append
+    case delete
+
+    var id: String { rawValue }
+
+    var titleKey: L10n.Key {
+        switch self {
+        case .prepend: .prependAppend
+        case .append: .appendAppend
+        case .delete: .deleteOriginalItems
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .prepend: "text.insert"
+        case .append: "text.append"
+        case .delete: "trash"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .prepend: .blue
+        case .append: .green
+        case .delete: .red
+        }
+    }
+}
+
+private struct YAMLSectionPatchQuickAddForm: View {
+    @EnvironmentObject private var model: AppModel
+    let kind: ProfileSectionEditorKind
+    let onAdd: (SectionPatchOperation, String) -> Void
+
+    @State private var operation: SectionPatchOperation = .prepend
+    @State private var ruleType = "DOMAIN-SUFFIX"
+    @State private var matchValue = ""
+    @State private var policy = "DIRECT"
+    @State private var extraRuleOption = ""
+    @State private var itemName = ""
+    @State private var proxyType = "vless"
+    @State private var server = ""
+    @State private var port = "443"
+    @State private var username = ""
+    @State private var password = ""
+    @State private var uuid = ""
+    @State private var cipher = "auto"
+    @State private var sni = ""
+    @State private var udp = true
+    @State private var tls = true
+    @State private var extraYAMLLines = ""
+    @State private var groupType = "select"
+    @State private var selectedMember = "DIRECT"
+    @State private var memberList: [String] = ["DIRECT"]
+
+    private let ruleTypes = [
+        "DOMAIN-SUFFIX",
+        "DOMAIN",
+        "DOMAIN-KEYWORD",
+        "IP-CIDR",
+        "IP-CIDR6",
+        "GEOIP",
+        "GEOSITE",
+        "PROCESS-NAME",
+        "MATCH"
+    ]
+    private let proxyTypes = ["vless", "vmess", "trojan", "ss", "socks5", "http", "hysteria2", "direct"]
+    private let groupTypes = ["select", "url-test", "fallback", "load-balance"]
+    private let commonPorts = ["443", "80", "8080", "7890", "1080", "8388"]
+    private let ssCiphers = [
+        "2022-blake3-aes-128-gcm",
+        "2022-blake3-aes-256-gcm",
+        "aes-128-gcm",
+        "aes-256-gcm",
+        "chacha20-ietf-poly1305"
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                Label(model.t(quickAddTitleKey), systemImage: "square.and.pencil")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Spacer()
+                operationPicker
+            }
+
+            switch kind {
+            case .rules:
+                ruleForm
+            case .proxies:
+                proxyForm
+            case .proxyGroups:
+                proxyGroupForm
+            }
+
+            HStack(spacing: 8) {
+                generatedPreview
+                Button {
+                    addGeneratedItem()
+                } label: {
+                    Label(model.t(.addGeneratedItem), systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(generatedItem == nil)
+            }
+        }
+        .padding(10)
+        .background(ChumenStyle.groupedSurface.opacity(0.45), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(ChumenStyle.border.opacity(0.7))
+        )
+    }
+
+    private var operationPicker: some View {
+        HStack(spacing: 5) {
+            ForEach(SectionPatchOperation.allCases) { item in
+                Button {
+                    operation = item
+                } label: {
+                    Label(model.t(item.titleKey), systemImage: item.systemImage)
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1)
+                        .labelStyle(.titleAndIcon)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .foregroundStyle(operation == item ? item.color : ChumenStyle.mutedText)
+                        .background(
+                            (operation == item ? item.color.opacity(0.14) : Color.clear),
+                            in: Capsule()
+                        )
+                        .overlay(
+                            Capsule().strokeBorder((operation == item ? item.color : ChumenStyle.border).opacity(0.45))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var quickAddTitleKey: L10n.Key {
+        switch kind {
+        case .rules: .quickAddRule
+        case .proxies: .quickAddNode
+        case .proxyGroups: .quickAddGroup
+        }
+    }
+
+    private var ruleForm: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                pickerField(model.t(.ruleType), selection: $ruleType, values: ruleTypes)
+                    .frame(width: 145)
+                if ruleType != "MATCH" {
+                    textField(model.t(.matchValue), text: $matchValue, placeholder: "example.com / 1.1.1.1/32")
+                        .frame(minWidth: 160)
+                }
+                pickerField(model.t(.targetPolicy), selection: $policy, values: rulePolicyOptions)
+                    .frame(width: 160)
+            }
+            textField(model.t(.optionalArgs), text: $extraRuleOption, placeholder: "no-resolve")
+        }
+    }
+
+    private var rulePolicyOptions: [String] {
+        let fixed = ["DIRECT", "REJECT", "REJECT-DROP", "PASS"]
+        let runtimeGroups = model.proxyGroups
+            .map(\.name)
+            .map(clean)
+            .filter { !$0.isEmpty }
+        return uniqueValues([policy, "DIRECT"] + runtimeGroups + fixed)
+    }
+
+    private var proxyForm: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                textField(model.t(.name), text: $itemName, placeholder: "us-1")
+                pickerField(model.t(.nodeType), selection: $proxyType, values: proxyTypes)
+                    .frame(width: 112)
+            }
+            if operation != .delete, proxyType != "direct" {
+                HStack(alignment: .top, spacing: 8) {
+                    textField(model.t(.server), text: $server, placeholder: "example.com")
+                    pickerField(model.t(.portNumber), selection: $port, values: orderedUniqueValues([port] + commonPorts))
+                        .frame(width: 82)
+                }
+                proxyCredentialFields
+                HStack {
+                    Toggle("UDP", isOn: $udp)
+                    if supportsTLS {
+                        Toggle("TLS", isOn: $tls)
+                    }
+                }
+                .toggleStyle(.switch)
+                DisclosureGroup(model.t(.extraYAMLFields)) {
+                    multilineField(model.t(.extraYAMLFields), text: $extraYAMLLines, minHeight: 48)
+                }
+                .font(.caption.weight(.medium))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var proxyCredentialFields: some View {
+        switch proxyType {
+        case "ss":
+            pickerField(model.t(.cipher), selection: $cipher, values: ssCiphers)
+            textField(model.t(.password), text: $password, placeholder: "password")
+        case "vmess", "vless":
+            textField("UUID", text: $uuid, placeholder: "uuid")
+            if supportsTLS {
+                textField("SNI", text: $sni, placeholder: "server name")
+            }
+        case "trojan", "hysteria2":
+            textField(model.t(.password), text: $password, placeholder: "password")
+            textField("SNI", text: $sni, placeholder: "server name")
+        case "http", "socks5":
+            HStack(alignment: .top, spacing: 8) {
+                textField(model.t(.username), text: $username, placeholder: model.t(.username))
+                textField(model.t(.password), text: $password, placeholder: model.t(.password))
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private var supportsTLS: Bool {
+        ["vless", "vmess", "trojan", "hysteria2"].contains(proxyType)
+    }
+
+    private var proxyGroupForm: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                textField(model.t(.name), text: $itemName, placeholder: "Auto")
+                if operation != .delete {
+                    pickerField(model.t(.groupType), selection: $groupType, values: groupTypes)
+                        .frame(width: 122)
+                }
+            }
+            if operation != .delete {
+                memberPicker
+            }
+        }
+    }
+
+    private var memberPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(model.t(.groupMembers))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(ChumenStyle.mutedText)
+            HStack(spacing: 8) {
+                Picker("", selection: $selectedMember) {
+                    ForEach(availableProxyMembers, id: \.self) { value in
+                        Text(value).tag(value)
+                    }
+                }
+                .labelsHidden()
+                .controlSize(.small)
+
+                Button {
+                    addSelectedMember()
+                } label: {
+                    Label(model.t(.addGeneratedItem), systemImage: "plus")
+                }
+                .controlSize(.small)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(memberList, id: \.self) { member in
+                        Button {
+                            memberList.removeAll { $0 == member }
+                        } label: {
+                            Label(member, systemImage: "xmark")
+                                .labelStyle(.titleAndIcon)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                    }
+                }
+            }
+        }
+    }
+
+    private var availableProxyMembers: [String] {
+        let runtime = model.proxyGroups.flatMap { [$0.name] + $0.options }
+        return orderedUniqueValues(["DIRECT", "REJECT", "PASS"] + runtime)
+    }
+
+    private var generatedPreview: some View {
+        HStack(spacing: 6) {
+            Text(model.t(.generatedItem))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(ChumenStyle.mutedText)
+            Text(generatedItem ?? model.t(.fillRequiredFields))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(generatedItem == nil ? ChumenStyle.mutedText : Color.primary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(ChumenStyle.surface.opacity(0.42), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    private var generatedItem: String? {
+        switch kind {
+        case .rules:
+            generatedRuleItem
+        case .proxies:
+            generatedProxyItem
+        case .proxyGroups:
+            generatedProxyGroupItem
+        }
+    }
+
+    private var generatedRuleItem: String? {
+        let type = clean(ruleType)
+        let target = clean(policy)
+        guard !type.isEmpty, !target.isEmpty else { return nil }
+        var parts = [type]
+        if type != "MATCH" {
+            let value = clean(matchValue)
+            guard !value.isEmpty else { return nil }
+            parts.append(value)
+        }
+        parts.append(target)
+        let option = clean(extraRuleOption)
+        if !option.isEmpty {
+            parts.append(option)
+        }
+        return "- \(parts.joined(separator: ","))"
+    }
+
+    private var generatedProxyItem: String? {
+        let name = clean(itemName)
+        guard !name.isEmpty else { return nil }
+        if operation == .delete {
+            return "- \(name)"
+        }
+
+        var lines = [
+            "- name: \(name)",
+            "  type: \(clean(proxyType))"
+        ]
+        if proxyType != "direct" {
+            let host = clean(server)
+            let portValue = clean(port)
+            guard !host.isEmpty, !portValue.isEmpty else { return nil }
+            lines.append("  server: \(host)")
+            lines.append("  port: \(portValue)")
+            appendProxyProtocolFields(to: &lines)
+        }
+        lines.append(contentsOf: normalizedExtraLines(prefix: "  "))
+        return lines.joined(separator: "\n")
+    }
+
+    private var generatedProxyGroupItem: String? {
+        let name = clean(itemName)
+        guard !name.isEmpty else { return nil }
+        if operation == .delete {
+            return "- \(name)"
+        }
+
+        let memberValues = memberList
+        guard !memberValues.isEmpty else { return nil }
+        var lines = [
+            "- name: \(name)",
+            "  type: \(clean(groupType))",
+            "  proxies:"
+        ]
+        lines.append(contentsOf: memberValues.map { "    - \($0)" })
+        lines.append(contentsOf: normalizedExtraLines(prefix: "  "))
+        return lines.joined(separator: "\n")
+    }
+
+    private func addGeneratedItem() {
+        guard let item = generatedItem else { return }
+        onAdd(operation, item)
+        clearPrimaryFields()
+    }
+
+    private func clearPrimaryFields() {
+        switch kind {
+        case .rules:
+            matchValue = ""
+            extraRuleOption = ""
+        case .proxies:
+            itemName = ""
+            server = ""
+            port = "443"
+            username = ""
+            password = ""
+            uuid = ""
+            sni = ""
+            extraYAMLLines = ""
+        case .proxyGroups:
+            itemName = ""
+            memberList = ["DIRECT"]
+            selectedMember = "DIRECT"
+            extraYAMLLines = ""
+        }
+    }
+
+    private func appendProxyProtocolFields(to lines: inout [String]) {
+        switch proxyType {
+        case "ss":
+            YAMLVisualValue.appendKey("cipher", value: cipher, to: &lines)
+            YAMLVisualValue.appendKey("password", value: password, to: &lines)
+        case "vmess", "vless":
+            YAMLVisualValue.appendKey("uuid", value: uuid, to: &lines)
+            if supportsTLS {
+                lines.append("  tls: \(tls ? "true" : "false")")
+                YAMLVisualValue.appendKey("servername", value: sni, to: &lines)
+            }
+        case "trojan", "hysteria2":
+            YAMLVisualValue.appendKey("password", value: password, to: &lines)
+            lines.append("  tls: \(tls ? "true" : "false")")
+            YAMLVisualValue.appendKey("sni", value: sni, to: &lines)
+        case "http", "socks5":
+            YAMLVisualValue.appendKey("username", value: username, to: &lines)
+            YAMLVisualValue.appendKey("password", value: password, to: &lines)
+        default:
+            break
+        }
+        lines.append("  udp: \(udp ? "true" : "false")")
+    }
+
+    private func addSelectedMember() {
+        let value = clean(selectedMember)
+        guard !value.isEmpty, !memberList.contains(value) else { return }
+        memberList.append(value)
+    }
+
+    private func textField(_ title: String, text: Binding<String>, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(ChumenStyle.mutedText)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+        }
+    }
+
+    private func pickerField(_ title: String, selection: Binding<String>, values: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(ChumenStyle.mutedText)
+            Picker("", selection: selection) {
+                ForEach(values, id: \.self) { value in
+                    Text(value).tag(value)
+                }
+            }
+            .labelsHidden()
+            .controlSize(.small)
+        }
+    }
+
+    private func multilineField(_ title: String, text: Binding<String>, minHeight: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(ChumenStyle.mutedText)
+            TextEditor(text: text)
+                .font(.system(.caption2, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: minHeight)
+                .background(ChumenStyle.surface.opacity(0.35), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(ChumenStyle.border.opacity(0.7))
+                )
+        }
+    }
+
+    private func normalizedExtraLines(prefix: String) -> [String] {
+        extraYAMLLines
+            .components(separatedBy: .newlines)
+            .map(clean)
+            .filter { !$0.isEmpty }
+            .map { prefix + $0 }
+    }
+
+    private func uniqueValues(_ values: [String]) -> [String] {
+        orderedUniqueValues(values)
+    }
+
+    private func clean(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 struct YAMLSectionPatchForm: View {
     @EnvironmentObject private var model: AppModel
     let kind: ProfileSectionEditorKind
@@ -186,6 +707,14 @@ struct YAMLSectionPatchForm: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
+                YAMLSectionPatchQuickAddForm(kind: kind) { operation, item in
+                    yamlBody = YAMLSectionPatchBody.appendingItem(item, operation: operation.rawValue, in: yamlBody)
+                }
+
+                Label(model.t(.advancedBuckets), systemImage: "slider.horizontal.3")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(ChumenStyle.mutedText)
+
                 patchBucket(
                     operation: "prepend",
                     title: model.t(.prependAppend),
@@ -290,6 +819,18 @@ struct YAMLCommonScalarForm: View {
                     set: { yamlBody = $0 ? "true" : "false" }
                 ))
                 .toggleStyle(.switch)
+            case "port", "socks-port", "mixed-port", "redir-port", "tproxy-port":
+                YAMLPickerField(
+                    title: title(for: sectionKey),
+                    options: orderedUniqueValues([yamlBody, "7890", "7897", "7898", "7899", "1080", "8080"]),
+                    selection: $yamlBody
+                )
+            case "external-controller":
+                YAMLPickerField(
+                    title: model.t(.controlAddress),
+                    options: orderedUniqueValues([yamlBody, "127.0.0.1:9090", "127.0.0.1:19897", "0.0.0.0:9090"]),
+                    selection: $yamlBody
+                )
             default:
                 YAMLTextField(title: title(for: sectionKey), text: $yamlBody)
             }
@@ -360,7 +901,7 @@ struct YAMLRulesShortcutForm: View {
                 selection: $ruleType
             )
             YAMLTextField(title: model.t(.matchValue), text: $ruleValue)
-            YAMLTextField(title: model.t(.targetPolicy), text: $policy)
+            YAMLPickerField(title: model.t(.targetPolicy), options: policyOptions, selection: $policy)
             Toggle(model.t(.noResolve), isOn: $noResolve)
                 .toggleStyle(.switch)
 
@@ -373,6 +914,10 @@ struct YAMLRulesShortcutForm: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
+    }
+
+    private var policyOptions: [String] {
+        orderedUniqueValues([policy, "DIRECT"] + model.proxyGroups.map(\.name) + ["REJECT", "REJECT-DROP", "PASS"])
     }
 
     private func appendRule() {
@@ -393,16 +938,26 @@ struct YAMLNodeShortcutForm: View {
     @EnvironmentObject private var model: AppModel
     @Binding private var yamlBody: String
     @State private var nodeName = ""
-    @State private var nodeType = "ss"
+    @State private var nodeType = "vless"
     @State private var server = ""
-    @State private var port = ""
+    @State private var port = "443"
     @State private var username = ""
     @State private var password = ""
     @State private var uuid = ""
     @State private var cipher = "auto"
     @State private var sni = ""
     @State private var udp = true
-    @State private var tls = false
+    @State private var tls = true
+
+    private let commonPorts = ["443", "80", "8080", "7890", "1080", "8388"]
+    private let nodeTypes = ["vless", "vmess", "trojan", "ss", "socks5", "http", "hysteria2", "direct"]
+    private let ssCiphers = [
+        "2022-blake3-aes-128-gcm",
+        "2022-blake3-aes-256-gcm",
+        "aes-128-gcm",
+        "aes-256-gcm",
+        "chacha20-ietf-poly1305"
+    ]
 
     init(body: Binding<String>) {
         _yamlBody = body
@@ -414,58 +969,102 @@ struct YAMLNodeShortcutForm: View {
                 .font(.caption.weight(.semibold))
 
             YAMLTextField(title: model.t(.name), text: $nodeName)
-            YAMLPickerField(title: model.t(.nodeType), options: ["ss", "vmess", "trojan", "hysteria2", "http", "socks5"], selection: $nodeType)
-            HStack(spacing: 8) {
-                YAMLTextField(title: model.t(.server), text: $server)
-                YAMLTextField(title: model.t(.portNumber), text: $port)
-                    .frame(width: 100)
+            YAMLPickerField(title: model.t(.nodeType), options: nodeTypes, selection: $nodeType)
+            if nodeType != "direct" {
+                HStack(spacing: 8) {
+                    YAMLTextField(title: model.t(.server), text: $server)
+                    YAMLPickerField(title: model.t(.portNumber), options: orderedUniqueValues([port] + commonPorts), selection: $port)
+                        .frame(width: 110)
+                }
+                protocolFields
+                HStack {
+                    Toggle("UDP", isOn: $udp)
+                    if supportsTLS {
+                        Toggle("TLS", isOn: $tls)
+                    }
+                }
+                .toggleStyle(.switch)
             }
-            YAMLTextField(title: model.t(.username), text: $username)
-            YAMLTextField(title: model.t(.password), text: $password)
-            YAMLTextField(title: "UUID", text: $uuid)
-            YAMLTextField(title: model.t(.cipher), text: $cipher)
-            YAMLTextField(title: "SNI", text: $sni)
-            HStack {
-                Toggle("UDP", isOn: $udp)
-                Toggle("TLS", isOn: $tls)
-            }
-            .toggleStyle(.switch)
 
             Button {
                 appendNode()
             } label: {
                 Label(model.t(.addNode), systemImage: "plus")
             }
-            .disabled(nodeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(nodeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (nodeType != "direct" && server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
     }
 
+    @ViewBuilder
+    private var protocolFields: some View {
+        switch nodeType {
+        case "ss":
+            YAMLPickerField(title: model.t(.cipher), options: ssCiphers, selection: $cipher)
+            YAMLTextField(title: model.t(.password), text: $password)
+        case "vmess", "vless":
+            YAMLTextField(title: "UUID", text: $uuid)
+            if supportsTLS {
+                YAMLTextField(title: "SNI", text: $sni)
+            }
+        case "trojan", "hysteria2":
+            YAMLTextField(title: model.t(.password), text: $password)
+            YAMLTextField(title: "SNI", text: $sni)
+        case "http", "socks5":
+            YAMLTextField(title: model.t(.username), text: $username)
+            YAMLTextField(title: model.t(.password), text: $password)
+        default:
+            EmptyView()
+        }
+    }
+
+    private var supportsTLS: Bool {
+        ["vless", "vmess", "trojan", "hysteria2"].contains(nodeType)
+    }
+
     private func appendNode() {
         var lines = [
             "- name: \(YAMLVisualValue.clean(nodeName))",
-            "  type: \(nodeType)",
-            "  server: \(YAMLVisualValue.clean(server))"
+            "  type: \(nodeType)"
         ]
-        YAMLVisualValue.appendKey("port", value: port, to: &lines)
-        YAMLVisualValue.appendKey("username", value: username, to: &lines)
-        YAMLVisualValue.appendKey("password", value: password, to: &lines)
-        YAMLVisualValue.appendKey("uuid", value: uuid, to: &lines)
-        YAMLVisualValue.appendKey("cipher", value: cipher, to: &lines)
-        YAMLVisualValue.appendKey("sni", value: sni, to: &lines)
-        lines.append("  udp: \(udp ? "true" : "false")")
-        if tls {
-            lines.append("  tls: true")
+        if nodeType != "direct" {
+            lines.append("  server: \(YAMLVisualValue.clean(server))")
+            YAMLVisualValue.appendKey("port", value: port, to: &lines)
+            appendProtocolFields(to: &lines)
         }
         yamlBody = YAMLVisualValue.appending(lines.joined(separator: "\n"), to: yamlBody)
         nodeName = ""
         server = ""
-        port = ""
+        port = "443"
         username = ""
         password = ""
         uuid = ""
         sni = ""
+    }
+
+    private func appendProtocolFields(to lines: inout [String]) {
+        switch nodeType {
+        case "ss":
+            YAMLVisualValue.appendKey("cipher", value: cipher, to: &lines)
+            YAMLVisualValue.appendKey("password", value: password, to: &lines)
+        case "vmess", "vless":
+            YAMLVisualValue.appendKey("uuid", value: uuid, to: &lines)
+            if supportsTLS {
+                lines.append("  tls: \(tls ? "true" : "false")")
+                YAMLVisualValue.appendKey("servername", value: sni, to: &lines)
+            }
+        case "trojan", "hysteria2":
+            YAMLVisualValue.appendKey("password", value: password, to: &lines)
+            lines.append("  tls: \(tls ? "true" : "false")")
+            YAMLVisualValue.appendKey("sni", value: sni, to: &lines)
+        case "http", "socks5":
+            YAMLVisualValue.appendKey("username", value: username, to: &lines)
+            YAMLVisualValue.appendKey("password", value: password, to: &lines)
+        default:
+            break
+        }
+        lines.append("  udp: \(udp ? "true" : "false")")
     }
 }
 
@@ -474,7 +1073,8 @@ struct YAMLProxyGroupShortcutForm: View {
     @Binding private var yamlBody: String
     @State private var groupName = ""
     @State private var groupType = "select"
-    @State private var members = "DIRECT"
+    @State private var selectedMember = "DIRECT"
+    @State private var members: [String] = ["DIRECT"]
     @State private var testURL = "http://www.gstatic.com/generate_204"
     @State private var interval = "300"
     @State private var strategy = "consistent-hashing"
@@ -490,7 +1090,7 @@ struct YAMLProxyGroupShortcutForm: View {
 
             YAMLTextField(title: model.t(.name), text: $groupName)
             YAMLPickerField(title: model.t(.groupType), options: ["select", "url-test", "fallback", "load-balance"], selection: $groupType)
-            YAMLTextField(title: model.t(.groupMembers), text: $members)
+            groupMemberPicker
             if groupType != "select" {
                 YAMLTextField(title: model.t(.testURL), text: $testURL)
                 YAMLTextField(title: model.t(.intervalSeconds), text: $interval)
@@ -510,6 +1110,41 @@ struct YAMLProxyGroupShortcutForm: View {
         .controlSize(.small)
     }
 
+    private var groupMemberPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(model.t(.groupMembers))
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(ChumenStyle.mutedText)
+            HStack(spacing: 8) {
+                YAMLPickerField(title: "", options: availableMembers, selection: $selectedMember)
+                Button {
+                    addSelectedMember()
+                } label: {
+                    Label(model.t(.addGeneratedItem), systemImage: "plus")
+                }
+                .controlSize(.small)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(members, id: \.self) { member in
+                        Button {
+                            members.removeAll { $0 == member }
+                        } label: {
+                            Label(member, systemImage: "xmark")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                    }
+                }
+            }
+        }
+    }
+
+    private var availableMembers: [String] {
+        let runtime = model.proxyGroups.flatMap { [$0.name] + $0.options }
+        return orderedUniqueValues(["DIRECT", "REJECT", "PASS"] + runtime)
+    }
+
     private func appendGroup() {
         var lines = [
             "- name: \(YAMLVisualValue.clean(groupName))",
@@ -523,15 +1158,17 @@ struct YAMLProxyGroupShortcutForm: View {
             lines.append("  strategy: \(strategy)")
         }
         lines.append("  proxies:")
-        let proxyNames = members
-            .split(separator: ",")
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        for name in proxyNames.isEmpty ? ["DIRECT"] : proxyNames {
+        for name in members.isEmpty ? ["DIRECT"] : members {
             lines.append("    - \(name)")
         }
         yamlBody = YAMLVisualValue.appending(lines.joined(separator: "\n"), to: yamlBody)
         groupName = ""
+    }
+
+    private func addSelectedMember() {
+        let value = YAMLVisualValue.clean(selectedMember)
+        guard !value.isEmpty, !members.contains(value) else { return }
+        members.append(value)
     }
 }
 

@@ -7,15 +7,19 @@ struct DashboardView: View {
     @State private var quickActionConfigurationPresented = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                commandPanel
-                dashboardSections
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18 * ChumenStyle.dashboardVerticalScale) {
+                    commandPanel
+                    dashboardSections
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 18)
+                .padding(.bottom, 28)
+                // The dashboard is a command surface. Use an 80% reading measure on normal and
+                // wide windows so controls gain vertical room instead of stretching edge to edge.
+                .frame(width: ChumenStyle.shellContentWidth(for: proxy.size.width), alignment: .topLeading)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
-            .padding(.bottom, 28)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(ChumenStyle.pageBackground)
     }
@@ -114,8 +118,8 @@ struct DashboardView: View {
                     .frame(width: 16)
             }
         }
-        .padding(12)
-        .frame(minHeight: minHeight(for: item.style), alignment: .leading)
+        .padding(12 * ChumenStyle.dashboardVerticalScale)
+        .frame(minHeight: minHeight(for: item.style) * ChumenStyle.dashboardVerticalScale, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
@@ -137,7 +141,7 @@ struct DashboardView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(14 * ChumenStyle.dashboardVerticalScale)
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                 .fill(ChumenStyle.surface)

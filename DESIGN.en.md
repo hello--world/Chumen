@@ -45,6 +45,9 @@
 - Header: keep one outer row with app/running state on the left and a modest-width search launcher
   in the middle. Status facts are grouped vertically by meaning: `API` above config update, and
   system proxy above `mode + TUN`, so the header does not become an overlong horizontal ribbon.
+- Wide-screen restraint: the dashboard's main content and header status area share one content
+  measure, about 80% of available width by default, with roughly 20% more vertical rhythm instead of
+  filling ultra-wide windows.
 - Search: the header search is only a launcher. Activating it opens a Spotlight-style overlay that
   covers the header/search launcher so no duplicate search field or status leaks through. Results
   prioritize settings and core, then profiles, proxies, providers, rules, connections, and logs.
@@ -105,6 +108,9 @@
 - The header shell stays in one row while status pills may stack inside their groups. In narrow
   windows, tighten search/status group widths before hiding `API`, config update, system proxy,
   mode, or TUN.
+- On wide windows, dashboard content should not stretch to the full window width; use
+  `ChumenStyle.shellContentWidth(for:)` as the scanning measure, about 80% of available width by
+  default.
 
 ## Interaction States
 

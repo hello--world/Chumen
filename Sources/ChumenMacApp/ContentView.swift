@@ -127,14 +127,16 @@ struct ContentView: View {
     private var header: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 0)
-            let isCompact = width < 1280
             let horizontalPadding: CGFloat = width < 1000 ? 16 : 22
             let availableWidth = max(0, width - horizontalPadding * 2)
+            let shellWidth = ChumenStyle.shellContentWidth(for: availableWidth)
+            let isCompact = shellWidth < 1280
             let identityWidth = isCompact ? CGFloat(160) : CGFloat(172)
             let leftStatusWidth = isCompact ? CGFloat(109) : CGFloat(118)
             let rightStatusWidth = isCompact ? CGFloat(222) : CGFloat(254)
             let fixedWidth = identityWidth + leftStatusWidth + rightStatusWidth + 42
-            let searchWidth = min(isCompact ? CGFloat(192) : CGFloat(240), max(CGFloat(180), availableWidth - fixedWidth))
+            let searchWidth = min(isCompact ? CGFloat(192) : CGFloat(240), max(CGFloat(180), shellWidth - fixedWidth))
+            let contentWidth = identityWidth + leftStatusWidth + searchWidth + rightStatusWidth + 42
 
             ZStack(alignment: .topLeading) {
                 HStack(alignment: .center, spacing: 14) {
@@ -145,13 +147,12 @@ struct ContentView: View {
                         .frame(width: searchWidth)
                         .zIndex(20)
                     headerRightStatusPills(width: rightStatusWidth)
-                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, horizontalPadding)
                 .padding(.vertical, 9)
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
+                .frame(width: min(shellWidth, contentWidth) + horizontalPadding * 2, height: proxy.size.height, alignment: .leading)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
         }
         .frame(height: 84)
         .background(ChumenStyle.pageBackground)
