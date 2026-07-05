@@ -75,14 +75,16 @@ struct ContentView: View {
                         .padding(.top, 8)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                        Divider()
+                        if shouldShowDashboardAssistantRail {
+                            Divider()
 
-                        if aiAssistantPresented {
-                            aiAssistantLayer
-                                .frame(width: ChumenStyle.aiSidebarWidth)
-                        } else {
-                            aiAssistantCollapsedRail
-                                .frame(width: ChumenStyle.aiCollapsedSidebarWidth)
+                            if aiAssistantPresented {
+                                aiAssistantLayer
+                                    .frame(width: ChumenStyle.aiSidebarWidth)
+                            } else {
+                                aiAssistantCollapsedRail
+                                    .frame(width: ChumenStyle.aiCollapsedSidebarWidth)
+                            }
                         }
                     }
                 }
@@ -132,6 +134,13 @@ struct ContentView: View {
                 clearBlockingOverlayFocus()
             }
         }
+    }
+
+    private var shouldShowDashboardAssistantRail: Bool {
+        // The fixed assistant rail belongs to the overview command surface. Other pages such as
+        // profiles, proxies, providers, and connections need the full 1080-pt workspace for dense
+        // tables/forms; reserving 320 pt globally caused clipped controls and unreadable rows.
+        selectedTab == .dashboard
     }
 
     private var header: some View {

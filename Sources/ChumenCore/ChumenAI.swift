@@ -2,7 +2,7 @@ import Foundation
 
 public struct ChumenAISettings: Codable, Equatable, Sendable {
     public static let localOllamaBaseURL = "http://127.0.0.1:11434/v1"
-    public static let localOllamaDefaultModel = "qwen2.5:7b"
+    public static let localOllamaDefaultModel = ""
     public static let remoteOpenAIBaseURL = "https://api.openai.com/v1"
 
     public var isEnabled: Bool
@@ -36,10 +36,12 @@ public struct ChumenAISettings: Codable, Equatable, Sendable {
     }
 
     public mutating func useLocalOllamaDefaults() {
+        let wasLocalOllama = usesLocalOllama
         isEnabled = true
         baseURL = Self.localOllamaBaseURL
-        if model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            model == "gpt-4o-mini" {
+        // Local Ollama must be driven by the machine's actual /api/tags list. When switching from a
+        // custom endpoint, drop the remote model so the UI forces a local model choice.
+        if !wasLocalOllama {
             model = Self.localOllamaDefaultModel
         }
     }
@@ -206,6 +208,35 @@ public enum ChumenAIKnowledgeBase {
 public struct ChumenAIClient: Sendable {
     public init() {}
 
+    public func listOllamaModels(baseURL: String) async throws -> [String] {
+        guard var components = URLComponents(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw ChumenError.commandFailed("Invalid Ollama base URL.")
+        }
+        // Ollama's OpenAI-compatible chat endpoint lives under /v1, while the local model catalog
+        // is served by /api/tags. Build the catalog URL from the configured host/port instead of
+        // assuming the user kept the default URL string.
+        components.path = "/api/tags"
+        components.query = nil
+        guard let url = components.url else {
+            throw ChumenError.commandFailed("Invalid Ollama model URL.")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 3
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw ChumenError.httpStatus(http.statusCode, body)
+        }
+
+        let decoded = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
+        return decoded.models
+            .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
     public func complete(
         settings: ChumenAISettings,
         apiKey: String,
@@ -343,4 +374,12 @@ private struct OpenAIChatResponse: Decodable {
     }
 
     let choices: [Choice]
+}
+
+private struct OllamaTagsResponse: Decodable {
+    struct Model: Decodable {
+        let name: String
+    }
+
+    let models: [Model]
 }

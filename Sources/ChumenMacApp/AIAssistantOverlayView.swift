@@ -25,6 +25,9 @@ struct AIAssistantOverlayView: View {
                 if !model.aiReady {
                     onSearchImmediately()
                 }
+                if model.settings.ai.usesLocalOllama {
+                    model.refreshOllamaModelsIfNeeded()
+                }
             }
     }
 
@@ -105,7 +108,7 @@ struct AIAssistantOverlayView: View {
     // Settings are inline because the fastest local path is Ollama. The user can get value from the
     // assistant without first visiting a separate settings page or exposing an API key.
     private var aiConfigurationSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack {
                 Toggle(model.t(.aiAssistant), isOn: $model.settings.ai.isEnabled)
                     .toggleStyle(.switch)
@@ -119,35 +122,12 @@ struct AIAssistantOverlayView: View {
                     .lineLimit(1)
             }
 
-            HStack(spacing: 8) {
-                Button {
-                    model.useLocalOllamaAI()
-                } label: {
-                    Label(model.t(.aiUseLocalOllama), systemImage: "desktopcomputer")
-                        .lineLimit(1)
-                }
-                .buttonStyle(.bordered)
+            aiProviderPicker
 
-                Text(model.settings.ai.usesLocalOllama ? model.t(.aiOllamaNoKeyRequired) : model.t(.aiRemoteAPI))
-                    .font(.caption)
-                    .foregroundStyle(ChumenStyle.mutedText)
-                    .lineLimit(1)
-
-                Spacer(minLength: 0)
-            }
-
-            HStack(spacing: 8) {
-                TextField(model.t(.aiBaseURL), text: $model.settings.ai.baseURL)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: model.settings.ai.baseURL) {
-                        model.scheduleSettingsAutosave()
-                    }
-                TextField(model.t(.aiModel), text: $model.settings.ai.model)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 132)
-                    .onChange(of: model.settings.ai.model) {
-                        model.scheduleSettingsAutosave()
-                    }
+            if model.settings.ai.usesLocalOllama {
+                localOllamaConfiguration
+            } else {
+                customAIConfiguration
             }
 
             if model.settings.ai.requiresAPIKey {
@@ -172,9 +152,139 @@ struct AIAssistantOverlayView: View {
         }
     }
 
+    // The provider selector is stateful rather than two loose buttons so users can see which backend
+    // is active. Local Ollama is zero-key and discovers models; custom endpoints expose raw fields.
+    private var aiProviderPicker: some View {
+        Picker(model.t(.aiModelSettings), selection: Binding(
+            get: { model.settings.ai.usesLocalOllama ? "ollama" : "custom" },
+            set: { provider in
+                if provider == "ollama" {
+                    model.useLocalOllamaAI()
+                } else {
+                    model.useCustomAIEndpoint()
+                }
+            }
+        )) {
+            Label(model.t(.aiUseLocalOllama), systemImage: "desktopcomputer")
+                .tag("ollama")
+            Label(model.t(.aiCustomEndpoint), systemImage: "network")
+                .tag("custom")
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var localOllamaConfiguration: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            aiFieldRow(model.t(.aiBaseURL)) {
+                HStack(spacing: 8) {
+                    TextField(model.t(.aiBaseURL), text: $model.settings.ai.baseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: model.settings.ai.baseURL) {
+                            model.scheduleSettingsAutosave()
+                        }
+
+                    Button {
+                        model.refreshOllamaModels()
+                    } label: {
+                        Image(systemName: model.aiOllamaModelsLoading ? "hourglass" : "arrow.clockwise")
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(model.aiOllamaModelsLoading)
+                    .help(model.t(.aiRefreshModels))
+                }
+            }
+
+            aiFieldRow(model.t(.aiModel)) {
+                HStack(spacing: 8) {
+                    Menu {
+                        if model.aiOllamaModels.isEmpty {
+                            Button(model.t(.aiNoLocalModels)) {}
+                                .disabled(true)
+                        } else {
+                            ForEach(model.aiOllamaModels, id: \.self) { modelName in
+                                Button {
+                                    model.setAIModel(modelName)
+                                } label: {
+                                    Label(
+                                        modelName,
+                                        systemImage: model.settings.ai.model == modelName ? "checkmark" : "circle"
+                                    )
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        Button {
+                            model.refreshOllamaModels()
+                        } label: {
+                            Label(model.t(.aiRefreshModels), systemImage: "arrow.clockwise")
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(model.settings.ai.model.isEmpty ? model.t(.aiModelRequired) : model.settings.ai.model)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(ChumenStyle.mutedText)
+                        }
+                        .frame(minHeight: 30, alignment: .leading)
+                    }
+                    .buttonStyle(.bordered)
+                    .frame(width: 145)
+
+                    TextField(model.t(.aiManualModel), text: Binding(
+                        get: { model.settings.ai.model },
+                        set: { model.setAIModel($0) }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                }
+            }
+        }
+    }
+
+    private var customAIConfiguration: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            aiFieldRow(model.t(.aiBaseURL)) {
+                TextField(model.t(.aiBaseURL), text: $model.settings.ai.baseURL)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: model.settings.ai.baseURL) {
+                        model.scheduleSettingsAutosave()
+                    }
+            }
+            aiFieldRow(model.t(.aiModel)) {
+                TextField(model.t(.aiModel), text: Binding(
+                    get: { model.settings.ai.model },
+                    set: { model.setAIModel($0) }
+                ))
+                .textFieldStyle(.roundedBorder)
+            }
+        }
+    }
+
+    private func aiFieldRow<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(ChumenStyle.mutedText)
+                .frame(width: 58, alignment: .leading)
+            content()
+        }
+    }
+
     private var aiAssistantStatusText: String {
         if model.aiReady {
             return model.settings.ai.usesLocalOllama ? model.t(.aiOllamaReady) : model.t(.aiKeyStored)
+        }
+        if model.settings.ai.usesLocalOllama &&
+            model.settings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return model.t(.aiModelRequired)
         }
         return model.settings.ai.requiresAPIKey ? model.t(.aiSearchOnly) : model.t(.aiOllamaReady)
     }

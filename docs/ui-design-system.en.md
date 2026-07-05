@@ -220,8 +220,12 @@ List columns should align consistently.
 The AI assistant is a review-first tool.
 
 - It may search locally when no model endpoint/key is configured.
-- It is fixed as a right-side rail, not a bottom-right floating button. Users can collapse it into a
-  narrow right rail, and it must not cover page controls.
+- It is fixed as a right-side rail on the overview page, not a bottom-right floating button. Users
+  can collapse it into a narrow right rail. Profiles, proxies, providers, connections, rules, logs,
+  and settings must not lose width to the AI rail.
+- Model settings must use a stateful segmented control to distinguish Local Ollama from custom
+  endpoints. Local Ollama model selection must call `/api/tags`; selecting a model or typing another
+  model name writes it immediately. Do not hardcode a local model name in UI defaults.
 - Model-generated operations produce pending diffs.
 - The user must review and apply changes manually.
 - No AI response may directly mutate profiles, rules, settings, proxy/TUN state, or runtime config.

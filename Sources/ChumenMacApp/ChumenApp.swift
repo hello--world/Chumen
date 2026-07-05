@@ -4,8 +4,8 @@ import Darwin
 import SwiftUI
 
 private enum ChumenWindowMetrics {
-    // Keep the established app width stable and add vertical room for the command surface plus the
-    // fixed assistant rail. This follows the current layout direction: width unchanged, height +20%.
+    // Keep the established app width stable and add vertical room for the overview command surface
+    // plus its assistant rail. This follows the current layout direction: width unchanged, height +20%.
     static let contentSize = NSSize(width: 1080, height: 684)
 }
 

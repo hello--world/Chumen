@@ -38,7 +38,7 @@ English version: [DESIGN.en.md](DESIGN.en.md)
 - 顶部 header：保持一行外壳，左侧应用和运行状态，中间 modest-width 搜索入口；状态信息按语义上下分组，`API` 在 `配置更新` 上方，`系统代理` 在 `模式 + TUN` 上方，避免横向排成过长状态带。
 - 总览节奏：总览页保持原有横向宽度，只把命令区和指标的纵向节奏增加约 20%。不要为了“变高”再缩窄主内容。
 - 搜索：header 搜索只是入口；激活后打开 Spotlight 风格覆盖层，必须盖住原搜索入口和 header 状态，不能出现两个搜索框。结果优先展示设置和内核，再展示配置、代理、Provider、规则、连接、日志。
-- AI：右侧固定聊天栏默认显示，可关闭为右侧窄条后再打开；本地 Ollama 是优先路径，默认地址 `http://127.0.0.1:11434/v1`，不需要 Key。远程 OpenAI-compatible endpoint 需要保存 Key。没有可用模型时只作为本地搜索。
+- AI：总览页右侧固定聊天栏默认显示，可关闭为右侧窄条后再打开；其他工作页默认保留完整宽度，不全局扣除侧栏宽度。本地 Ollama 是优先路径，默认地址 `http://127.0.0.1:11434/v1`，不需要 Key；模型设置必须清楚区分“本地 Ollama”和“自定义接口”。本地模型必须从 Ollama `/api/tags` 获取并由用户选择，也允许用户直接输入其他模型名，但不能写死默认模型名。远程 OpenAI-compatible endpoint 需要保存 Key。没有可用模型时只作为本地搜索。
 - 设置边界：`内核` 管 mihomo/runtime 配置，`设置` 管 Chumen 自身偏好。普通设置自动保存；对运行中内核生效的保存项需要明确应用动作。
 
 ## 设计原则
@@ -79,6 +79,7 @@ English version: [DESIGN.en.md](DESIGN.en.md)
 - 仪表盘 section 和 item 用自适应网格换行；同一模块可以提供状态、指标、诊断或链接，但必须给出稳定标题、值、优先级和动作语义。
 - header 外壳保持一行；状态 pill 内部可以上下分组。窄窗口优先收紧搜索和状态组宽度，不隐藏 `API`、配置更新、系统代理、模式和 TUN。
 - 总览页不改变横向宽度；通过 `ChumenStyle.dashboardVerticalScale` 增加命令区和指标高度。
+- 右侧 AI 栏只在总览页占用宽度；配置、代理、Provider、连接、规则、日志和设置页必须拿到完整内容宽度。
 
 ## 交互状态
 
@@ -117,7 +118,7 @@ English version: [DESIGN.en.md](DESIGN.en.md)
 - Dashboard 快捷按钮同样必须由 provider/item 发布；启动、停止、刷新、系统代理、TUN、设置入口和模块跳转都属于同一套快捷入口协议。
 - Dashboard 快捷控制必须按优先级分层：启动、停止、重启、刷新、系统代理、TUN 和编辑快捷控制固定在第一行；用户扩展出来的启动/退出偏好、网络选项、模块跳转等只能排在下方扩展行，不能挤乱核心操作。
 - 性能：流量和连接流更新时，仪表盘必须保持轻量。
-- 安全：AI API Key 存 Keychain；本地 Ollama 不需要 Key；模型调用使用用户配置的 OpenAI-compatible endpoint。
+- 安全：AI API Key 存 Keychain；本地 Ollama 不需要 Key；本地模型从 Ollama API 读取，远程模型调用使用用户配置的 OpenAI-compatible endpoint。
 - 验证：样式改动后运行 Swift 构建/测试；可见 UI 变更尽量截图检查。
 
 ## 未决问题

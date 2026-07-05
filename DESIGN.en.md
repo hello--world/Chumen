@@ -50,10 +50,14 @@
 - Search: the header search is only a launcher. Activating it opens a Spotlight-style overlay that
   covers the header/search launcher so no duplicate search field or status leaks through. Results
   prioritize settings and core, then profiles, proxies, providers, rules, connections, and logs.
-- AI: a fixed right-side chat rail is visible by default and can collapse into a narrow right rail.
-  Local Ollama is the preferred path at
-  `http://127.0.0.1:11434/v1` and does not need a key. Remote OpenAI-compatible endpoints require a
-  saved key. Without a usable model, the panel behaves as local search.
+- AI: the overview page shows a fixed right-side chat rail by default and can collapse it into a
+  narrow right rail. Dense work pages keep their full width and do not globally reserve sidebar
+  space. Local Ollama is the preferred path at
+  `http://127.0.0.1:11434/v1` and does not need a key. Model settings must clearly distinguish
+  Local Ollama from custom endpoints. Local models must be discovered from Ollama `/api/tags` and
+  selected by the user; users may also type another model name directly, but the app must not
+  hardcode a default local model. Remote OpenAI-compatible endpoints require a saved key. Without a
+  usable model, the panel behaves as local search.
 - Settings boundary: `内核` owns mihomo/runtime config; `设置` owns Chumen preferences. Ordinary
   settings persist automatically; saved core changes that affect a running core need an explicit
   apply action.
@@ -110,6 +114,8 @@
   mode, or TUN.
 - Dashboard pages keep their existing horizontal width. Use `ChumenStyle.dashboardVerticalScale` only
   to increase command and metric height.
+- The right AI rail only reserves width on the overview page. Profiles, proxies, providers,
+  connections, rules, logs, and settings must retain full content width.
 
 ## Interaction States
 
@@ -167,8 +173,8 @@
   network options, and module jumps may only appear in lower extension rows so they cannot disrupt
   the core controls.
 - Performance: dashboard updates must remain cheap during traffic/connection streams.
-- Security: AI API keys are stored in Keychain; local Ollama does not require a key; model calls use
-  user-configured OpenAI-compatible endpoints.
+- Security: AI API keys are stored in Keychain; local Ollama does not require a key; local models
+  come from the Ollama API, and remote model calls use user-configured OpenAI-compatible endpoints.
 - Verification: run Swift build/tests after style changes; inspect visible UI state when possible.
 
 ## Open Questions

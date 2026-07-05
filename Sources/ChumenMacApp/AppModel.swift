@@ -161,6 +161,8 @@ final class AppModel: ObservableObject {
     @Published var aiIsSending = false
     @Published var aiPendingChanges: [ChumenAIProposedChange] = []
     @Published var aiStatusText = ""
+    @Published var aiOllamaModels: [String] = []
+    @Published var aiOllamaModelsLoading = false
     @Published var pinInput = ""
     @Published var pinSetupPIN = ""
     @Published var pinSetupConfirm = ""
@@ -203,6 +205,7 @@ final class AppModel: ObservableObject {
     private var coreTransitionTask: Task<Void, Never>?
     private var settingsAutosaveTask: Task<Void, Never>?
     private var aiTask: Task<Void, Never>?
+    private var aiOllamaModelsTask: Task<Void, Never>?
     private var pendingTunToggleTarget: Bool?
     private var lastSavedSettings: ChumenRuntimeSettings
     private var isPreparingForQuit = false
@@ -325,6 +328,9 @@ final class AppModel: ObservableObject {
         let loadedLanguage = loadedSettings.language ?? .system
         if loadedSettings.ai.usesLocalOllama {
             self.aiStatusText = L10n.text(.aiOllamaReady, language: loadedLanguage)
+            if loadedSettings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                self.aiStatusText = L10n.text(.aiModelRequired, language: loadedLanguage)
+            }
         } else if self.aiAPIKeyStored {
             self.aiStatusText = L10n.text(.aiKeyStored, language: loadedLanguage)
         } else {
@@ -1487,7 +1493,85 @@ final class AppModel: ObservableObject {
     func useLocalOllamaAI() {
         settings.ai.useLocalOllamaDefaults()
         saveSettings()
-        aiStatusText = t(.aiOllamaReady)
+        aiStatusText = settings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? t(.aiModelRequired)
+            : t(.aiOllamaReady)
+        refreshOllamaModels()
+    }
+
+    func useCustomAIEndpoint() {
+        settings.ai.isEnabled = true
+        if settings.ai.usesLocalOllama {
+            settings.ai.baseURL = ChumenAISettings.remoteOpenAIBaseURL
+            settings.ai.model = ""
+        }
+        aiOllamaModelsTask?.cancel()
+        aiOllamaModelsTask = nil
+        aiOllamaModelsLoading = false
+        aiOllamaModels = []
+        aiStatusText = aiAPIKeyStored ? t(.aiKeyStored) : t(.aiSearchOnly)
+        saveSettings()
+    }
+
+    func setAIModel(_ modelName: String) {
+        settings.ai.model = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        saveSettings()
+        aiStatusText = settings.ai.model.isEmpty
+            ? t(.aiModelRequired)
+            : (settings.ai.usesLocalOllama ? t(.aiOllamaReady) : aiStatusText)
+    }
+
+    func refreshOllamaModelsIfNeeded() {
+        guard settings.ai.usesLocalOllama, aiOllamaModels.isEmpty, !aiOllamaModelsLoading else { return }
+        refreshOllamaModels()
+    }
+
+    func refreshOllamaModels() {
+        guard settings.ai.usesLocalOllama else {
+            aiOllamaModelsTask?.cancel()
+            aiOllamaModelsTask = nil
+            aiOllamaModelsLoading = false
+            aiOllamaModels = []
+            return
+        }
+
+        aiOllamaModelsTask?.cancel()
+        aiOllamaModelsLoading = true
+        let baseURL = settings.ai.baseURL
+        let client = aiClient
+        aiOllamaModelsTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let models = try await client.listOllamaModels(baseURL: baseURL)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.aiOllamaModels = models
+                    self.aiOllamaModelsLoading = false
+                    self.aiOllamaModelsTask = nil
+                    let selectedModel = self.settings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Only fill an empty model from the discovered list. If the user types another
+                    // model name manually, preserve it instead of treating /api/tags as the only valid set.
+                    if selectedModel.isEmpty, let first = models.first {
+                        self.settings.ai.model = first
+                        self.saveSettings()
+                    }
+                    if models.isEmpty {
+                        self.aiStatusText = self.t(.aiNoLocalModels)
+                    } else {
+                        self.aiStatusText = self.settings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? self.t(.aiModelRequired)
+                            : self.t(.aiOllamaReady)
+                    }
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.aiOllamaModelsLoading = false
+                    self.aiOllamaModelsTask = nil
+                    self.aiStatusText = self.displayError(error)
+                }
+            }
+        }
     }
 
     func saveAIAPIKey() {

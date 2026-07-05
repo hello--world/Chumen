@@ -5,8 +5,8 @@ import SwiftUI
 enum ChumenStyle {
     static let radius: CGFloat = 8
     // Dashboard height is intentionally scaled without changing the horizontal measure.
-    // The app now reserves a fixed assistant rail on the right; shrinking the main content again
-    // would make the command surface feel cramped and contradict the window's fixed-size model.
+    // The assistant rail is scoped to the dashboard because dense work pages need the full 1080-pt
+    // window width for lists, editors, and table-like rows.
     static let dashboardVerticalScale: CGFloat = 1.20
     static let aiSidebarWidth: CGFloat = 320
     static let aiCollapsedSidebarWidth: CGFloat = 46

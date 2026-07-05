@@ -13,6 +13,26 @@ final class ChumenAITests: XCTestCase {
         XCTAssertFalse(settings.ai.requiresAPIKey)
     }
 
+    func testLocalOllamaDefaultsDoNotHardcodeModel() {
+        var settings = ChumenAISettings(
+            baseURL: ChumenAISettings.remoteOpenAIBaseURL,
+            model: "remote-model"
+        )
+
+        settings.useLocalOllamaDefaults()
+
+        XCTAssertEqual(settings.baseURL, ChumenAISettings.localOllamaBaseURL)
+        XCTAssertEqual(settings.model, "")
+    }
+
+    func testLocalOllamaDefaultsKeepExistingLocalChoice() {
+        var settings = ChumenAISettings(model: "llama3.2:latest")
+
+        settings.useLocalOllamaDefaults()
+
+        XCTAssertEqual(settings.model, "llama3.2:latest")
+    }
+
     func testAIResponseDecodesLegacyActionsAsPendingChanges() throws {
         let data = Data("""
         {

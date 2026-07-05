@@ -37,6 +37,11 @@ enum L10n {
         case aiModelSettings
         case aiBaseURL
         case aiModel
+        case aiManualModel
+        case aiModelRequired
+        case aiRefreshModels
+        case aiNoLocalModels
+        case aiCustomEndpoint
         case aiAPIKey
         case aiSaveKey
         case aiClearKey
@@ -511,6 +516,11 @@ enum L10n {
         .aiModelSettings: "模型配置",
         .aiBaseURL: "Base URL",
         .aiModel: "模型",
+        .aiManualModel: "输入其他模型名",
+        .aiModelRequired: "请选择模型",
+        .aiRefreshModels: "刷新模型",
+        .aiNoLocalModels: "没有本地模型",
+        .aiCustomEndpoint: "自定义接口",
         .aiAPIKey: "API Key",
         .aiSaveKey: "保存 Key",
         .aiClearKey: "清除 Key",
@@ -976,6 +986,11 @@ enum L10n {
         .aiModelSettings: "Model Settings",
         .aiBaseURL: "Base URL",
         .aiModel: "Model",
+        .aiManualModel: "Type another model",
+        .aiModelRequired: "Choose a model",
+        .aiRefreshModels: "Refresh Models",
+        .aiNoLocalModels: "No local models",
+        .aiCustomEndpoint: "Custom Endpoint",
         .aiAPIKey: "API Key",
         .aiSaveKey: "Save Key",
         .aiClearKey: "Clear Key",
