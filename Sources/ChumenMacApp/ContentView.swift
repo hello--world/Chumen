@@ -129,7 +129,7 @@ struct ContentView: View {
             let width = max(proxy.size.width, 0)
             let horizontalPadding: CGFloat = width < 1000 ? 16 : 20
             let availableWidth = max(0, width - horizontalPadding * 2)
-            let identityWidth = min(CGFloat(162), max(CGFloat(154), availableWidth * 0.17))
+            let identityWidth = min(CGFloat(208), max(CGFloat(190), availableWidth * 0.19))
             let searchWidth = min(CGFloat(232), max(CGFloat(220), availableWidth * 0.22))
 
             ZStack(alignment: .topLeading) {
@@ -176,11 +176,7 @@ struct ContentView: View {
                     .lineLimit(1)
                 HStack(spacing: 8) {
                     runtimeBadge
-                    Text(model.activeProfile?.name ?? "-")
-                        .font(.subheadline)
-                        .foregroundStyle(ChumenStyle.mutedText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    activeProfileBadge
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -334,6 +330,34 @@ struct ContentView: View {
             )
     }
 
+    private var activeProfileBadge: some View {
+        Label {
+            Text(headerActiveProfileName)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .minimumScaleFactor(0.82)
+                .allowsTightening(true)
+        } icon: {
+            Image(systemName: "doc.text")
+                .font(.system(size: 10, weight: .semibold))
+        }
+        .labelStyle(.titleAndIcon)
+        .foregroundStyle(ChumenStyle.mutedText)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .frame(maxWidth: 86, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(ChumenStyle.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .strokeBorder(ChumenStyle.border.opacity(0.72))
+        )
+        .help("\(model.t(.activeProfile)): \(headerActiveProfileName)")
+    }
+
     private func headerStatusPill(title: String, value: String, icon: String, accent: Color, width: CGFloat, help: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon)
@@ -417,6 +441,11 @@ struct ContentView: View {
             return String(primary.dropFirst("mihomo ".count))
         }
         return primary
+    }
+
+    private var headerActiveProfileName: String {
+        let name = model.activeProfile?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? "-" : name
     }
 
     private var headerProxyStateValueText: String {
