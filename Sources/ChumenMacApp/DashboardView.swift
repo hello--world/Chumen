@@ -152,11 +152,11 @@ struct DashboardView: View {
     private var commandPanelWide: some View {
         HStack(alignment: .top, spacing: 16) {
             commandStateColumn
-                .frame(width: 330, alignment: .leading)
+                .frame(width: 310, alignment: .leading)
 
             if !commandActionItems.isEmpty {
-                commandActionGrid(columnCount: 5)
-                    .frame(minWidth: 600, maxWidth: .infinity, alignment: .leading)
+                commandActionGrid(minimumColumnWidth: 104, maximumColumnWidth: 132)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -166,7 +166,7 @@ struct DashboardView: View {
             commandStateColumn
                 .frame(maxWidth: .infinity, alignment: .leading)
             if !commandActionItems.isEmpty {
-                commandActionGrid(columnCount: 4)
+                commandActionGrid(minimumColumnWidth: 104, maximumColumnWidth: 132)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -331,13 +331,15 @@ struct DashboardView: View {
         .help(model.t(.quickControlsConfiguration))
     }
 
-    private func commandActionGrid(columnCount: Int) -> some View {
-        let columns = Array(
-            repeating: GridItem(.flexible(minimum: 118, maximum: 158), spacing: 8),
-            count: columnCount
-        )
+    private func commandActionGrid(
+        minimumColumnWidth: CGFloat,
+        maximumColumnWidth: CGFloat
+    ) -> some View {
+        let columns = [
+            GridItem(.adaptive(minimum: minimumColumnWidth, maximum: maximumColumnWidth), spacing: 6)
+        ]
 
-        return LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 6) {
             ForEach(commandActionItems) { item in
                 quickActionButton(item)
             }
