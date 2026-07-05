@@ -1,4 +1,5 @@
 import ChumenCore
+import Foundation
 import SwiftUI
 
 // AI assistant presentation is isolated from ContentView so the app shell only coordinates
@@ -108,21 +109,45 @@ struct AIAssistantOverlayView: View {
     // Settings are inline because the fastest local path is Ollama. The user can get value from the
     // assistant without first visiting a separate settings page or exposing an API key.
     private var aiConfigurationSection: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Toggle(model.t(.aiAssistant), isOn: $model.settings.ai.isEnabled)
-                    .toggleStyle(.switch)
-                    .onChange(of: model.settings.ai.isEnabled) {
-                        model.scheduleSettingsAutosave()
-                    }
-                Spacer()
+        VStack(alignment: .leading, spacing: 10) {
+            aiAssistantEnableRow
+            aiConfigurationCard
+            Text(model.t(.aiReviewBeforeApply))
+                .font(.caption2)
+                .foregroundStyle(ChumenStyle.mutedText)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var aiAssistantEnableRow: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.t(.enabled))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(ChumenStyle.mutedText)
                 Text(aiAssistantStatusText)
-                    .font(.caption.weight(.medium))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(model.aiReady ? Color.green : ChumenStyle.mutedText)
                     .lineLimit(1)
             }
+            Spacer(minLength: 8)
+            Toggle("", isOn: $model.settings.ai.isEnabled)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .onChange(of: model.settings.ai.isEnabled) {
+                    model.scheduleSettingsAutosave()
+                }
+        }
+    }
 
-            aiProviderPicker
+    // The setup controls are grouped as one compact inspector card. This keeps the fixed rail from
+    // looking like a settings page while still making the active backend and model editable in place.
+    private var aiConfigurationCard: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            aiFieldRow(model.t(.aiModelSettings)) {
+                aiProviderPicker
+            }
 
             if model.settings.ai.usesLocalOllama {
                 localOllamaConfiguration
@@ -131,25 +156,19 @@ struct AIAssistantOverlayView: View {
             }
 
             if model.settings.ai.requiresAPIKey {
-                HStack(spacing: 8) {
-                    SecureField(model.t(.aiAPIKey), text: $model.aiAPIKeyInput)
-                        .textFieldStyle(.roundedBorder)
-                    Button(model.t(.aiSaveKey)) {
-                        model.saveAIAPIKey()
-                    }
-                    .buttonStyle(.bordered)
-                    Button(model.t(.aiClearKey)) {
-                        model.clearAIAPIKey()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!model.aiAPIKeyStored)
-                }
+                aiAPIKeyConfiguration
             }
-
-            Text(model.t(.aiReviewBeforeApply))
-                .font(.caption)
-                .foregroundStyle(ChumenStyle.mutedText)
         }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(ChumenStyle.groupedSurface.opacity(0.58))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .strokeBorder(ChumenStyle.border)
+        )
+        .controlSize(.small)
     }
 
     // The provider selector is stateful rather than two loose buttons so users can see which backend
@@ -197,6 +216,12 @@ struct AIAssistantOverlayView: View {
 
             aiFieldRow(model.t(.aiModel)) {
                 HStack(spacing: 8) {
+                    TextField(model.t(.aiManualModel), text: Binding(
+                        get: { model.settings.ai.model },
+                        set: { model.setAIModel($0) }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+
                     Menu {
                         if model.aiOllamaModels.isEmpty {
                             Button(model.t(.aiNoLocalModels)) {}
@@ -222,25 +247,12 @@ struct AIAssistantOverlayView: View {
                             Label(model.t(.aiRefreshModels), systemImage: "arrow.clockwise")
                         }
                     } label: {
-                        HStack(spacing: 6) {
-                            Text(model.settings.ai.model.isEmpty ? model.t(.aiModelRequired) : model.settings.ai.model)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(ChumenStyle.mutedText)
-                        }
-                        .frame(minHeight: 30, alignment: .leading)
+                        Label(model.t(.aiSelectModel), systemImage: "list.bullet")
+                            .lineLimit(1)
+                            .frame(minWidth: 54)
                     }
                     .buttonStyle(.bordered)
-                    .frame(width: 145)
-
-                    TextField(model.t(.aiManualModel), text: Binding(
-                        get: { model.settings.ai.model },
-                        set: { model.setAIModel($0) }
-                    ))
-                    .textFieldStyle(.roundedBorder)
+                    .disabled(model.aiOllamaModelsLoading && model.aiOllamaModels.isEmpty)
                 }
             }
         }
@@ -265,6 +277,24 @@ struct AIAssistantOverlayView: View {
         }
     }
 
+    private var aiAPIKeyConfiguration: some View {
+        aiFieldRow(model.t(.aiAPIKey)) {
+            HStack(spacing: 8) {
+                SecureField(model.t(.aiAPIKey), text: $model.aiAPIKeyInput)
+                    .textFieldStyle(.roundedBorder)
+                Button(model.t(.aiSaveKey)) {
+                    model.saveAIAPIKey()
+                }
+                .buttonStyle(.bordered)
+                Button(model.t(.aiClearKey)) {
+                    model.clearAIAPIKey()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!model.aiAPIKeyStored)
+            }
+        }
+    }
+
     private func aiFieldRow<Content: View>(
         _ title: String,
         @ViewBuilder content: () -> Content
@@ -273,7 +303,9 @@ struct AIAssistantOverlayView: View {
             Text(title)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(ChumenStyle.mutedText)
-                .frame(width: 58, alignment: .leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .frame(width: 66, alignment: .leading)
             content()
         }
     }
@@ -320,7 +352,7 @@ struct AIAssistantOverlayView: View {
             if isUser {
                 Spacer(minLength: 36)
             }
-            Text(message.content)
+            aiMessageContent(message.content)
                 .font(.callout)
                 .textSelection(.enabled)
                 .padding(.horizontal, 10)
@@ -335,6 +367,35 @@ struct AIAssistantOverlayView: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    // Chat output may include Markdown from local or remote models. macOS 14 ships a native
+    // AttributedString Markdown parser, so we use it first and keep a plain-text fallback instead of
+    // adding a package for basic chat rendering. A third-party renderer is only justified if we later
+    // need richer block layout such as tables or syntax-highlighted fenced code.
+    @ViewBuilder
+    private func aiMessageContent(_ content: String) -> some View {
+        if let markdown = aiMarkdownAttributedString(content) {
+            Text(markdown)
+        } else {
+            Text(content)
+        }
+    }
+
+    private func aiMarkdownAttributedString(_ content: String) -> AttributedString? {
+        guard content.contains("*") ||
+            content.contains("#") ||
+            content.contains("`") ||
+            content.contains("[") ||
+            content.contains("- ") ||
+            content.contains("1. ") else {
+            return nil
+        }
+
+        return try? AttributedString(
+            markdown: content,
+            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .full)
+        )
     }
 
     // When AI is disabled or incomplete, the assistant intentionally remains useful as search.

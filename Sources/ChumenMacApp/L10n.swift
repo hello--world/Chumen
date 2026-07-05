@@ -38,6 +38,7 @@ enum L10n {
         case aiBaseURL
         case aiModel
         case aiManualModel
+        case aiSelectModel
         case aiModelRequired
         case aiRefreshModels
         case aiNoLocalModels
@@ -517,6 +518,7 @@ enum L10n {
         .aiBaseURL: "Base URL",
         .aiModel: "模型",
         .aiManualModel: "输入其他模型名",
+        .aiSelectModel: "选择",
         .aiModelRequired: "请选择模型",
         .aiRefreshModels: "刷新模型",
         .aiNoLocalModels: "没有本地模型",
@@ -987,6 +989,7 @@ enum L10n {
         .aiBaseURL: "Base URL",
         .aiModel: "Model",
         .aiManualModel: "Type another model",
+        .aiSelectModel: "Select",
         .aiModelRequired: "Choose a model",
         .aiRefreshModels: "Refresh Models",
         .aiNoLocalModels: "No local models",

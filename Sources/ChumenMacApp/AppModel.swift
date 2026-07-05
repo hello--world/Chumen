@@ -1886,10 +1886,12 @@ final class AppModel: ObservableObject {
         }.joined(separator: "\n")
         let connectionAnalysis = connectionAnalysisSnapshot.aiContext
         let logAnalysis = logAnalysisSnapshot.aiContext
+        let responseLanguage = languageTitle(language)
         return """
         \(ChumenAIKnowledgeBase.text)
 
         Current Chumen state:
+        - response language: \(responseLanguage)
         - running: \(isRunning)
         - mode: \(settings.mode.rawValue)
         - active profile: \(activeProfile?.name ?? "-")
@@ -1909,6 +1911,7 @@ final class AppModel: ObservableObject {
 
         Never claim a proposed change has been applied. Say it is waiting for review.
         Do not propose destructive delete operations.
+        Reply in the configured Chumen UI language unless the user explicitly asks otherwise.
         """
     }
 
