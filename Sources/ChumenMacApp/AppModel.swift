@@ -203,6 +203,7 @@ final class AppModel: ObservableObject {
     private var profileEditorLoadTask: Task<Void, Never>?
     private var profileSectionEditorLoadTask: Task<Void, Never>?
     private var profileVisualPreloadTask: Task<Void, Never>?
+    private var externalProfileScanTask: Task<Void, Never>?
     private var profileContentCache: [String: ProfileContentCacheEntry] = [:]
     private var profileEditorOriginalText = ""
     private var coreTransitionTask: Task<Void, Never>?
@@ -2012,12 +2013,35 @@ final class AppModel: ObservableObject {
     }
 
     func scanExternalProfiles() {
-        externalProfileCandidates = profileRepository.discoverExternalProfiles()
-        externalProfileScanCompleted = true
-        if externalProfileCandidates.isEmpty {
-            statusText = t(.noExternalProfilesFound)
-        } else {
-            statusText = "\(t(.externalProfilesFound)) \(externalProfileCandidates.count)"
+        startExternalProfileScan(updateStatusText: true)
+    }
+
+    private func startExternalProfileScan(updateStatusText: Bool) {
+        guard externalProfileScanTask == nil else { return }
+        if updateStatusText {
+            externalProfileScanCompleted = false
+            statusText = t(.scanClients)
+        }
+
+        // Client profile discovery can recurse through large third-party config directories on a
+        // user's machine. Keep that filesystem walk off the main actor so first-run onboarding and
+        // dashboard navigation remain responsive on machines with many historical config files.
+        externalProfileScanTask = Task { [weak self] in
+            let candidates = await Task.detached(priority: .utility) {
+                ExternalProfileImporter.discover()
+            }.value
+
+            guard !Task.isCancelled, let self else { return }
+            externalProfileCandidates = candidates
+            externalProfileScanCompleted = true
+            externalProfileScanTask = nil
+
+            guard updateStatusText else { return }
+            if candidates.isEmpty {
+                statusText = t(.noExternalProfilesFound)
+            } else {
+                statusText = "\(t(.externalProfilesFound)) \(candidates.count)"
+            }
         }
     }
 
@@ -2430,8 +2454,9 @@ final class AppModel: ObservableObject {
                 settings.profilePath = library.activeProfile?.filePath
                 saveSettings()
             }
-            externalProfileCandidates = profileRepository.discoverExternalProfiles()
-            externalProfileScanCompleted = true
+            externalProfileScanTask?.cancel()
+            externalProfileScanTask = nil
+            startExternalProfileScan(updateStatusText: false)
             statusText = externalImportStatus(summary)
         } catch {
             statusText = displayError(error)
