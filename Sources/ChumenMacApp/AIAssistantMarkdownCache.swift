@@ -1,6 +1,6 @@
 import ChumenCore
 import Foundation
-import MarkdownUI
+import Textual
 
 enum AIAssistantRendering {
     // The assistant lives on the overview page, so transcript rendering cost directly affects tab
@@ -8,8 +8,9 @@ enum AIAssistantRendering {
     // prompt context and persistence.
     static let visibleMessageLimit = 18
 
-    // MarkdownUI is cached per message, but pathological model output can still produce very large
-    // layout trees. Keep oversized replies selectable as plain text instead of blocking navigation.
+    // Textual renders cached AttributedString documents, but pathological model output can still
+    // produce very large layout trees. Keep oversized replies selectable as plain text instead of
+    // blocking navigation.
     static let markdownCharacterLimit = 24_000
 
     static func visibleMessages(from messages: [ChumenAIChatMessage]) -> [ChumenAIChatMessage] {
@@ -30,20 +31,34 @@ enum AIAssistantRendering {
     }
 
     static func markdownSource(for content: String) -> String {
-        // MarkdownUI supports images through NetworkImage. AI replies should not trigger implicit
-        // remote image loads, so image syntax is rendered as a normal link instead.
+        // AI replies should not trigger implicit remote image or attachment work, so image syntax is
+        // rendered as a normal link instead.
         content.replacingOccurrences(of: "![", with: "[")
+    }
+}
+
+struct AIAssistantMarkdownDocument {
+    let source: String
+    let attributedString: AttributedString
+}
+
+struct CachedAIMarkdownParser: MarkupParser {
+    let attributedString: AttributedString
+
+    func attributedString(for input: String) throws -> AttributedString {
+        attributedString
     }
 }
 
 @MainActor
 final class AIAssistantMarkdownCache: ObservableObject {
-    private var entries: [String: MarkdownContent] = [:]
+    private var entries: [String: AIAssistantMarkdownDocument] = [:]
     private var fingerprints: [String: String] = [:]
+    private let parser = AttributedStringMarkdownParser(baseURL: nil)
 
     func prepare(messages: [ChumenAIChatMessage]) {
         let visibleMessages = AIAssistantRendering.visibleMessages(from: messages)
-        var nextEntries: [String: MarkdownContent] = [:]
+        var nextEntries: [String: AIAssistantMarkdownDocument] = [:]
         var nextFingerprints: [String: String] = [:]
 
         for message in visibleMessages {
@@ -59,18 +74,21 @@ final class AIAssistantMarkdownCache: ObservableObject {
                 continue
             }
 
-            nextEntries[message.id] = MarkdownContent(
-                AIAssistantRendering.markdownSource(for: message.content)
+            let source = AIAssistantRendering.markdownSource(for: message.content)
+            guard let attributedString = try? parser.attributedString(for: source) else { continue }
+            nextEntries[message.id] = AIAssistantMarkdownDocument(
+                source: source,
+                attributedString: attributedString
             )
         }
 
         guard nextFingerprints != fingerprints else { return }
+        objectWillChange.send()
         entries = nextEntries
         fingerprints = nextFingerprints
-        objectWillChange.send()
     }
 
-    func content(for message: ChumenAIChatMessage) -> MarkdownContent? {
+    func document(for message: ChumenAIChatMessage) -> AIAssistantMarkdownDocument? {
         guard fingerprints[message.id] == Self.fingerprint(for: message) else { return nil }
         return entries[message.id]
     }

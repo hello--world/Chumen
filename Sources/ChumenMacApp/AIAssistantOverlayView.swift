@@ -1,7 +1,7 @@
 import ChumenCore
 import Foundation
-import MarkdownUI
 import SwiftUI
+import Textual
 
 // AI assistant presentation is isolated from ContentView so the app shell only coordinates
 // search scheduling and navigation. The assistant can be embedded in the dashboard workspace
@@ -565,9 +565,13 @@ struct AIAssistantOverlayView: View {
 
     @ViewBuilder
     private func aiMessageContent(_ message: ChumenAIChatMessage) -> some View {
-        if let markdownContent = markdownCache.content(for: message) {
-            Markdown(markdownContent)
-                .markdownTheme(.gitHub)
+        if let document = markdownCache.document(for: message) {
+            StructuredText(
+                document.source,
+                parser: CachedAIMarkdownParser(attributedString: document.attributedString)
+            )
+            .textual.structuredTextStyle(.gitHub)
+            .textual.textSelection(.enabled)
         } else {
             Text(message.content)
         }
