@@ -3,10 +3,11 @@ import SwiftUI
 
 struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
-    @Binding var selectedTab: AppTab
+    let isVisible: Bool
     @Binding var aiAssistantPresented: Bool
     let aiSearchResults: [GlobalSearchResult]
     let aiMarkdownCache: AIAssistantMarkdownCache
+    let onOpenTab: (AppTab) -> Void
     let onAISearchChanged: () -> Void
     let onAISearchImmediately: () -> Void
     let onAIClearSearchResults: () -> Void
@@ -16,6 +17,30 @@ struct DashboardView: View {
     @State private var quickActionConfigurationPresented = false
 
     var body: some View {
+        Group {
+            if isVisible {
+                dashboardContent
+            } else {
+                ChumenStyle.pageBackground
+            }
+        }
+        .background(ChumenStyle.pageBackground)
+        .onAppear {
+            guard isVisible else { return }
+            model.appendAppLog(
+                "ui dashboard appear; assistantPresented=\(aiAssistantPresented); " +
+                    "aiReady=\(model.aiReady); aiMessages=\(model.aiMessages.count)"
+            )
+        }
+        .onDisappear {
+            model.appendAppLog("ui dashboard disappear")
+        }
+    }
+
+    // Dashboard remains a stable TabView child, but the expensive command/assistant tree is only
+    // present while selected. This keeps the tab graph cycle-free while preventing hidden overview
+    // layout from involving the embedded assistant workspace.
+    private var dashboardContent: some View {
         GeometryReader { proxy in
             VStack(alignment: .leading, spacing: 12) {
                 commandPanel
@@ -26,16 +51,6 @@ struct DashboardView: View {
             .padding(.top, 14)
             .padding(.bottom, 14)
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-        }
-        .background(ChumenStyle.pageBackground)
-        .onAppear {
-            model.appendAppLog(
-                "ui dashboard appear; assistantPresented=\(aiAssistantPresented); " +
-                    "aiReady=\(model.aiReady); aiMessages=\(model.aiMessages.count)"
-            )
-        }
-        .onDisappear {
-            model.appendAppLog("ui dashboard disappear")
         }
     }
 
@@ -478,7 +493,7 @@ struct DashboardView: View {
         case .none:
             break
         case .openTab(let tab):
-            selectedTab = tab
+            onOpenTab(tab)
         case .refreshAll:
             Task { await model.refreshAll() }
         case .startCore:
