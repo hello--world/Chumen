@@ -95,8 +95,7 @@ public enum ChumenAIKnowledgeStore {
 
     private static func knowledgeRoots() -> [URL] {
         var roots: [URL] = []
-        if let bundled = Bundle.module.resourceURL?.appendingPathComponent("Knowledge", isDirectory: true),
-           FileManager.default.fileExists(atPath: bundled.path) {
+        for bundled in bundledKnowledgeRoots() where FileManager.default.fileExists(atPath: bundled.path) {
             roots.append(bundled)
         }
 
@@ -109,6 +108,25 @@ public enum ChumenAIKnowledgeStore {
             roots.append(developmentRoot)
         }
         return roots
+    }
+
+    private static func bundledKnowledgeRoots() -> [URL] {
+        let bundleName = "Chumen_ChumenCore.bundle"
+        let candidates = [
+            // SwiftPM's generated Bundle.module accessor expects package resource bundles beside
+            // the app bundle root when an executable is hand-wrapped as a macOS .app.
+            Bundle.main.bundleURL.appendingPathComponent(bundleName, isDirectory: true),
+            // Older Chumen packages placed the resource bundle in the conventional macOS Resources
+            // directory. Keep this fallback so missing package resources reduce AI context instead
+            // of crashing the whole app.
+            Bundle.main.resourceURL?.appendingPathComponent(bundleName, isDirectory: true)
+        ].compactMap { $0 }
+
+        return candidates.map { bundleURL in
+            bundleURL
+                .appendingPathComponent("Resources", isDirectory: true)
+                .appendingPathComponent("Knowledge", isDirectory: true)
+        }
     }
 
     private static func markdownFiles(in root: URL) -> [URL] {

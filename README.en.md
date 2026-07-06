@@ -149,8 +149,10 @@ bash ./scripts/build_app.sh release
 Release output:
 
 ```text
-dist/Chumen.app
+dist/Chumen.dmg
 ```
+
+The DMG includes `README.zh.txt` and `README.en.txt` with unsigned-build installation notes for removing the quarantine attribute on another Mac when needed.
 
 Bundle a specific core binary:
 
@@ -239,6 +241,7 @@ After packaging, also verify:
 
 ```bash
 codesign --verify --deep --strict --verbose=2 dist/Chumen.app
+hdiutil verify dist/Chumen.dmg
 /usr/libexec/PlistBuddy -c 'Print :CFBundleName' \
   -c 'Print :CFBundleDisplayName' \
   -c 'Print :CFBundleExecutable' \

@@ -4,6 +4,8 @@ import ChumenCore
 
 private final class StackedSpeedStatusView: NSView {
     private let iconView = NSImageView()
+    private let upArrowLabel = NSTextField(labelWithString: "↑")
+    private let downArrowLabel = NSTextField(labelWithString: "↓")
     private let upValueLabel = NSTextField(labelWithString: "0 KB/s")
     private let downValueLabel = NSTextField(labelWithString: "0 KB/s")
     private static let rateFormatter: ByteCountFormatter = {
@@ -16,6 +18,8 @@ private final class StackedSpeedStatusView: NSView {
     private static let iconSize: CGFloat = 16
     private static let leadingPadding: CGFloat = 3
     private static let iconTextGap: CGFloat = 5
+    private static let arrowWidth: CGFloat = 8
+    private static let arrowValueGap: CGFloat = 2
     private static let trailingPadding: CGFloat = 4
     private static let referenceRateTexts = ["0 KB/s", "999 KB/s", "99.9 MB/s", "9.99 GB/s"]
 
@@ -41,7 +45,8 @@ private final class StackedSpeedStatusView: NSView {
     }
 
     static func statusItemWidth() -> CGFloat {
-        let contentWidth = leadingPadding + iconSize + iconTextGap + rateColumnWidth() + trailingPadding
+        let contentWidth = leadingPadding + iconSize + iconTextGap + arrowWidth + arrowValueGap +
+            rateColumnWidth() + trailingPadding
         return ceil(contentWidth)
     }
 
@@ -53,17 +58,22 @@ private final class StackedSpeedStatusView: NSView {
         let blockHeight = rowHeight * 2 + rowGap
         let blockY = floor((height - blockHeight) / 2)
         let iconY = floor((height - Self.iconSize) / 2)
-        let valueX = Self.leadingPadding + Self.iconSize + Self.iconTextGap
+        let arrowX = Self.leadingPadding + Self.iconSize + Self.iconTextGap
+        let valueX = arrowX + Self.arrowWidth + Self.arrowValueGap
         let valueWidth = max(0, bounds.width - valueX - Self.trailingPadding)
 
         iconView.frame = NSRect(x: Self.leadingPadding, y: iconY, width: Self.iconSize, height: Self.iconSize)
+        upArrowLabel.frame = NSRect(x: arrowX, y: blockY + rowHeight + rowGap, width: Self.arrowWidth, height: rowHeight)
+        downArrowLabel.frame = NSRect(x: arrowX, y: blockY, width: Self.arrowWidth, height: rowHeight)
         upValueLabel.frame = NSRect(x: valueX, y: blockY + rowHeight + rowGap, width: valueWidth, height: rowHeight)
         downValueLabel.frame = NSRect(x: valueX, y: blockY, width: valueWidth, height: rowHeight)
     }
 
     private func configure() {
         iconView.imageScaling = .scaleProportionallyDown
-        for label in [upValueLabel, downValueLabel] {
+        upArrowLabel.textColor = .systemRed
+        downArrowLabel.textColor = .systemBlue
+        for label in [upArrowLabel, downArrowLabel, upValueLabel, downValueLabel] {
             label.font = Self.statusFont
             label.cell?.usesSingleLineMode = true
             label.cell?.lineBreakMode = .byClipping
@@ -74,12 +84,16 @@ private final class StackedSpeedStatusView: NSView {
             label.isSelectable = false
             label.translatesAutoresizingMaskIntoConstraints = true
         }
+        upArrowLabel.alignment = .left
+        downArrowLabel.alignment = .left
         upValueLabel.alignment = .right
         downValueLabel.alignment = .right
         upValueLabel.textColor = .labelColor
         downValueLabel.textColor = .labelColor
 
         addSubview(iconView)
+        addSubview(upArrowLabel)
+        addSubview(downArrowLabel)
         addSubview(upValueLabel)
         addSubview(downValueLabel)
     }

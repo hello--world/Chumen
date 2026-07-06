@@ -136,8 +136,10 @@ bash ./scripts/build_app.sh release
 正式包产物路径：
 
 ```text
-dist/Chumen.app
+dist/Chumen.dmg
 ```
+
+DMG 内会附带 `README.zh.txt` 和 `README.en.txt`，说明当前未使用 Developer ID 签名和公证时，其他机器首次运行可能需要移除 quarantine 属性。
 
 把指定内核打进 App Bundle：
 
@@ -211,6 +213,7 @@ swift build -c release
 
 ```bash
 codesign --verify --deep --strict --verbose=2 dist/Chumen.app
+hdiutil verify dist/Chumen.dmg
 /usr/libexec/PlistBuddy -c 'Print :CFBundleName' \
   -c 'Print :CFBundleDisplayName' \
   -c 'Print :CFBundleExecutable' \

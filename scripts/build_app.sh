@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
+DMG_README_DIR="$ROOT_DIR/Packaging/DMG"
 CORE_BUNDLE_NAME="chumen-door"
 
 usage() {
@@ -11,7 +12,7 @@ Usage: scripts/build_app.sh [debug|release]
 
 Build modes:
   debug    Daily development package. Default. Outputs dist/debug/Chumen.app
-  release  Formal package. Outputs dist/Chumen.app
+  release  Formal package. Outputs dist/Chumen.dmg
 EOF
 }
 
@@ -29,6 +30,7 @@ case "$BUILD_CONFIGURATION" in
   release|--release|-r)
     BUILD_CONFIGURATION="release"
     APP_DIR="$DIST_DIR/Chumen.app"
+    DMG_PATH="$DIST_DIR/Chumen.dmg"
     ;;
   --help|-h)
     usage
@@ -57,6 +59,28 @@ plist_set_integer() {
   local value="$2"
   "$PLIST_BUDDY" -c "Set :$key $value" "$CONTENTS_DIR/Info.plist" 2>/dev/null ||
     "$PLIST_BUDDY" -c "Add :$key integer $value" "$CONTENTS_DIR/Info.plist"
+}
+
+create_release_dmg() {
+  local staging_dir
+  staging_dir="$(mktemp -d "$DIST_DIR/dmg-staging.XXXXXX")"
+  (
+    trap 'rm -rf "$staging_dir"' EXIT
+
+    cp -R "$APP_DIR" "$staging_dir/Chumen.app"
+    ln -s /Applications "$staging_dir/Applications"
+    cp "$DMG_README_DIR/README.zh.txt" "$staging_dir/README.zh.txt"
+    cp "$DMG_README_DIR/README.en.txt" "$staging_dir/README.en.txt"
+
+    rm -f "$DMG_PATH"
+    hdiutil create \
+      -volname "Chumen" \
+      -srcfolder "$staging_dir" \
+      -ov \
+      -format UDZO \
+      "$DMG_PATH" >/dev/null
+    hdiutil verify "$DMG_PATH" >/dev/null
+  )
 }
 
 cd "$ROOT_DIR"
@@ -121,4 +145,9 @@ fi
 codesign --force --deep --sign - "$APP_DIR" >/dev/null
 codesign --verify --deep --strict "$APP_DIR"
 
-echo "$APP_DIR"
+if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
+  create_release_dmg
+  echo "$DMG_PATH"
+else
+  echo "$APP_DIR"
+fi
