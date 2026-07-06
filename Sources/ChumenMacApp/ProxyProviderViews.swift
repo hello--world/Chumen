@@ -63,11 +63,12 @@ struct ProxiesView: View {
                     .strokeBorder(ChumenStyle.border)
             )
         } else {
+            let lastGroupID = model.proxyGroups.last?.id
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(model.proxyGroups) { group in
                         proxyGroupRow(for: group)
-                        if group.id != model.proxyGroups.last?.id {
+                        if group.id != lastGroupID {
                             Divider()
                                 .padding(.leading, 12)
                         }
@@ -277,9 +278,10 @@ private struct ProxySelectionPopUpButton: NSViewRepresentable {
         context.coordinator.parent = self
 
         let displayOptions = normalizedOptions
-        if button.itemArray.map(\.title) != displayOptions {
+        if context.coordinator.displayOptions != displayOptions {
             button.removeAllItems()
             button.addItems(withTitles: displayOptions)
+            context.coordinator.displayOptions = displayOptions
         }
 
         button.isEnabled = !options.isEmpty
@@ -306,6 +308,7 @@ private struct ProxySelectionPopUpButton: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         var parent: ProxySelectionPopUpButton
+        var displayOptions: [String] = []
 
         init(parent: ProxySelectionPopUpButton) {
             self.parent = parent
@@ -387,6 +390,7 @@ struct ProvidersView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(18)
             } else {
+                let lastProviderID = providers.last?.id
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(providers) { provider in
@@ -396,7 +400,7 @@ struct ProvidersView: View {
                                 updateAction: updateAction,
                                 healthcheckAction: healthcheckAction
                             )
-                            if provider.id != providers.last?.id {
+                            if provider.id != lastProviderID {
                                 Divider()
                                     .padding(.leading, 12)
                             }

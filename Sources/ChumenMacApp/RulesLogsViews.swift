@@ -2,6 +2,12 @@ import Charts
 import ChumenCore
 import SwiftUI
 
+private enum LogReportRendering {
+    // Hidden TabView pages can still observe AppModel changes. Keep log charts bounded so switching
+    // away from the logs page cannot leave a large Charts tree participating in unrelated updates.
+    static let trendSampleLimit = 72
+}
+
 struct RulesView: View {
     @EnvironmentObject private var model: AppModel
     @State private var ruleSearchText = ""
@@ -309,35 +315,43 @@ private struct RuleSearchViewState: Equatable {
 
 struct LogsView: View {
     @EnvironmentObject private var model: AppModel
+    let isVisible: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label(model.t(.logs), systemImage: "text.alignleft")
-                    .font(.headline)
-                Spacer()
-                Button {
-                    model.clearLogs()
-                } label: {
-                    Label(model.t(.clearLogs), systemImage: "trash")
-                }
-            }
+        Group {
+            if isVisible {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Label(model.t(.logs), systemImage: "text.alignleft")
+                            .font(.headline)
+                        Spacer()
+                        Button {
+                            model.clearLogs()
+                        } label: {
+                            Label(model.t(.clearLogs), systemImage: "trash")
+                        }
+                    }
 
-            HSplitView {
-                logReportPanel
-                    .frame(minWidth: 360, idealWidth: 420, maxWidth: 500)
+                    HSplitView {
+                        logReportPanel
+                            .frame(minWidth: 360, idealWidth: 420, maxWidth: 500)
 
-                HSplitView {
-                    logPane(title: model.t(.processLog), text: model.logs)
-                    logPane(title: model.t(.runtimeLog), text: model.runtimeLogs)
+                        HSplitView {
+                            logPane(title: model.t(.processLog), text: model.logs)
+                            logPane(title: model.t(.runtimeLog), text: model.runtimeLogs)
+                        }
+                    }
                 }
+                .padding(18)
+            } else {
+                ChumenStyle.pageBackground
             }
         }
-        .padding(18)
     }
 
     private var logReportPanel: some View {
         let analysis = model.logAnalysisSnapshot
+        let trendSamples = recentLogReportSamples
 
         return ScrollView {
             VStack(alignment: .leading, spacing: 10) {
@@ -368,7 +382,7 @@ struct LogsView: View {
                 }
 
                 reportPanel(title: model.t(.historyTrend), systemImage: "waveform.path.ecg") {
-                    logTrendChart
+                    logTrendChart(samples: trendSamples)
                 }
 
                 reportPanel(title: model.t(.logLevels), systemImage: "chart.bar.xaxis") {
@@ -436,22 +450,32 @@ struct LogsView: View {
         )
     }
 
-    private var logTrendChart: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if model.logReportSamples.isEmpty {
+    private var recentLogReportSamples: [LogReportSample] {
+        let samples = model.logReportSamples
+        guard samples.count > LogReportRendering.trendSampleLimit else { return samples }
+        return Array(samples.suffix(LogReportRendering.trendSampleLimit))
+    }
+
+    private func logTrendChart(samples: [LogReportSample]) -> some View {
+        let xLabel = model.t(.lastRefresh)
+        let errorLabel = model.t(.errorLogs)
+        let warningLabel = model.t(.warningLogs)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            if samples.isEmpty {
                 emptyReportText
                     .frame(height: 138)
             } else {
-                Chart(model.logReportSamples) { sample in
+                Chart(samples) { sample in
                     LineMark(
-                        x: .value(model.t(.lastRefresh), sample.timestamp),
-                        y: .value(model.t(.errorLogs), sample.errorCount)
+                        x: .value(xLabel, sample.timestamp),
+                        y: .value(errorLabel, sample.errorCount)
                     )
                     .foregroundStyle(.red)
 
                     LineMark(
-                        x: .value(model.t(.lastRefresh), sample.timestamp),
-                        y: .value(model.t(.warningLogs), sample.warningCount)
+                        x: .value(xLabel, sample.timestamp),
+                        y: .value(warningLabel, sample.warningCount)
                     )
                     .foregroundStyle(.orange)
                 }
@@ -463,8 +487,8 @@ struct LogsView: View {
             }
 
             reportLegend([
-                (color: .red, label: model.t(.errorLogs)),
-                (color: .orange, label: model.t(.warningLogs))
+                (color: .red, label: errorLabel),
+                (color: .orange, label: warningLabel)
             ])
         }
     }

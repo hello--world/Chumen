@@ -66,7 +66,7 @@ struct ContentView: View {
                         ProvidersView()
                             .tabItem { Label(model.t(.providers), systemImage: "tray.full") }
                             .tag(AppTab.providers)
-                        ConnectionsView()
+                        ConnectionsView(isVisible: selectedTab == .connections)
                             .tabItem { Label(model.t(.connections), systemImage: "link") }
                             .tag(AppTab.connections)
                         RulesView()
@@ -78,7 +78,7 @@ struct ContentView: View {
                         CoreToolsView()
                             .tabItem { Label(model.t(.coreTools), systemImage: "terminal") }
                             .tag(AppTab.coreTools)
-                        LogsView()
+                        LogsView(isVisible: selectedTab == .logs)
                             .tabItem { Label(model.t(.logs), systemImage: "text.alignleft") }
                             .tag(AppTab.logs)
                         AppSettingsView()

@@ -7,7 +7,12 @@ import SwiftUI
 @MainActor
 protocol DashboardSectionProvider: Sendable {
     var priority: Int { get }
+    var placement: DashboardSectionPlacement { get }
     func dashboardSection(for model: AppModel) -> DashboardSection?
+}
+
+extension DashboardSectionProvider {
+    var placement: DashboardSectionPlacement { .mainGrid }
 }
 
 enum DashboardItemStyle {
@@ -148,7 +153,7 @@ enum DashboardSectionRegistry {
     @MainActor
     static func sections(for model: AppModel, placement: DashboardSectionPlacement) -> [DashboardSection] {
         let hiddenSectionIDs = Set(model.settings.dashboardHiddenSectionIDs)
-        return allSections(for: model)
+        return allSections(for: model, placement: placement)
             .filter { section in
                 section.configuration.isVisible &&
                     section.configuration.placement == placement &&
@@ -173,8 +178,15 @@ enum DashboardSectionRegistry {
     }
 
     @MainActor
-    private static func allSections(for model: AppModel) -> [DashboardSection] {
+    private static func allSections(
+        for model: AppModel,
+        placement: DashboardSectionPlacement? = nil
+    ) -> [DashboardSection] {
         providers
+            .filter { provider in
+                guard let placement else { return true }
+                return provider.placement == placement
+            }
             .compactMap { provider in
                 provider.dashboardSection(for: model)
             }
@@ -392,6 +404,7 @@ private extension Array {
 
 private struct CommandStatusDashboardProvider: DashboardSectionProvider {
     let priority = 0
+    let placement: DashboardSectionPlacement = .commandBar
 
     func dashboardSection(for model: AppModel) -> DashboardSection? {
         DashboardSection(
@@ -407,6 +420,7 @@ private struct CommandStatusDashboardProvider: DashboardSectionProvider {
 
 private struct QuickActionsDashboardProvider: DashboardSectionProvider {
     let priority = 5
+    let placement: DashboardSectionPlacement = .commandBar
 
     func dashboardSection(for model: AppModel) -> DashboardSection? {
         DashboardSection(

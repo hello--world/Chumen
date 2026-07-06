@@ -95,7 +95,9 @@ struct DashboardView: View {
     }
 
     private var commandPanel: some View {
-        commandPanelBody
+        let items = commandBarItems
+
+        return commandPanelBody(items: items)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 6)
         .padding(.vertical, 10)
@@ -115,16 +117,20 @@ struct DashboardView: View {
 
     // Keep the command header as one left-anchored row. Widths are intentionally bounded so the
     // overview does not split the mode switch and quick actions into separate rows.
-    private var commandPanelBody: some View {
-        HStack(alignment: .center, spacing: 5) {
-            commandPanelStatusForToolbar
+    private func commandPanelBody(items: [DashboardItem]) -> some View {
+        let statusItems = commandStatusItems(in: items)
+        let actionItems = commandActionItems(in: items)
+        let pinnedActionItems = commandPinnedActionItems(in: actionItems)
 
-            if !commandPinnedActionItems.isEmpty {
+        return HStack(alignment: .center, spacing: 5) {
+            commandPanelStatusForToolbar(item: statusItems.first)
+
+            if !pinnedActionItems.isEmpty {
                 Color.clear
                     .frame(width: commandStatusActionGap)
                     .accessibilityHidden(true)
 
-                commandPinnedActionRow
+                commandPinnedActionRow(items: pinnedActionItems)
                     .layoutPriority(5)
             }
 
@@ -152,13 +158,9 @@ struct DashboardView: View {
         8
     }
 
-    private var commandPrimaryStatusItem: DashboardItem? {
-        commandStatusItems.first
-    }
-
     @ViewBuilder
-    private var commandPanelStatusForToolbar: some View {
-        if let item = commandPrimaryStatusItem {
+    private func commandPanelStatusForToolbar(item: DashboardItem?) -> some View {
+        if let item {
             commandToolbarStatusContent(item)
                 .layoutPriority(10)
                 .help(quickActionHelp(item))
@@ -218,8 +220,8 @@ struct DashboardView: View {
             .flatMap(\.items)
     }
 
-    private var commandStatusItems: [DashboardItem] {
-        commandBarItems.filter { item in
+    private func commandStatusItems(in items: [DashboardItem]) -> [DashboardItem] {
+        items.filter { item in
             if case .summary = item.style {
                 return true
             }
@@ -227,8 +229,8 @@ struct DashboardView: View {
         }
     }
 
-    private var commandActionItems: [DashboardItem] {
-        commandBarItems.filter { item in
+    private func commandActionItems(in items: [DashboardItem]) -> [DashboardItem] {
+        items.filter { item in
             if case .command = item.style {
                 return true
             }
@@ -296,9 +298,9 @@ struct DashboardView: View {
         .help(model.t(.quickControlsConfiguration))
     }
 
-    private var commandPinnedActionRow: some View {
+    private func commandPinnedActionRow(items: [DashboardItem]) -> some View {
         HStack(spacing: 5) {
-            ForEach(commandPinnedActionItems) { item in
+            ForEach(items) { item in
                 quickActionButton(item)
             }
             dashboardEditButton
@@ -311,23 +313,23 @@ struct DashboardView: View {
     // system proxy, TUN, and quick-control editing are muscle-memory operations and should stay
     // together; optional startup/network preferences belong below so enabling more shortcuts does
     // not disrupt the primary controls.
-    private var commandExtensionActionFlow: some View {
+    private func commandExtensionActionFlow(items: [DashboardItem]) -> some View {
         CommandActionFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
-            ForEach(commandExtensionActionItems) { item in
+            ForEach(items) { item in
                 quickActionButton(item)
             }
         }
         .controlSize(.regular)
     }
 
-    private var commandPinnedActionItems: [DashboardItem] {
-        commandActionItems.filter { item in
+    private func commandPinnedActionItems(in items: [DashboardItem]) -> [DashboardItem] {
+        items.filter { item in
             pinnedCommandActionIDs.contains(item.id)
         }
     }
 
-    private var commandExtensionActionItems: [DashboardItem] {
-        commandActionItems.filter { item in
+    private func commandExtensionActionItems(in items: [DashboardItem]) -> [DashboardItem] {
+        items.filter { item in
             !pinnedCommandActionIDs.contains(item.id)
         }
     }

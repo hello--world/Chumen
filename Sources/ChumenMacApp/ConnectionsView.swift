@@ -2,17 +2,29 @@ import Charts
 import ChumenCore
 import SwiftUI
 
+private enum ConnectionReportRendering {
+    // Swift Charts is expensive when hidden TabView pages still receive model updates. Keeping the
+    // on-screen trend to the recent window preserves the signal while avoiding thousands of mark
+    // recalculations during connection polling.
+    static let trendSampleLimit = 72
+}
+
 struct ConnectionsView: View {
     @EnvironmentObject private var model: AppModel
-    @Environment(\.openWindow) private var openWindow
-    @State private var searchText = ""
+    let isVisible: Bool
 
     var body: some View {
-        GeometryReader { proxy in
-            if proxy.size.width < 1_080 {
-                compactLayout
+        Group {
+            if isVisible {
+                GeometryReader { proxy in
+                    if proxy.size.width < 1_080 {
+                        compactLayout
+                    } else {
+                        splitLayout(availableWidth: proxy.size.width)
+                    }
+                }
             } else {
-                splitLayout(availableWidth: proxy.size.width)
+                ChumenStyle.pageBackground
             }
         }
         .background(ChumenStyle.pageBackground)
@@ -51,100 +63,12 @@ struct ConnectionsView: View {
     }
 
     private var connectionsPane: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            connectionsPaneHeader
-            Divider()
-            controlsBar
-            Divider()
-            connectionsList
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .fill(ChumenStyle.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .strokeBorder(ChumenStyle.border)
-        )
-    }
-
-    private var connectionsPaneHeader: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Label(model.t(.connections), systemImage: "link")
-                .font(.headline)
-            Spacer(minLength: 8)
-            Text(connectionsSummary)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(ChumenStyle.mutedText)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Button {
-                openWindow(id: ChumenWindowID.connectionsDetail)
-            } label: {
-                Label(model.t(.viewMore), systemImage: "rectangle.on.rectangle")
-            }
-            .controlSize(.small)
-            .help(model.t(.connectionHistory))
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-    }
-
-    private var controlsBar: some View {
-        HStack(spacing: 8) {
-            Button {
-                Task { await model.refreshConnections() }
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .frame(width: 24, height: 24)
-            }
-            .help(model.t(.refreshConnections))
-            .accessibilityLabel(model.t(.refreshConnections))
-
-            Button(role: .destructive) {
-                model.closeAllConnections()
-            } label: {
-                Image(systemName: "xmark.circle")
-                    .frame(width: 24, height: 24)
-            }
-            .disabled(model.connections.isEmpty)
-            .help(model.t(.closeAll))
-            .accessibilityLabel(model.t(.closeAll))
-
-            TextField(model.t(.searchConnections), text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 140)
-
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(ChumenStyle.mutedText)
-                .help(model.t(.clear))
-            }
-
-        }
-        .padding(10)
-        .controlSize(.regular)
-    }
-
-    private var filteredConnections: [MihomoConnection] {
-        filterConnections(model.connections, searchText: searchText)
-    }
-
-    private var connectionsSummary: String {
-        let countPrefix = searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "\(model.connections.count)"
-            : "\(filteredConnections.count)/\(model.connections.count)"
-        return "\(countPrefix) \(model.t(.activeConnections)) / \(model.totalTrafficText)"
+        ConnectionsPane()
     }
 
     private var connectionReport: some View {
         let analysis = model.connectionAnalysisSnapshot
+        let trendSamples = recentConnectionReportSamples
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
@@ -184,10 +108,10 @@ struct ConnectionsView: View {
 
             HStack(alignment: .top, spacing: 10) {
                 reportPanel(title: model.t(.historyTrend), systemImage: "waveform.path.ecg") {
-                    connectionCountTrendChart
+                    connectionCountTrendChart(samples: trendSamples)
                 }
                 reportPanel(title: model.t(.currentSpeed), systemImage: "arrow.up.arrow.down") {
-                    connectionSpeedTrendChart
+                    connectionSpeedTrendChart(samples: trendSamples)
                 }
             }
 
@@ -226,28 +150,39 @@ struct ConnectionsView: View {
         )
     }
 
-    private var connectionCountTrendChart: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if model.connectionReportSamples.isEmpty {
+    private var recentConnectionReportSamples: [ConnectionReportSample] {
+        let samples = model.connectionReportSamples
+        guard samples.count > ConnectionReportRendering.trendSampleLimit else { return samples }
+        return Array(samples.suffix(ConnectionReportRendering.trendSampleLimit))
+    }
+
+    private func connectionCountTrendChart(samples: [ConnectionReportSample]) -> some View {
+        let xLabel = model.t(.lastRefresh)
+        let activeLabel = model.t(.activeConnections)
+        let proxyLabel = model.t(.proxyRoute)
+        let directLabel = model.t(.directRoute)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            if samples.isEmpty {
                 emptyReportText
                     .frame(height: 138)
             } else {
-                Chart(model.connectionReportSamples) { sample in
+                Chart(samples) { sample in
                     LineMark(
-                        x: .value(model.t(.lastRefresh), sample.timestamp),
-                        y: .value(model.t(.activeConnections), sample.activeCount)
+                        x: .value(xLabel, sample.timestamp),
+                        y: .value(activeLabel, sample.activeCount)
                     )
                     .foregroundStyle(.blue)
 
                     LineMark(
-                        x: .value(model.t(.lastRefresh), sample.timestamp),
-                        y: .value(model.t(.proxyRoute), sample.proxyCount)
+                        x: .value(xLabel, sample.timestamp),
+                        y: .value(proxyLabel, sample.proxyCount)
                     )
                     .foregroundStyle(.orange)
 
                     LineMark(
-                        x: .value(model.t(.lastRefresh), sample.timestamp),
-                        y: .value(model.t(.directRoute), sample.directCount)
+                        x: .value(xLabel, sample.timestamp),
+                        y: .value(directLabel, sample.directCount)
                     )
                     .foregroundStyle(.green)
                 }
@@ -259,29 +194,33 @@ struct ConnectionsView: View {
             }
 
             reportLegend([
-                (color: .blue, label: model.t(.activeConnections)),
-                (color: .orange, label: model.t(.proxyRoute)),
-                (color: .green, label: model.t(.directRoute))
+                (color: .blue, label: activeLabel),
+                (color: .orange, label: proxyLabel),
+                (color: .green, label: directLabel)
             ])
         }
     }
 
-    private var connectionSpeedTrendChart: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if model.connectionReportSamples.isEmpty {
+    private func connectionSpeedTrendChart(samples: [ConnectionReportSample]) -> some View {
+        let xLabel = model.t(.lastRefresh)
+        let uploadLabel = model.t(.upload)
+        let downloadLabel = model.t(.download)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            if samples.isEmpty {
                 emptyReportText
                     .frame(height: 138)
             } else {
-                Chart(model.connectionReportSamples) { sample in
+                Chart(samples) { sample in
                     LineMark(
-                        x: .value(model.t(.lastRefresh), sample.timestamp),
-                        y: .value(model.t(.upload), Double(sample.uploadSpeed))
+                        x: .value(xLabel, sample.timestamp),
+                        y: .value(uploadLabel, Double(sample.uploadSpeed))
                     )
                     .foregroundStyle(.orange)
 
                     LineMark(
-                        x: .value(model.t(.lastRefresh), sample.timestamp),
-                        y: .value(model.t(.download), Double(sample.downloadSpeed))
+                        x: .value(xLabel, sample.timestamp),
+                        y: .value(downloadLabel, Double(sample.downloadSpeed))
                     )
                     .foregroundStyle(.cyan)
                 }
@@ -293,20 +232,10 @@ struct ConnectionsView: View {
             }
 
             reportLegend([
-                (color: .orange, label: model.t(.upload)),
-                (color: .cyan, label: model.t(.download))
+                (color: .orange, label: uploadLabel),
+                (color: .cyan, label: downloadLabel)
             ])
         }
-    }
-
-    @ViewBuilder
-    private var connectionsList: some View {
-        ConnectionRowsPanel(
-            connections: model.connections,
-            searchText: searchText,
-            emptyTitle: model.t(.noConnections),
-            allowsClosing: true
-        )
     }
 
     private func reportMetricTile(
@@ -427,6 +356,108 @@ struct ConnectionsView: View {
     }
 }
 
+private struct ConnectionsPane: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+    @State private var searchText = ""
+
+    var body: some View {
+        let filteredConnections = filterConnections(model.connections, searchText: searchText)
+
+        VStack(alignment: .leading, spacing: 0) {
+            connectionsPaneHeader(filteredCount: filteredConnections.count)
+            Divider()
+            controlsBar
+            Divider()
+            ConnectionRowsPanel(
+                connections: model.connections,
+                filteredConnections: filteredConnections,
+                emptyTitle: model.t(.noConnections),
+                allowsClosing: true
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(ChumenStyle.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .strokeBorder(ChumenStyle.border)
+        )
+    }
+
+    private func connectionsPaneHeader(filteredCount: Int) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Label(model.t(.connections), systemImage: "link")
+                .font(.headline)
+            Spacer(minLength: 8)
+            Text(connectionsSummary(filteredCount: filteredCount))
+                .font(.caption.weight(.medium))
+                .foregroundStyle(ChumenStyle.mutedText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Button {
+                openWindow(id: ChumenWindowID.connectionsDetail)
+            } label: {
+                Label(model.t(.viewMore), systemImage: "rectangle.on.rectangle")
+            }
+            .controlSize(.small)
+            .help(model.t(.connectionHistory))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+
+    private var controlsBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                Task { await model.refreshConnections() }
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .frame(width: 24, height: 24)
+            }
+            .help(model.t(.refreshConnections))
+            .accessibilityLabel(model.t(.refreshConnections))
+
+            Button(role: .destructive) {
+                model.closeAllConnections()
+            } label: {
+                Image(systemName: "xmark.circle")
+                    .frame(width: 24, height: 24)
+            }
+            .disabled(model.connections.isEmpty)
+            .help(model.t(.closeAll))
+            .accessibilityLabel(model.t(.closeAll))
+
+            TextField(model.t(.searchConnections), text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 140)
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(ChumenStyle.mutedText)
+                .help(model.t(.clear))
+            }
+
+        }
+        .padding(10)
+        .controlSize(.regular)
+    }
+
+    private func connectionsSummary(filteredCount: Int) -> String {
+        let countPrefix = searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "\(model.connections.count)"
+            : "\(filteredCount)/\(model.connections.count)"
+        return "\(countPrefix) \(model.t(.activeConnections)) / \(model.totalTrafficText)"
+    }
+}
+
 private enum ConnectionDetailScope: String, CaseIterable, Identifiable {
     case active
     case closed
@@ -440,12 +471,15 @@ struct ConnectionsDetailWindow: View {
     @State private var searchText = ""
 
     var body: some View {
+        let scoped = scopedConnections
+        let filteredConnections = filterConnections(scoped, searchText: searchText)
+
         VStack(spacing: 0) {
             header
             Divider()
             ConnectionDetailTable(
-                connections: scopedConnections,
-                searchText: searchText,
+                connections: scoped,
+                filteredConnections: filteredConnections,
                 emptyTitle: scope == .active ? model.t(.noConnections) : model.t(.noClosedConnections),
                 allowsClosing: scope == .active
             )
@@ -534,13 +568,9 @@ private struct ConnectionDetailTable: View {
     @EnvironmentObject private var model: AppModel
 
     let connections: [MihomoConnection]
-    let searchText: String
+    let filteredConnections: [MihomoConnection]
     let emptyTitle: String
     let allowsClosing: Bool
-
-    private var filteredConnections: [MihomoConnection] {
-        filterConnections(connections, searchText: searchText)
-    }
 
     private let columns: [ConnectionTableColumn] = [
         .init(key: .connectionDownloadAmount, width: 86, alignment: .trailing),
@@ -562,12 +592,14 @@ private struct ConnectionDetailTable: View {
         } else if filteredConnections.isEmpty {
             connectionEmptyState(title: model.t(.noMatchingConnections))
         } else {
+            let lastConnectionID = filteredConnections.last?.id
+
             ScrollView([.horizontal, .vertical]) {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     Section {
                         ForEach(filteredConnections) { connection in
                             tableRow(connection)
-                            if connection.id != filteredConnections.last?.id {
+                            if connection.id != lastConnectionID {
                                 Divider()
                             }
                         }
@@ -695,13 +727,9 @@ private struct ConnectionRowsPanel: View {
     @EnvironmentObject private var model: AppModel
 
     let connections: [MihomoConnection]
-    let searchText: String
+    let filteredConnections: [MihomoConnection]
     let emptyTitle: String
     let allowsClosing: Bool
-
-    private var filteredConnections: [MihomoConnection] {
-        filterConnections(connections, searchText: searchText)
-    }
 
     var body: some View {
         if connections.isEmpty {
@@ -709,11 +737,13 @@ private struct ConnectionRowsPanel: View {
         } else if filteredConnections.isEmpty {
             connectionEmptyState(title: model.t(.noMatchingConnections))
         } else {
+            let lastConnectionID = filteredConnections.last?.id
+
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(filteredConnections) { connection in
                         connectionRow(connection)
-                        if connection.id != filteredConnections.last?.id {
+                        if connection.id != lastConnectionID {
                             Divider()
                                 .padding(.leading, 12)
                         }
@@ -857,7 +887,37 @@ private struct ConnectionRowsPanel: View {
 private func filterConnections(_ connections: [MihomoConnection], searchText: String) -> [MihomoConnection] {
     let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !query.isEmpty else { return connections }
-    return connections.filter { connectionSearchableText(for: $0).localizedCaseInsensitiveContains(query) }
+    return connections.filter { connectionMatchesSearch($0, query: query) }
+}
+
+private func connectionMatchesSearch(_ connection: MihomoConnection, query: String) -> Bool {
+    func matches(_ value: String?) -> Bool {
+        guard let text = value?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return false
+        }
+        return text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }
+
+    if matches(connection.id)
+        || matches(connection.start)
+        || matches(connection.rule)
+        || matches(connection.rulePayload)
+        || (connection.chains?.contains { matches($0) } ?? false) {
+        return true
+    }
+
+    guard let metadata = connection.metadata else { return false }
+    return matches(metadata.network)
+        || matches(metadata.type)
+        || matches(metadata.sourceIP)
+        || matches(metadata.destinationIP)
+        || matches(metadata.sourcePort)
+        || matches(metadata.destinationPort)
+        || matches(metadata.host)
+        || matches(metadata.dnsMode)
+        || matches(metadata.process)
+        || matches(metadata.processPath)
+        || matches(metadata.specialProxy)
 }
 
 private func connectionHostText(for connection: MihomoConnection) -> String {
@@ -948,33 +1008,6 @@ private func endpointText(host: String?, port: String?) -> String {
     guard !cleanedHost.isEmpty, cleanedHost != "-" else { return "-" }
     guard !cleanedPort.isEmpty else { return cleanedHost }
     return "\(cleanedHost):\(cleanedPort)"
-}
-
-private func connectionSearchableText(for connection: MihomoConnection) -> String {
-    var parts: [String] = []
-    func append(_ value: String?) {
-        guard let text = value?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return }
-        parts.append(text)
-    }
-
-    append(connection.id)
-    append(connection.start)
-    append(connection.rule)
-    append(connection.rulePayload)
-    append(connection.chains?.joined(separator: " "))
-    append(connection.metadata?.network)
-    append(connection.metadata?.type)
-    append(connection.metadata?.sourceIP)
-    append(connection.metadata?.destinationIP)
-    append(connection.metadata?.sourcePort)
-    append(connection.metadata?.destinationPort)
-    append(connection.metadata?.host)
-    append(connection.metadata?.dnsMode)
-    append(connection.metadata?.process)
-    append(connection.metadata?.processPath)
-    append(connection.metadata?.specialProxy)
-
-    return parts.joined(separator: "\n")
 }
 
 private func firstNonEmpty(_ values: [String?]) -> String {
