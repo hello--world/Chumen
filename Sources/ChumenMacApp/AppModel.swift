@@ -96,6 +96,7 @@ final class AppModel: ObservableObject {
     // AppModel 是 GUI 的单一状态源：窗口、状态栏菜单和异步内核任务都从这里读写状态。
     @Published var settings: ChumenRuntimeSettings
     @Published var profileLibrary: ProfileLibrary
+    @Published private(set) var activeProfileConfigUpdateText = "-"
     @Published var isRunning = false
     @Published var isCoreTransitioning = false
     @Published var systemProxyEnabled = false
@@ -130,7 +131,9 @@ final class AppModel: ObservableObject {
     @Published var proxyDelays: [String: Int] = [:]
     @Published var connections: [MihomoConnection] = []
     @Published var closedConnections: [MihomoConnection] = []
+    @Published private(set) var connectionAnalysisSnapshot = ConnectionAnalyzer.analyze([])
     @Published var connectionReportSamples: [ConnectionReportSample] = []
+    @Published private(set) var logAnalysisSnapshot = LogAnalyzer.analyze(processLog: "", runtimeLog: "")
     @Published var logReportSamples: [LogReportSample] = []
     @Published var rules: [MihomoRule] = []
     @Published var uploadTotal: Int64 = 0
@@ -189,13 +192,8 @@ final class AppModel: ObservableObject {
     private let pinVault: ChumenPINVault
     private var protectionKeyStore: ChumenConfigProtectionKeyStore
     private var unlockedAgeKeyPair: MihomoAgeKeyPair?
-    private let logStream = MihomoLogStream()
-    private let trafficStream = MihomoEventStream<MihomoTraffic>()
-    private let memoryStream = MihomoEventStream<MihomoMemory>()
-    private let connectionsStream = MihomoEventStream<MihomoConnectionsResponse>()
     private var connectionTrafficAccumulator = ConnectionTrafficAccumulator()
     private var shouldSeedConnectionTrafficSnapshot = true
-    private var lastTrafficEventDate: Date?
     private var lastConnectionTelemetryDate: Date?
     private var lastConnectionUploadTotal: Int64?
     private var lastConnectionDownloadTotal: Int64?
@@ -368,6 +366,7 @@ final class AppModel: ObservableObject {
 
         statusText = t(.stopped)
         apiText = t(.apiNotTested)
+        refreshActiveProfileConfigUpdateText()
         preloadProfileVisualData(for: library.profiles, force: false)
         startApplicationUpdates()
         if shouldDeferStartup {
@@ -447,7 +446,7 @@ final class AppModel: ObservableObject {
                     protectionKeyStore: protectionKeyStore
                 )
                 settings = imported.settings
-                profileLibrary = imported.profileLibrary
+                publishProfileLibrary(imported.profileLibrary)
                 lastSavedSettings = imported.settings
                 profileContentCache.removeAll()
                 preloadProfileVisualData(for: imported.profileLibrary.profiles, force: true)
@@ -499,7 +498,9 @@ final class AppModel: ObservableObject {
         // and on disk, but it is no longer the active launch input. A mismatched age identity cannot
         // be repaired by retrying with a fresh key, so the app falls back to Chumen's default DIRECT
         // runtime to keep the UI/API usable for re-import or manual recovery.
-        profileLibrary.activeProfileID = nil
+        var library = profileLibrary
+        library.activeProfileID = nil
+        publishProfileLibrary(library)
         settings.activeProfileID = nil
         settings.profilePath = nil
 
@@ -540,7 +541,7 @@ final class AppModel: ObservableObject {
             isCoreTransitioning = false
             statusText = "\(t(.activeProfileDisabled)): \(recovery.profileName)"
             saveSettings()
-            startControllerStreams()
+            startControllerUpdates()
             notify(
                 title: notificationTitle,
                 body: "\(t(.activeProfileDisabledBody)) \(recovery.profilePath)",
@@ -656,6 +657,15 @@ final class AppModel: ObservableObject {
             }
         }
         return message
+    }
+
+    private func publishIfChanged<Value: Equatable>(
+        _ keyPath: ReferenceWritableKeyPath<AppModel, Value>,
+        _ value: Value
+    ) {
+        if self[keyPath: keyPath] != value {
+            self[keyPath: keyPath] = value
+        }
     }
 
     var pinOverlayPresented: Bool {
@@ -775,7 +785,7 @@ final class AppModel: ObservableObject {
                 try settingsStore.save(settings)
                 lastSavedSettings = settings
             }
-            profileLibrary = library
+            publishProfileLibrary(library)
             profileContentCache.removeAll()
             preloadProfileVisualData(for: library.profiles, force: true)
             refreshSystemProxyState()
@@ -967,7 +977,7 @@ final class AppModel: ObservableObject {
         profileRepository = protectedState.profileRepository
         manager.updateProtectionKeyStore(protectedState.keyStore)
         settings = protectedState.settings
-        profileLibrary = protectedState.library
+        publishProfileLibrary(protectedState.library)
         lastSavedSettings = protectedState.settings
         pinVaultExists = true
         pinSetupRequired = false
@@ -1166,6 +1176,26 @@ final class AppModel: ObservableObject {
         activeProfile?.configAppendixYAML ?? ""
     }
 
+    private func publishProfileLibrary(_ library: ProfileLibrary) {
+        publishIfChanged(\.profileLibrary, library)
+        refreshActiveProfileConfigUpdateText()
+    }
+
+    private func refreshActiveProfileConfigUpdateText() {
+        // Header and dashboard read this frequently during SwiftUI diffing. Cache the filesystem
+        // metadata here so page switches and redraws do not synchronously stat the profile file.
+        guard let activeProfile else {
+            publishIfChanged(\.activeProfileConfigUpdateText, "-")
+            return
+        }
+        let modificationDate = (try? FileManager.default.attributesOfItem(atPath: activeProfile.filePath)[.modificationDate] as? Date)
+            ?? activeProfile.updatedAt
+        publishIfChanged(
+            \.activeProfileConfigUpdateText,
+            modificationDate.formatted(date: .omitted, time: .standard)
+        )
+    }
+
     private func preloadProfileVisualData(for profiles: [ProxyProfile], force: Bool) {
         guard !profiles.isEmpty else { return }
         profileVisualPreloadTask?.cancel()
@@ -1284,22 +1314,6 @@ final class AppModel: ObservableObject {
     private nonisolated static func appendixTopLevelBlock(_ key: String, in profile: ProxyProfile) -> String? {
         guard let yaml = profile.configAppendixYAML else { return nil }
         return topLevelBlocks(in: yaml)[key]
-    }
-
-    var connectionAnalysisSnapshot: ConnectionAnalysisSnapshot {
-        ConnectionAnalyzer.analyze(connections)
-    }
-
-    var logAnalysisSnapshot: LogAnalysisSnapshot {
-        LogAnalyzer.analyze(processLog: logs, runtimeLog: runtimeLogs)
-    }
-
-    var activeProfileConfigUpdateText: String {
-        guard let activeProfile else { return "-" }
-        let fileURL = URL(fileURLWithPath: activeProfile.filePath)
-        let modificationDate = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.modificationDate] as? Date)
-            ?? activeProfile.updatedAt
-        return modificationDate.formatted(date: .omitted, time: .standard)
     }
 
     var totalTrafficText: String {
@@ -1435,7 +1449,7 @@ final class AppModel: ObservableObject {
         do {
             var library = profileLibrary
             let profile = try profileRepository.importLocalProfile(from: url, into: &library)
-            profileLibrary = library
+            publishProfileLibrary(library)
             activateProfile(profile)
             preloadProfileVisualData(for: [profile], force: true)
             startupImportPromptPresented = false
@@ -1460,7 +1474,7 @@ final class AppModel: ObservableObject {
                     name: remoteProfileName.isEmpty ? nil : remoteProfileName,
                     into: &library
                 )
-                profileLibrary = library
+                publishProfileLibrary(library)
                 activateProfile(profile)
                 preloadProfileVisualData(for: [profile], force: true)
                 startupImportPromptPresented = false
@@ -1481,7 +1495,7 @@ final class AppModel: ObservableObject {
                 content: Self.blankProfileTemplate,
                 into: &library
             )
-            profileLibrary = library
+            publishProfileLibrary(library)
             rebuildProfileContentCache(Self.blankProfileTemplate, for: profile)
             startupImportPromptPresented = false
             statusText = "\(t(.created)) \(profile.name)"
@@ -1820,7 +1834,7 @@ final class AppModel: ObservableObject {
             name: name?.isEmpty == false ? name : nil,
             into: &library
         )
-        profileLibrary = library
+        publishProfileLibrary(library)
         activateProfile(profile)
         return profile
     }
@@ -2045,7 +2059,7 @@ final class AppModel: ObservableObject {
             do {
                 var library = profileLibrary
                 let updated = try await profileRepository.update(profile, in: &library)
-                profileLibrary = library
+                publishProfileLibrary(library)
                 preloadProfileVisualData(for: [updated], force: true)
                 statusText = "\(t(.updated)) \(profile.name)"
                 if isRunning, profile.id == settings.activeProfileID {
@@ -2072,7 +2086,7 @@ final class AppModel: ObservableObject {
                     port: settings.mixedPort,
                     in: &library
                 )
-                profileLibrary = library
+                publishProfileLibrary(library)
                 preloadProfileVisualData(for: [updated], force: true)
                 statusText = "\(t(.updated)) \(profile.name)"
                 if isRunning, profile.id == settings.activeProfileID {
@@ -2101,7 +2115,7 @@ final class AppModel: ObservableObject {
                 remoteURL: profileMetadataEditorRemoteURL,
                 in: &library
             )
-            profileLibrary = library
+            publishProfileLibrary(library)
             self.editingProfileMetadata = nil
             profileMetadataEditorName = ""
             profileMetadataEditorRemoteURL = ""
@@ -2182,7 +2196,7 @@ final class AppModel: ObservableObject {
                 remoteURL: profileEditorRemoteURL,
                 in: &library
             )
-            profileLibrary = library
+            publishProfileLibrary(library)
             rebuildProfileContentCache(editorText, for: updated)
             self.editingProfile = nil
             profileEditorVisualSections = []
@@ -2240,7 +2254,7 @@ final class AppModel: ObservableObject {
             // Profile section editors are scoped overrides, matching Verge's non-destructive model:
             // the subscription file stays intact while the generated runtime config replaces this key.
             let updated = try profileRepository.updateConfigAppendix(profile, yaml: appendix, in: &library)
-            profileLibrary = library
+            publishProfileLibrary(library)
             self.editingProfileSection = nil
             profileSectionEditorText = ""
             profileSectionEditorVisualSections = []
@@ -2290,7 +2304,7 @@ final class AppModel: ObservableObject {
             case let .profile(profile):
                 var library = profileLibrary
                 let updated = try profileRepository.updateConfigAppendix(profile, yaml: editorText, in: &library)
-                profileLibrary = library
+                publishProfileLibrary(library)
                 statusText = "\(t(.saved)) \(updated.name)"
                 if isRunning, updated.id == settings.activeProfileID {
                     reloadRunningCoreAfterProfileChange()
@@ -2323,7 +2337,7 @@ final class AppModel: ObservableObject {
             let wasActive = profile.id == settings.activeProfileID
             var library = profileLibrary
             try profileRepository.delete(profile, from: &library)
-            profileLibrary = library
+            publishProfileLibrary(library)
             profileContentCache[profile.id] = nil
             settings.activeProfileID = library.activeProfileID
             settings.profilePath = library.activeProfile?.filePath
@@ -2338,7 +2352,9 @@ final class AppModel: ObservableObject {
     }
 
     func activateProfile(_ profile: ProxyProfile) {
-        profileLibrary.activeProfileID = profile.id
+        var library = profileLibrary
+        library.activeProfileID = profile.id
+        publishProfileLibrary(library)
         settings.activeProfileID = profile.id
         settings.profilePath = profile.filePath
         do {
@@ -2402,7 +2418,7 @@ final class AppModel: ObservableObject {
         do {
             var library = profileLibrary
             let summary = try profileRepository.importExternalProfiles(candidates, into: &library)
-            profileLibrary = library
+            publishProfileLibrary(library)
             if !library.profiles.isEmpty {
                 startupImportPromptPresented = false
             }
@@ -2491,7 +2507,7 @@ final class AppModel: ObservableObject {
                 self.isRunning = true
                 self.statusText = self.t(.running)
                 self.saveSettings()
-                self.startControllerStreams()
+                self.startControllerUpdates()
                 self.notify(
                     title: self.t(.notificationCoreStarted),
                     body: self.activeProfileNotificationBody(),
@@ -2604,7 +2620,7 @@ final class AppModel: ObservableObject {
                 self.isCoreTransitioning = false
                 self.statusText = self.t(.running)
                 self.saveSettings()
-                self.startControllerStreams()
+                self.startControllerUpdates()
                 self.notify(
                     title: self.t(.notificationCoreRestarted),
                     body: self.activeProfileNotificationBody(),
@@ -2664,14 +2680,14 @@ final class AppModel: ObservableObject {
             if ownsCore {
                 isRunning = true
                 statusText = t(.running)
-                startControllerStreams()
+                startControllerUpdates()
                 await refreshAll()
             } else {
                 // API 可用但不是本应用启动的内核，只读取状态，不接管 stop/restart 语义。
                 isRunning = false
                 statusText = t(.externalCoreDetected)
                 apiText = t(.externalCoreDetectedHint)
-                startControllerStreams()
+                startControllerUpdates()
                 await refreshAll()
             }
         } catch {
@@ -2689,10 +2705,11 @@ final class AppModel: ObservableObject {
     func refreshProxies() async {
         do {
             let response = try await mihomoClient().proxies()
-            proxyGroups = response.proxies.values
+            let nextProxyGroups = response.proxies.values
                 .filter(\.isGroup)
                 .map(ProxyGroupSnapshot.init(proxy:))
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            publishIfChanged(\.proxyGroups, nextProxyGroups)
         } catch {
             statusText = displayError(error)
         }
@@ -2751,17 +2768,19 @@ final class AppModel: ObservableObject {
 
     func refreshProviders() async {
         do {
-            proxyProviders = try await mihomoClient().proxyProviders().providers.values
+            let nextProxyProviders = try await mihomoClient().proxyProviders().providers.values
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            publishIfChanged(\.proxyProviders, nextProxyProviders)
         } catch {
-            proxyProviders = []
+            publishIfChanged(\.proxyProviders, [])
         }
 
         do {
-            ruleProviders = try await mihomoClient().ruleProviders().providers.values
+            let nextRuleProviders = try await mihomoClient().ruleProviders().providers.values
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            publishIfChanged(\.ruleProviders, nextRuleProviders)
         } catch {
-            ruleProviders = []
+            publishIfChanged(\.ruleProviders, [])
         }
     }
 
@@ -2842,7 +2861,7 @@ final class AppModel: ObservableObject {
 
     func refreshRules() async {
         do {
-            rules = try await mihomoClient().rules().rules
+            publishIfChanged(\.rules, try await mihomoClient().rules().rules)
         } catch {
             statusText = displayError(error)
         }
@@ -2996,7 +3015,7 @@ final class AppModel: ObservableObject {
         saveSettings()
         coreTransitionTask?.cancel()
         coreTransitionTask = nil
-        stopControllerStreams()
+        stopControllerUpdates()
         updateCoordinator.stopAll()
         profileVisualPreloadTask?.cancel()
         profileVisualPreloadTask = nil
@@ -3017,7 +3036,7 @@ final class AppModel: ObservableObject {
         saveSettings()
         coreTransitionTask?.cancel()
         coreTransitionTask = nil
-        stopControllerStreams()
+        stopControllerUpdates()
         updateCoordinator.stopAll()
         profileVisualPreloadTask?.cancel()
         profileVisualPreloadTask = nil
@@ -3102,6 +3121,7 @@ final class AppModel: ObservableObject {
     func clearLogs() {
         logs.removeAll()
         runtimeLogs.removeAll()
+        publishIfChanged(\.logAnalysisSnapshot, LogAnalyzer.analyze(processLog: "", runtimeLog: ""))
         logReportSamples.removeAll()
         lastLogReportSampleDate = nil
     }
@@ -3111,18 +3131,14 @@ final class AppModel: ObservableObject {
         appendLogReportSample()
     }
 
-    private func appendRuntimeLog(_ text: String) {
-        runtimeLogs.append(text)
-        appendLogReportSample()
-    }
-
     private func appendLogReportSample(now: Date = Date()) {
         if let lastLogReportSampleDate,
            now.timeIntervalSince(lastLogReportSampleDate) < 2 {
             return
         }
 
-        let snapshot = logAnalysisSnapshot
+        let snapshot = LogAnalyzer.analyze(processLog: logs, runtimeLog: runtimeLogs)
+        publishIfChanged(\.logAnalysisSnapshot, snapshot)
         appendBounded(
             LogReportSample(
                 timestamp: now,
@@ -3363,7 +3379,9 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshTrafficAndMemory() async {
-        // /traffic 和 /memory 是流式端点，普通 URLSession 请求会等到超时；后台轮询只做本地内存兜底。
+        // Controller telemetry is intentionally timer-driven. mihomo exposes /traffic and /memory
+        // as streaming endpoints, so the GUI does not subscribe to them; traffic comes from timed
+        // /connections snapshots and memory uses the local managed-process RSS fallback.
         await refreshManagedMemoryFallback()
     }
 
@@ -3389,9 +3407,10 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func startControllerStreams() {
-        startLogStream()
-        startTelemetryStreams()
+    private func startControllerUpdates() {
+        // Do not start WebSocket streams from the GUI. Overview, status bar, and connection data all
+        // refresh through AppUpdateCoordinator so page switches are not driven by high-frequency
+        // real-time events.
         startCoreSnapshotUpdates()
     }
 
@@ -3401,7 +3420,7 @@ final class AppModel: ObservableObject {
     }
 
     private func resetRuntimeSnapshotForStoppedCore() {
-        stopControllerStreams()
+        stopControllerUpdates()
         archiveActiveConnectionsForHistory()
         apiText = t(.apiNotTested)
         connections.removeAll()
@@ -3418,70 +3437,15 @@ final class AppModel: ObservableObject {
         appendClosedConnections(fromPreviousActive: connections, nextActive: [])
     }
 
-    private func stopControllerStreams() {
-        logStream.stop()
-        trafficStream.stop()
-        memoryStream.stop()
-        connectionsStream.stop()
+    private func stopControllerUpdates() {
         updateCoordinator.stop(AppUpdateID.coreSnapshot)
-    }
-
-    private func startLogStream() {
-        guard let url = settings.controllerBaseURL else { return }
-        logStream.start(baseURL: url, secret: settings.secret) { [weak self] text in
-            Task { @MainActor in
-                self?.appendRuntimeLog(text)
-            }
-        }
-    }
-
-    private func startTelemetryStreams() {
-        guard let url = settings.controllerBaseURL else { return }
-        trafficStream.start(baseURL: url, secret: settings.secret, path: "/traffic") { [weak self] event in
-            Task { @MainActor in
-                guard let self else { return }
-                if event.up != nil || event.down != nil || event.upTotal != nil || event.downTotal != nil {
-                    self.lastTrafficEventDate = Date()
-                }
-                self.uploadSpeed = event.up ?? self.uploadSpeed
-                self.downloadSpeed = event.down ?? self.downloadSpeed
-                self.uploadTotal = event.upTotal ?? self.uploadTotal
-                self.downloadTotal = event.downTotal ?? self.downloadTotal
-            }
-        } onError: { [weak self] text in
-            Task { @MainActor in self?.appendRuntimeLog(text + "\n") }
-        }
-
-        memoryStream.start(baseURL: url, secret: settings.secret, path: "/memory") { [weak self] event in
-            Task { @MainActor in
-                guard let self else { return }
-                if let inuse = event.inuse, inuse > 0 {
-                    self.memoryInUse = inuse
-                    self.memoryLimit = event.oslimit ?? self.memoryLimit
-                    self.memoryUnavailable = false
-                }
-            }
-        } onError: { [weak self] text in
-            Task { @MainActor in self?.appendRuntimeLog(text + "\n") }
-        }
-
-        connectionsStream.start(
-            baseURL: url,
-            secret: settings.secret,
-            path: "/connections",
-            queryItems: [URLQueryItem(name: "interval", value: "1000")]
-        ) { [weak self] event in
-            Task { @MainActor in
-                self?.applyConnectionTelemetry(event)
-            }
-        } onError: { [weak self] text in
-            Task { @MainActor in self?.appendRuntimeLog(text + "\n") }
-        }
     }
 
     private func applyConnectionTelemetry(_ response: MihomoConnectionsResponse) {
         appendClosedConnections(fromPreviousActive: connections, nextActive: response.connections)
-        connections = response.connections
+        publishIfChanged(\.connections, response.connections)
+        let connectionAnalysis = ConnectionAnalyzer.analyze(response.connections)
+        publishIfChanged(\.connectionAnalysisSnapshot, connectionAnalysis)
         let connectionTotals = Self.connectionTrafficTotals(response.connections)
         let nextUploadTotal = Self.resolvedTrafficTotal(
             reported: response.uploadTotal,
@@ -3494,8 +3458,8 @@ final class AppModel: ObservableObject {
             activeConnectionTotal: connectionTotals.download
         )
         applyConnectionSpeedFallback(uploadTotal: nextUploadTotal, downloadTotal: nextDownloadTotal)
-        uploadTotal = nextUploadTotal
-        downloadTotal = nextDownloadTotal
+        publishIfChanged(\.uploadTotal, nextUploadTotal)
+        publishIfChanged(\.downloadTotal, nextDownloadTotal)
 
         let includeInitialSamples = shouldSeedConnectionTrafficSnapshot && !response.connections.isEmpty
         connectionTrafficAccumulator.apply(
@@ -3505,13 +3469,13 @@ final class AppModel: ObservableObject {
         if !response.connections.isEmpty {
             shouldSeedConnectionTrafficSnapshot = false
         }
-        proxyRoutedUploadTotal = connectionTrafficAccumulator.proxyUploadTotal
-        proxyRoutedDownloadTotal = connectionTrafficAccumulator.proxyDownloadTotal
-        directRoutedUploadTotal = connectionTrafficAccumulator.directUploadTotal
-        directRoutedDownloadTotal = connectionTrafficAccumulator.directDownloadTotal
-        unknownRoutedUploadTotal = connectionTrafficAccumulator.unknownUploadTotal
-        unknownRoutedDownloadTotal = connectionTrafficAccumulator.unknownDownloadTotal
-        appendConnectionReportSample(from: connectionAnalysisSnapshot)
+        publishIfChanged(\.proxyRoutedUploadTotal, connectionTrafficAccumulator.proxyUploadTotal)
+        publishIfChanged(\.proxyRoutedDownloadTotal, connectionTrafficAccumulator.proxyDownloadTotal)
+        publishIfChanged(\.directRoutedUploadTotal, connectionTrafficAccumulator.directUploadTotal)
+        publishIfChanged(\.directRoutedDownloadTotal, connectionTrafficAccumulator.directDownloadTotal)
+        publishIfChanged(\.unknownRoutedUploadTotal, connectionTrafficAccumulator.unknownUploadTotal)
+        publishIfChanged(\.unknownRoutedDownloadTotal, connectionTrafficAccumulator.unknownDownloadTotal)
+        appendConnectionReportSample(from: connectionAnalysis)
     }
 
     private func appendClosedConnections(fromPreviousActive previousActive: [MihomoConnection], nextActive: [MihomoConnection]) {
@@ -3528,7 +3492,7 @@ final class AppModel: ObservableObject {
         if nextClosedConnections.count > ConnectionHistoryPolicy.closedConnectionLimit {
             nextClosedConnections.removeFirst(nextClosedConnections.count - ConnectionHistoryPolicy.closedConnectionLimit)
         }
-        closedConnections = nextClosedConnections
+        publishIfChanged(\.closedConnections, nextClosedConnections)
     }
 
     private func applyConnectionSpeedFallback(uploadTotal: Int64, downloadTotal: Int64, at now: Date = Date()) {
@@ -3538,8 +3502,7 @@ final class AppModel: ObservableObject {
             lastConnectionDownloadTotal = downloadTotal
         }
 
-        guard shouldUseConnectionSpeedFallback(at: now),
-              let previousDate = lastConnectionTelemetryDate,
+        guard let previousDate = lastConnectionTelemetryDate,
               let previousUploadTotal = lastConnectionUploadTotal,
               let previousDownloadTotal = lastConnectionDownloadTotal else {
             return
@@ -3548,19 +3511,13 @@ final class AppModel: ObservableObject {
         let elapsed = now.timeIntervalSince(previousDate)
         guard elapsed >= 0.25 else { return }
 
-        uploadSpeed = Int64(Double(max(0, uploadTotal - previousUploadTotal)) / elapsed)
-        downloadSpeed = Int64(Double(max(0, downloadTotal - previousDownloadTotal)) / elapsed)
-    }
-
-    private func shouldUseConnectionSpeedFallback(at now: Date) -> Bool {
-        guard let lastTrafficEventDate else { return true }
-        return now.timeIntervalSince(lastTrafficEventDate) > 2.5
+        publishIfChanged(\.uploadSpeed, Int64(Double(max(0, uploadTotal - previousUploadTotal)) / elapsed))
+        publishIfChanged(\.downloadSpeed, Int64(Double(max(0, downloadTotal - previousDownloadTotal)) / elapsed))
     }
 
     private func resetConnectionTrafficBreakdown() {
         connectionTrafficAccumulator.reset()
         shouldSeedConnectionTrafficSnapshot = true
-        lastTrafficEventDate = nil
         lastConnectionTelemetryDate = nil
         lastConnectionUploadTotal = nil
         lastConnectionDownloadTotal = nil
@@ -3573,6 +3530,7 @@ final class AppModel: ObservableObject {
         unknownRoutedUploadTotal = 0
         unknownRoutedDownloadTotal = 0
         connectionReportSamples.removeAll()
+        publishIfChanged(\.connectionAnalysisSnapshot, ConnectionAnalyzer.analyze([]))
         lastConnectionReportSampleDate = nil
     }
 
@@ -3601,11 +3559,11 @@ final class AppModel: ObservableObject {
             manager.managedRSSBytes()
         }.value
         if let rss, rss > 0 {
-            memoryInUse = rss
-            memoryLimit = 0
-            memoryUnavailable = false
+            publishIfChanged(\.memoryInUse, rss)
+            publishIfChanged(\.memoryLimit, 0)
+            publishIfChanged(\.memoryUnavailable, false)
         } else if isRunning, memoryInUse == 0, memoryLimit == 0 {
-            memoryUnavailable = true
+            publishIfChanged(\.memoryUnavailable, true)
         }
     }
 

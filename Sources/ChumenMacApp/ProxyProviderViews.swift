@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ProxiesView: View {
     @EnvironmentObject private var model: AppModel
+    let isVisible: Bool
     @State private var proxySelectionHelpGroupID: String?
 
     private enum Layout {
@@ -18,6 +19,17 @@ struct ProxiesView: View {
     }
 
     var body: some View {
+        Group {
+            if isVisible {
+                content
+            } else {
+                ChumenStyle.pageBackground
+            }
+        }
+        .background(ChumenStyle.pageBackground)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Button {
@@ -323,8 +335,20 @@ private struct ProxySelectionPopUpButton: NSViewRepresentable {
 
 struct ProvidersView: View {
     @EnvironmentObject private var model: AppModel
+    let isVisible: Bool
 
     var body: some View {
+        Group {
+            if isVisible {
+                content
+            } else {
+                ChumenStyle.pageBackground
+            }
+        }
+        .background(ChumenStyle.pageBackground)
+    }
+
+    private var content: some View {
         HStack(alignment: .top, spacing: 14) {
             providerPanel(
                 title: model.t(.proxyProviders),

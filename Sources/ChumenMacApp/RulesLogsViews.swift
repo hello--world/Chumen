@@ -10,16 +10,28 @@ private enum LogReportRendering {
 
 struct RulesView: View {
     @EnvironmentObject private var model: AppModel
+    let isVisible: Bool
     @State private var ruleSearchText = ""
     @State private var ruleSearchState = RuleSearchViewState.empty
     @State private var ruleSearchTask: Task<Void, Never>?
 
     var body: some View {
+        Group {
+            if isVisible {
+                content
+            } else {
+                ChumenStyle.pageBackground
+            }
+        }
+        .background(ChumenStyle.pageBackground)
+    }
+
+    private var content: some View {
         let query = ruleSearchQuery
         let activeSearch = activeRuleSearchState(query: query)
         let visibleRuleIndexes = visibleRuleIndexes(query: query, state: activeSearch)
 
-        VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Button {
                     Task {

@@ -62,16 +62,16 @@ struct ContentView: View {
                         ProfilesView(choosingProfile: $choosingProfile)
                             .tabItem { Label(model.t(.profiles), systemImage: "doc.text") }
                             .tag(AppTab.profiles)
-                        ProxiesView()
+                        ProxiesView(isVisible: selectedTab == .proxies)
                             .tabItem { Label(model.t(.proxies), systemImage: "point.3.connected.trianglepath.dotted") }
                             .tag(AppTab.proxies)
-                        ProvidersView()
+                        ProvidersView(isVisible: selectedTab == .providers)
                             .tabItem { Label(model.t(.providers), systemImage: "tray.full") }
                             .tag(AppTab.providers)
                         ConnectionsView(isVisible: selectedTab == .connections)
                             .tabItem { Label(model.t(.connections), systemImage: "link") }
                             .tag(AppTab.connections)
-                        RulesView()
+                        RulesView(isVisible: selectedTab == .rules)
                             .tabItem { Label(model.t(.rules), systemImage: "list.bullet.rectangle") }
                             .tag(AppTab.rules)
                         CoreSettingsView(choosingCore: $choosingCore)
