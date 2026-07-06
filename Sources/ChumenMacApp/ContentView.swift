@@ -30,6 +30,21 @@ struct ContentView: View {
         model.pinOverlayPresented || model.startupImportPromptPresented
     }
 
+    // macOS TabView may still evaluate hidden child bodies when the selection changes. Keep the
+    // shell as the ownership boundary for heavyweight pages so switching tabs does not construct
+    // settings forms, provider lists, charts, or log surfaces that are not currently visible.
+    @ViewBuilder
+    private func activeTabContent<Content: View>(
+        for tab: AppTab,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if selectedTab == tab {
+            content()
+        } else {
+            ChumenStyle.pageBackground
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             if blockingSetupOverlayPresented {
@@ -40,50 +55,70 @@ struct ContentView: View {
                     header
                     Divider()
                     TabView(selection: $selectedTab) {
-                        DashboardView(
-                            selectedTab: $selectedTab,
-                            aiAssistantPresented: $aiAssistantPresented,
-                            aiSearchResults: aiSearchResults,
-                            aiMarkdownCache: aiMarkdownCache,
-                            onAISearchChanged: {
-                                scheduleAISearch()
-                            },
-                            onAISearchImmediately: {
-                                scheduleAISearch(delay: .zero)
-                            },
-                            onAIClearSearchResults: {
-                                aiSearchResults = []
-                            },
-                            onAISubmit: submitAIInput,
-                            onAISelectSearchResult: selectAISearchResult
-                        )
+                        activeTabContent(for: .dashboard) {
+                            DashboardView(
+                                selectedTab: $selectedTab,
+                                aiAssistantPresented: $aiAssistantPresented,
+                                aiSearchResults: aiSearchResults,
+                                aiMarkdownCache: aiMarkdownCache,
+                                onAISearchChanged: {
+                                    scheduleAISearch()
+                                },
+                                onAISearchImmediately: {
+                                    scheduleAISearch(delay: .zero)
+                                },
+                                onAIClearSearchResults: {
+                                    aiSearchResults = []
+                                },
+                                onAISubmit: submitAIInput,
+                                onAISelectSearchResult: selectAISearchResult
+                            )
+                        }
                         .tabItem { Label(model.t(.dashboard), systemImage: "gauge.with.dots.needle.50percent") }
                         .tag(AppTab.dashboard)
-                        ProfilesView(choosingProfile: $choosingProfile)
+                        activeTabContent(for: .profiles) {
+                            ProfilesView(choosingProfile: $choosingProfile)
+                        }
                             .tabItem { Label(model.t(.profiles), systemImage: "doc.text") }
                             .tag(AppTab.profiles)
-                        ProxiesView(isVisible: selectedTab == .proxies)
+                        activeTabContent(for: .proxies) {
+                            ProxiesView(isVisible: true)
+                        }
                             .tabItem { Label(model.t(.proxies), systemImage: "point.3.connected.trianglepath.dotted") }
                             .tag(AppTab.proxies)
-                        ProvidersView(isVisible: selectedTab == .providers)
+                        activeTabContent(for: .providers) {
+                            ProvidersView(isVisible: true)
+                        }
                             .tabItem { Label(model.t(.providers), systemImage: "tray.full") }
                             .tag(AppTab.providers)
-                        ConnectionsView(isVisible: selectedTab == .connections)
+                        activeTabContent(for: .connections) {
+                            ConnectionsView(isVisible: true)
+                        }
                             .tabItem { Label(model.t(.connections), systemImage: "link") }
                             .tag(AppTab.connections)
-                        RulesView(isVisible: selectedTab == .rules)
+                        activeTabContent(for: .rules) {
+                            RulesView(isVisible: true)
+                        }
                             .tabItem { Label(model.t(.rules), systemImage: "list.bullet.rectangle") }
                             .tag(AppTab.rules)
-                        CoreSettingsView(choosingCore: $choosingCore)
+                        activeTabContent(for: .core) {
+                            CoreSettingsView(choosingCore: $choosingCore)
+                        }
                             .tabItem { Label(model.t(.coreSettings), systemImage: "gearshape.2") }
                             .tag(AppTab.core)
-                        CoreToolsView()
+                        activeTabContent(for: .coreTools) {
+                            CoreToolsView()
+                        }
                             .tabItem { Label(model.t(.coreTools), systemImage: "terminal") }
                             .tag(AppTab.coreTools)
-                        LogsView(isVisible: selectedTab == .logs)
+                        activeTabContent(for: .logs) {
+                            LogsView(isVisible: true)
+                        }
                             .tabItem { Label(model.t(.logs), systemImage: "text.alignleft") }
                             .tag(AppTab.logs)
-                        AppSettingsView()
+                        activeTabContent(for: .settings) {
+                            AppSettingsView()
+                        }
                             .tabItem { Label(model.t(.appSettings), systemImage: "gearshape") }
                             .tag(AppTab.settings)
                     }

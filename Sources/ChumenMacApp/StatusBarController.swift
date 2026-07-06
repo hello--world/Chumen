@@ -115,6 +115,39 @@ private final class StackedSpeedStatusView: NSView {
     }
 }
 
+private struct StatusBarSnapshot: Equatable {
+    let showStatusBarItem: Bool
+    let displayMode: StatusBarDisplayMode
+    let title: String
+    let tooltip: String
+    let iconState: StatusBarDoorIconState
+    let uploadSpeed: Int64
+    let downloadSpeed: Int64
+
+    @MainActor
+    init(model: AppModel) {
+        showStatusBarItem = model.settings.showStatusBarItem
+        displayMode = model.settings.statusBarDisplayMode
+        title = model.statusBarTitleText
+        tooltip = model.statusBarTooltipText
+        iconState = Self.doorIconState(for: model)
+        uploadSpeed = model.uploadSpeed
+        downloadSpeed = model.downloadSpeed
+    }
+
+    @MainActor
+    private static func doorIconState(for model: AppModel) -> StatusBarDoorIconState {
+        let tunIsActivelyRouting = model.isRunning && model.settings.enableTun && !model.tunRuntimeFailed
+        if tunIsActivelyRouting {
+            return .open
+        }
+        if model.systemProxyEnabled && !model.systemProxyRuntimeFailed {
+            return .proxy
+        }
+        return .closed
+    }
+}
+
 @MainActor
 final class StatusBarController: NSObject, NSMenuDelegate {
     static let shared = StatusBarController()
@@ -125,6 +158,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let statusMenu = NSMenu()
     private var cancellables = Set<AnyCancellable>()
     private weak var stackedSpeedView: StackedSpeedStatusView?
+    private var lastSnapshot: StatusBarSnapshot?
 
     private override init() {
         super.init()
@@ -134,6 +168,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     func install(model: AppModel, openMainWindow: @escaping () -> Void, replaceOpenAction: Bool = true) {
         self.model = model
+        lastSnapshot = nil
         if replaceOpenAction || self.openMainWindow == nil {
             self.openMainWindow = openMainWindow
         }
@@ -149,9 +184,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private func bindModel(_ model: AppModel) {
         cancellables.removeAll()
         model.objectWillChange
+            .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     self?.updateStatusItemVisibility()
                 }
             }
@@ -160,11 +196,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     private func updateStatusItemVisibility() {
         guard let model else { return }
-        if !model.settings.showStatusBarItem {
+        let snapshot = StatusBarSnapshot(model: model)
+        guard snapshot != lastSnapshot else { return }
+        lastSnapshot = snapshot
+
+        if !snapshot.showStatusBarItem {
             // 用户可以完全隐藏状态栏入口；设置恢复后会重新创建 NSStatusItem。
             if let statusItem {
                 NSStatusBar.system.removeStatusItem(statusItem)
                 self.statusItem = nil
+                stackedSpeedView = nil
             }
             return
         }
@@ -179,23 +220,23 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
 
         statusItem?.menu = statusMenu
-        updateButton()
+        updateButton(snapshot)
     }
 
-    private func updateButton() {
-        guard let model, let button = statusItem?.button else { return }
-        let title = model.statusBarTitleText
-        let isStackedSpeed = model.settings.statusBarDisplayMode == .stackedSpeed
-        statusItem?.length = statusItemLength(for: model)
+    private func updateButton(_ snapshot: StatusBarSnapshot) {
+        guard let button = statusItem?.button else { return }
+        let title = snapshot.title
+        let isStackedSpeed = snapshot.displayMode == .stackedSpeed
+        statusItem?.length = statusItemLength(for: snapshot)
 
         if isStackedSpeed {
-            updateStackedSpeedButton(button, model: model)
+            updateStackedSpeedButton(button, snapshot: snapshot)
             return
         }
 
         stackedSpeedView?.removeFromSuperview()
         stackedSpeedView = nil
-        button.image = statusIcon(for: model)
+        button.image = statusIcon(for: snapshot.iconState)
         button.imageScaling = .scaleProportionallyDown
         button.imagePosition = title.isEmpty ? .imageOnly : .imageLeading
         button.alignment = .left
@@ -204,18 +245,18 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         button.cell?.lineBreakMode = .byClipping
         button.title = ""
         button.attributedTitle = attributedStatusTitle(title.isEmpty ? "" : " \(title)")
-        button.toolTip = model.statusBarTooltipText
+        button.toolTip = snapshot.tooltip
         button.setAccessibilityLabel("Chumen")
         button.setAccessibilityTitle(title.isEmpty ? "Chumen" : "Chumen \(title)")
     }
 
-    private func updateStackedSpeedButton(_ button: NSStatusBarButton, model: AppModel) {
+    private func updateStackedSpeedButton(_ button: NSStatusBarButton, snapshot: StatusBarSnapshot) {
         button.image = nil
         button.title = ""
         button.attributedTitle = NSAttributedString(string: "")
-        button.toolTip = model.statusBarTooltipText
+        button.toolTip = snapshot.tooltip
         button.setAccessibilityLabel("Chumen")
-        button.setAccessibilityTitle("Chumen \(model.statusBarStackedSpeedText.replacingOccurrences(of: "\n", with: " "))")
+        button.setAccessibilityTitle("Chumen \(snapshot.title.replacingOccurrences(of: "\n", with: " "))")
 
         let view: StackedSpeedStatusView
         if let existing = stackedSpeedView, existing.superview == button {
@@ -229,22 +270,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
 
         view.frame = button.bounds
-        view.update(icon: statusIcon(for: model), up: model.uploadSpeed, down: model.downloadSpeed)
+        view.update(icon: statusIcon(for: snapshot.iconState), up: snapshot.uploadSpeed, down: snapshot.downloadSpeed)
     }
 
-    private func statusIcon(for model: AppModel) -> NSImage {
-        StatusBarIconFactory.image(for: statusDoorIconState(for: model))
-    }
-
-    private func statusDoorIconState(for model: AppModel) -> StatusBarDoorIconState {
-        let tunIsActivelyRouting = model.isRunning && model.settings.enableTun && !model.tunRuntimeFailed
-        if tunIsActivelyRouting {
-            return .open
-        }
-        if model.systemProxyEnabled && !model.systemProxyRuntimeFailed {
-            return .proxy
-        }
-        return .closed
+    private func statusIcon(for state: StatusBarDoorIconState) -> NSImage {
+        StatusBarIconFactory.image(for: state)
     }
 
     private func attributedStatusTitle(_ title: String) -> NSAttributedString {
@@ -258,17 +288,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         )
     }
 
-    private func statusItemLength(for model: AppModel) -> CGFloat {
-        guard !model.statusBarTitleText.isEmpty else { return NSStatusItem.squareLength }
-        switch model.settings.statusBarDisplayMode {
+    private func statusItemLength(for snapshot: StatusBarSnapshot) -> CGFloat {
+        guard !snapshot.title.isEmpty else { return NSStatusItem.squareLength }
+        switch snapshot.displayMode {
         case .speed, .traffic:
-            return measuredStatusItemLength(for: model.statusBarTitleText, minimum: 68, maximum: 126)
+            return measuredStatusItemLength(for: snapshot.title, minimum: 68, maximum: 126)
         case .stackedSpeed:
             return StackedSpeedStatusView.statusItemWidth()
         case .custom:
-            return measuredStatusItemLength(for: model.statusBarTitleText, minimum: 44, maximum: 136)
+            return measuredStatusItemLength(for: snapshot.title, minimum: 44, maximum: 136)
         case .statusAndSpeed:
-            return measuredStatusItemLength(for: model.statusBarTitleText, minimum: 96, maximum: 180)
+            return measuredStatusItemLength(for: snapshot.title, minimum: 96, maximum: 180)
         case .appName, .status:
             return NSStatusItem.variableLength
         case .iconOnly:

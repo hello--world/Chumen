@@ -1,6 +1,6 @@
 import AppKit
 
-enum StatusBarDoorIconState {
+enum StatusBarDoorIconState: Equatable {
     case closed
     case proxy
     case open

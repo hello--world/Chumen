@@ -21,7 +21,7 @@ struct AIAssistantOverlayView: View {
     // The assistant owns only its text-field focus. Search scheduling and navigation stay outside
     // through callbacks so this view can move between overlay/sidebar presentations safely.
     @FocusState private var aiInputFocused: Bool
-    @State private var aiAdvancedConfigExpanded = true
+    @State private var aiAdvancedConfigExpanded = false
 
     var body: some View {
         aiAssistantPanel
