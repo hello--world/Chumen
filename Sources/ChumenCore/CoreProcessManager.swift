@@ -118,15 +118,15 @@ public final class CoreProcessManager: @unchecked Sendable {
                 paths.externalControllerSocketURL.path
             ]
             process.environment = coreEnvironment(ageSecretKey: ageSecretKey)
-
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-            pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-                let data = handle.availableData
-                guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-                self?.appendLog(text)
+            guard let processLogHandle = logHandle else {
+                throw ChumenError.commandFailed("Failed to open core log file.")
             }
+
+            // Keep core stdout/stderr on a real file descriptor rather than an app-owned pipe.
+            // This lets ordinary App termination leave the proxy core alive; a pipe would be
+            // closed with the GUI process and can make the core exit on its next log write.
+            process.standardOutput = processLogHandle
+            process.standardError = processLogHandle
 
             process.terminationHandler = { [weak self] process in
                 let status = process.terminationStatus
@@ -179,6 +179,16 @@ public final class CoreProcessManager: @unchecked Sendable {
         }
     }
 
+    public func detachForAppTerminationPreservingCore() {
+        // Intent: normal macOS termination of the GUI must not imply "stop proxy".
+        // The status bar Quit action still calls stop(); this path only releases
+        // App-owned handles so managed sidecars can keep serving traffic.
+        process?.terminationHandler = nil
+        process = nil
+        logHandle?.closeFile()
+        logHandle = nil
+    }
+
     public func restart(settings: ChumenRuntimeSettings, profileAppendixYAML: String = "") throws {
         stop(waitForExit: true)
         try start(settings: settings, profileAppendixYAML: profileAppendixYAML)
@@ -199,12 +209,8 @@ public final class CoreProcessManager: @unchecked Sendable {
 
     private func prepareLogFile() throws {
         try paths.ensureDirectories(fileManager: fileManager)
-        if !fileManager.fileExists(atPath: paths.sidecarLogURL.path) {
-            fileManager.createFile(atPath: paths.sidecarLogURL.path, contents: nil)
-        }
         logHandle?.closeFile()
-        logHandle = try FileHandle(forWritingTo: paths.sidecarLogURL)
-        try logHandle?.seekToEnd()
+        logHandle = try Self.openAppendLogHandle(at: paths.sidecarLogURL)
     }
 
     private func appendLog(_ text: String) {
@@ -579,6 +585,14 @@ public final class CoreProcessManager: @unchecked Sendable {
 
     private static func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func openAppendLogHandle(at url: URL) throws -> FileHandle {
+        let descriptor = Darwin.open(url.path, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+        guard descriptor >= 0 else {
+            throw ChumenError.commandFailed("Failed to open log file \(url.path): errno \(errno)")
+        }
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     }
 
     private static func appleScriptString(_ value: String) -> String {

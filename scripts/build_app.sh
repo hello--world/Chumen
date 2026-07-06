@@ -3,21 +3,57 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
-APP_DIR="$DIST_DIR/Chumen.app"
+CORE_BUNDLE_NAME="chumen-door"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/build_app.sh [debug|release]
+
+Build modes:
+  debug    Daily development package. Default. Outputs dist/debug/Chumen.app
+  release  Formal package. Outputs dist/Chumen.app
+EOF
+}
+
+BUILD_CONFIGURATION="${1:-debug}"
+if [[ $# -gt 1 ]]; then
+  usage >&2
+  exit 2
+fi
+
+case "$BUILD_CONFIGURATION" in
+  debug|--debug|-d)
+    BUILD_CONFIGURATION="debug"
+    APP_DIR="$DIST_DIR/debug/Chumen.app"
+    ;;
+  release|--release|-r)
+    BUILD_CONFIGURATION="release"
+    APP_DIR="$DIST_DIR/Chumen.app"
+    ;;
+  --help|-h)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
-CORE_BUNDLE_NAME="chumen-door"
 
 cd "$ROOT_DIR"
-swift build -c release --product Chumen
-swift build -c release --product ChumenHelper
+echo "Building Chumen $BUILD_CONFIGURATION package..."
+swift build -c "$BUILD_CONFIGURATION" --product Chumen
+swift build -c "$BUILD_CONFIGURATION" --product ChumenHelper
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-cp "$ROOT_DIR/.build/release/Chumen" "$MACOS_DIR/Chumen"
-cp "$ROOT_DIR/.build/release/ChumenHelper" "$RESOURCES_DIR/ChumenHelper"
+cp "$ROOT_DIR/.build/$BUILD_CONFIGURATION/Chumen" "$MACOS_DIR/Chumen"
+cp "$ROOT_DIR/.build/$BUILD_CONFIGURATION/ChumenHelper" "$RESOURCES_DIR/ChumenHelper"
 cp "$ROOT_DIR/Packaging/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$ROOT_DIR/Packaging/Assets/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 cp "$ROOT_DIR/Packaging/Assets/StatusBarDoorClosed.png" "$RESOURCES_DIR/StatusBarDoorClosed.png"
@@ -25,6 +61,10 @@ cp "$ROOT_DIR/Packaging/Assets/StatusBarDoorProxy.png" "$RESOURCES_DIR/StatusBar
 cp "$ROOT_DIR/Packaging/Assets/StatusBarDoorOpen.png" "$RESOURCES_DIR/StatusBarDoorOpen.png"
 cp "$ROOT_DIR/Packaging/Assets/StatusBarDoorOpenWithDoor.png" "$RESOURCES_DIR/StatusBarDoorOpenWithDoor.png"
 cp "$ROOT_DIR/Packaging/Assets/StatusBarDoorOpenDoorway.png" "$RESOURCES_DIR/StatusBarDoorOpenDoorway.png"
+for RESOURCE_BUNDLE in "$ROOT_DIR"/.build/"$BUILD_CONFIGURATION"/*ChumenCore*.bundle; do
+  [[ -d "$RESOURCE_BUNDLE" ]] || continue
+  cp -R "$RESOURCE_BUNDLE" "$RESOURCES_DIR/"
+done
 printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
 chmod 755 "$MACOS_DIR/Chumen"
 chmod 755 "$RESOURCES_DIR/ChumenHelper"

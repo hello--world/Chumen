@@ -19,7 +19,7 @@ struct AIAssistantOverlayView: View {
     // The assistant owns only its text-field focus. Search scheduling and navigation stay outside
     // through callbacks so this view can move between overlay/sidebar presentations safely.
     @FocusState private var aiInputFocused: Bool
-    @State private var aiAdvancedConfigExpanded = false
+    @State private var aiAdvancedConfigExpanded = true
 
     var body: some View {
         aiAssistantPanel
@@ -202,11 +202,15 @@ struct AIAssistantOverlayView: View {
                 VStack(alignment: .leading, spacing: 9) {
                     if model.settings.ai.usesLocalOllama {
                         localOllamaConfiguration
+                    } else if model.settings.ai.usesCodexWebAPI {
+                        codexWebAPIConfiguration
+                    } else if model.settings.ai.usesCodexAgent {
+                        codexAgentConfiguration
                     } else {
                         customAIConfiguration
                     }
 
-                    if model.settings.ai.requiresAPIKey {
+                    if model.settings.ai.requiresAPIKey || model.settings.ai.acceptsOptionalAPIKey {
                         aiAPIKeyConfiguration
                     }
                 }
@@ -244,8 +248,21 @@ struct AIAssistantOverlayView: View {
     }
 
     private var aiActiveModelSummary: String {
-        let provider = model.settings.ai.usesLocalOllama ? model.t(.aiUseLocalOllama) : model.t(.aiCustomEndpoint)
+        let provider: String
+        switch model.settings.ai.provider {
+        case .localOllama:
+            provider = model.t(.aiUseLocalOllama)
+        case .codexWebAPI:
+            provider = model.t(.aiUseCodexWebAPI)
+        case .codexAgent:
+            provider = model.t(.aiUseCodexAgent)
+        case .customEndpoint:
+            provider = model.t(.aiCustomEndpoint)
+        }
         let modelName = model.settings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        if model.settings.ai.usesCodexAgent, modelName.isEmpty {
+            return "\(model.t(.aiCodexReady)) · \(model.t(.aiCodexDefaultModelShort))"
+        }
         return modelName.isEmpty ? "\(provider) · \(model.t(.aiModelRequired))" : "\(provider) · \(modelName)"
     }
 
@@ -253,19 +270,23 @@ struct AIAssistantOverlayView: View {
     // is active. Local Ollama is zero-key and discovers models; custom endpoints expose raw fields.
     private var aiProviderPicker: some View {
         Picker(model.t(.aiModelSettings), selection: Binding(
-            get: { model.settings.ai.usesLocalOllama ? "ollama" : "custom" },
+            get: { model.settings.ai.provider.rawValue },
             set: { provider in
-                if provider == "ollama" {
+                if provider == ChumenAIProvider.localOllama.rawValue {
                     model.useLocalOllamaAI()
+                } else if provider == ChumenAIProvider.codexWebAPI.rawValue {
+                    model.useCodexWebAPIAI()
                 } else {
                     model.useCustomAIEndpoint()
                 }
             }
         )) {
             Label(model.t(.aiUseLocalOllama), systemImage: "desktopcomputer")
-                .tag("ollama")
+                .tag(ChumenAIProvider.localOllama.rawValue)
+            Label(model.t(.aiUseCodexWebAPI), systemImage: "sparkles")
+                .tag(ChumenAIProvider.codexWebAPI.rawValue)
             Label(model.t(.aiCustomEndpoint), systemImage: "network")
-                .tag("custom")
+                .tag(ChumenAIProvider.customEndpoint.rawValue)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -356,20 +377,90 @@ struct AIAssistantOverlayView: View {
         }
     }
 
-    private var aiAPIKeyConfiguration: some View {
-        aiFieldRow(model.t(.aiAPIKey)) {
-            HStack(spacing: 8) {
-                SecureField(model.t(.aiAPIKey), text: $model.aiAPIKeyInput)
+    private var codexWebAPIConfiguration: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            aiFieldRow(model.t(.aiBaseURL)) {
+                TextField(model.t(.aiBaseURL), text: $model.settings.ai.baseURL)
                     .textFieldStyle(.roundedBorder)
-                Button(model.t(.aiSaveKey)) {
-                    model.saveAIAPIKey()
+                    .onChange(of: model.settings.ai.baseURL) {
+                        model.scheduleSettingsAutosave()
+                    }
+            }
+            aiFieldRow(model.t(.aiModel)) {
+                TextField(model.t(.aiModel), text: Binding(
+                    get: { model.settings.ai.model },
+                    set: { model.setAIModel($0) }
+                ))
+                .textFieldStyle(.roundedBorder)
+            }
+
+            HStack(spacing: 7) {
+                Image(systemName: "checkmark.shield")
+                    .foregroundStyle(Color.green)
+                Text(model.t(.aiCodexWebAPIHint))
+                    .font(.caption)
+                    .foregroundStyle(ChumenStyle.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var codexAgentConfiguration: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            aiFieldRow(model.t(.aiModel)) {
+                TextField(model.t(.aiCodexModelPlaceholder), text: Binding(
+                    get: { model.settings.ai.model },
+                    set: { model.setAIModel($0) }
+                ))
+                .textFieldStyle(.roundedBorder)
+            }
+
+            HStack(spacing: 7) {
+                Image(systemName: "checkmark.shield")
+                    .foregroundStyle(Color.green)
+                Text(model.t(.aiCodexNoKeyRequired))
+                    .font(.caption)
+                    .foregroundStyle(ChumenStyle.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 7) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .foregroundStyle(Color.accentColor)
+                Text(model.t(.aiCodexMCPInherited))
+                    .font(.caption)
+                    .foregroundStyle(ChumenStyle.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var aiAPIKeyConfiguration: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            aiFieldRow(model.settings.ai.acceptsOptionalAPIKey ? model.t(.aiCodexAccessKey) : model.t(.aiAPIKey)) {
+                HStack(spacing: 8) {
+                    SecureField(
+                        model.settings.ai.acceptsOptionalAPIKey ? model.t(.aiCodexAccessKey) : model.t(.aiAPIKey),
+                        text: $model.aiAPIKeyInput
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    Button(model.t(.aiSaveKey)) {
+                        model.saveAIAPIKey()
+                    }
+                    .buttonStyle(.bordered)
+                    Button(model.t(.aiClearKey)) {
+                        model.clearAIAPIKey()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!model.aiAPIKeyStored)
                 }
-                .buttonStyle(.bordered)
-                Button(model.t(.aiClearKey)) {
-                    model.clearAIAPIKey()
-                }
-                .buttonStyle(.bordered)
-                .disabled(!model.aiAPIKeyStored)
+            }
+
+            if model.settings.ai.acceptsOptionalAPIKey {
+                Text(model.t(.aiCodexAccessKeyHint))
+                    .font(.caption2)
+                    .foregroundStyle(ChumenStyle.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -391,11 +482,22 @@ struct AIAssistantOverlayView: View {
 
     private var aiAssistantStatusText: String {
         if model.aiReady {
-            return model.settings.ai.usesLocalOllama ? model.t(.aiOllamaReady) : model.t(.aiKeyStored)
+            if model.settings.ai.usesLocalOllama {
+                return model.t(.aiOllamaReady)
+            }
+            if model.settings.ai.usesCodexAgent || model.settings.ai.usesCodexWebAPI {
+                return model.t(.aiCodexReady)
+            }
+            return model.t(.aiKeyStored)
         }
-        if model.settings.ai.usesLocalOllama &&
-            model.settings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if model.settings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return model.t(.aiModelRequired)
+        }
+        if model.settings.ai.usesCodexAgent {
+            return model.t(.aiCodexUnavailable)
+        }
+        if model.settings.ai.usesCodexWebAPI {
+            return model.t(.aiCodexUnavailable)
         }
         return model.settings.ai.requiresAPIKey ? model.t(.aiSearchOnly) : model.t(.aiOllamaReady)
     }

@@ -202,7 +202,7 @@ private final class ChumenAppDelegate: NSObject, NSApplicationDelegate {
             name: ChumenSingleInstance.reopenNotificationName,
             object: ChumenSingleInstance.reopenNotificationObject
         )
-        Self.model?.prepareForQuit()
+        Self.model?.prepareForApplicationTermination()
     }
 
     @objc private func handleDuplicateInstanceReopenRequest(_ notification: Notification) {

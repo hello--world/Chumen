@@ -161,8 +161,7 @@ private final class HelperServer: @unchecked Sendable {
         )
         unlink(controllerSocketPath)
 
-        let logHandle = try FileHandle(forWritingTo: prepareFile(path: logPath))
-        try logHandle.seekToEnd()
+        let logHandle = try openAppendLogHandle(path: logPath)
         try logHandle.write(contentsOf: Data("[helper privileged core start]\n".utf8))
 
         let process = Process()
@@ -285,12 +284,19 @@ private final class HelperServer: @unchecked Sendable {
         return value
     }
 
-    private func prepareFile(path: String) throws -> URL {
-        let url = URL(fileURLWithPath: path)
+    private func prepareFile(path: String) throws {
         if !FileManager.default.fileExists(atPath: path) {
             FileManager.default.createFile(atPath: path, contents: nil)
         }
-        return url
+    }
+
+    private func openAppendLogHandle(path: String) throws -> FileHandle {
+        try prepareFile(path: path)
+        let descriptor = Darwin.open(path, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+        guard descriptor >= 0 else {
+            throw HelperError("failed to open log file \(path): errno \(errno)")
+        }
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     }
 
     private func waitUntilExit(_ process: Process) {

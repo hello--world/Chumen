@@ -283,11 +283,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             action: #selector(toggleCore),
             enabled: !model.isCoreTransitioning
         ))
-        menu.addItem(menuItem(
-            title: model.t(.refresh),
-            symbol: "arrow.clockwise",
-            action: #selector(refreshAll)
-        ))
         menu.addItem(.separator())
 
         menu.addItem(submenuItem(
@@ -597,11 +592,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func toggleCore() {
         guard let model else { return }
         model.isRunning ? model.stop() : model.start()
-    }
-
-    @objc private func refreshAll() {
-        guard let model else { return }
-        Task { await model.refreshAll() }
     }
 
     @objc private func refreshProxies() {

@@ -100,11 +100,25 @@ bash ./scripts/download_mihomo.sh
 
 ## 构建 App
 
+日常开发默认打 debug 包：
+
 ```bash
 bash ./scripts/build_app.sh
 ```
 
 产物路径：
+
+```text
+dist/debug/Chumen.app
+```
+
+阶段性正式包显式使用 release：
+
+```bash
+bash ./scripts/build_app.sh release
+```
+
+正式包产物路径：
 
 ```text
 dist/Chumen.app
@@ -114,6 +128,7 @@ dist/Chumen.app
 
 ```bash
 CHUMEN_CORE_PATH="$PWD/bin/chumen-door" bash ./scripts/build_app.sh
+CHUMEN_CORE_PATH="$PWD/bin/chumen-door" bash ./scripts/build_app.sh release
 ```
 
 ## 功能

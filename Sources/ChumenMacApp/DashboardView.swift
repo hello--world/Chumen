@@ -95,12 +95,9 @@ struct DashboardView: View {
     }
 
     private var commandPanel: some View {
-        ViewThatFits(in: .horizontal) {
-            commandPanelWide
-            commandPanelStacked
-        }
+        commandPanelBody
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 6)
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
@@ -116,54 +113,104 @@ struct DashboardView: View {
         }
     }
 
-    // The overview control surface should read like a toolbar, not a settings form. On wide
-    // windows the status summary, muscle-memory actions, and mode switch share one horizontal row;
-    // only narrow windows fall back to the old stacked shape.
-    private var commandPanelWide: some View {
-        HStack(alignment: .center, spacing: 12) {
-            if !commandStatusItems.isEmpty {
-                commandStatusStrip
-                    .frame(minWidth: 270, maxWidth: 360, alignment: .leading)
+    // Keep the command header as one left-anchored row. Widths are intentionally bounded so the
+    // overview does not split the mode switch and quick actions into separate rows.
+    private var commandPanelBody: some View {
+        HStack(alignment: .center, spacing: 5) {
+            commandPanelStatusForToolbar
+
+            if !commandPinnedActionItems.isEmpty {
+                Color.clear
+                    .frame(width: commandStatusActionGap)
+                    .accessibilityHidden(true)
+
+                commandPinnedActionRow
+                    .layoutPriority(5)
             }
 
-            if !commandActionItems.isEmpty {
-                commandActionFlow
-                    .layoutPriority(1)
-            }
+            Color.clear
+                .frame(width: commandActionsModeGap)
+                .accessibilityHidden(true)
 
-            Spacer(minLength: 8)
             modeControl
+                .layoutPriority(1)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var commandToolbarStatusWidth: CGFloat {
+        252
+    }
+
+    private var commandStatusActionGap: CGFloat {
+        8
+    }
+
+    private var commandActionsModeGap: CGFloat {
+        8
+    }
+
+    private var commandPrimaryStatusItem: DashboardItem? {
+        commandStatusItems.first
+    }
+
+    @ViewBuilder
+    private var commandPanelStatusForToolbar: some View {
+        if let item = commandPrimaryStatusItem {
+            commandToolbarStatusContent(item)
+                .layoutPriority(10)
+                .help(quickActionHelp(item))
         }
     }
 
-    private var commandPanelStacked: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            commandPanelHeader
-            if !commandActionItems.isEmpty {
-                commandActionFlow
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    // The command panel header needs a compact but informative status summary. Keep it as a passive
+    // view instead of a Button: macOS button labels can reserve extra hit-test/layout space even with
+    // a plain style, which was the hidden source of the large gap before the Start button.
+    private func commandToolbarStatusContent(_ item: DashboardItem) -> some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .fill(item.tint.opacity(0.10))
+                Image(systemName: item.systemImage)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(item.tint)
             }
-        }
-    }
+            .frame(width: 34, height: 34)
 
-    private var commandPanelHeader: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 18) {
-                commandStatusStrip
-                Spacer(minLength: 16)
-                modeControl
-            }
-            commandPanelHeaderStacked
-        }
-    }
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(item.title)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
 
-    private var commandPanelHeaderStacked: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if !commandStatusItems.isEmpty {
-                commandStatusStrip
+                    Text(item.value)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(item.tint)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(item.tint.opacity(0.10))
+                        )
+                        .lineLimit(1)
+                }
+
+                Text(item.detail)
+                    .font(.caption)
+                    .foregroundStyle(ChumenStyle.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            modeControl
         }
+        .frame(
+            width: commandToolbarStatusWidth,
+            alignment: .leading
+        )
+        .clipped()
+        .contentShape(Rectangle())
     }
 
     private var commandBarItems: [DashboardItem] {
@@ -189,78 +236,13 @@ struct DashboardView: View {
         }
     }
 
-    private var commandStatusStrip: some View {
-        HStack(spacing: 10) {
-            ForEach(commandStatusItems) { item in
-                commandStatusItem(item)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func commandStatusItem(_ item: DashboardItem) -> some View {
-        if isActionable(item.action) {
-            Button {
-                perform(item.action)
-            } label: {
-                commandStatusContent(item)
-            }
-            .buttonStyle(.plain)
-            .disabled(!item.isEnabled)
-            .help(quickActionHelp(item))
-        } else {
-            commandStatusContent(item)
-        }
-    }
-
-    private func commandStatusContent(_ item: DashboardItem) -> some View {
-        HStack(spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                    .fill(item.tint.opacity(0.10))
-                Image(systemName: item.systemImage)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(item.tint)
-            }
-            .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text(item.title)
-                        .font(.headline.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-
-                    Text(item.value)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(item.tint)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(item.tint.opacity(0.10))
-                        )
-                }
-
-                Text(item.detail)
-                    .font(.caption)
-                    .foregroundStyle(ChumenStyle.mutedText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
-        .opacity(item.isEnabled ? 1 : 0.52)
-        .contentShape(Rectangle())
-    }
-
     private var modeControl: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 5) {
             Text(model.t(.mode))
-                .font(.callout.weight(.medium))
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(ChumenStyle.mutedText)
             dashboardModePicker
-                .frame(width: 180)
+                .frame(width: 112)
         }
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -274,7 +256,7 @@ struct DashboardView: View {
                     }
                 } label: {
                     Text(mode.rawValue)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(model.settings.mode == mode ? Color.white : Color.primary)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
@@ -299,12 +281,12 @@ struct DashboardView: View {
             quickActionConfigurationPresented = true
         } label: {
             Label(model.t(.editQuickControls), systemImage: "slider.horizontal.3")
-                .font(.subheadline.weight(.semibold))
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.primary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .padding(.horizontal, 10)
-                .frame(height: 32)
+                .minimumScaleFactor(0.64)
+                .padding(.horizontal, 6)
+                .frame(width: 88, height: 30)
                 .background(
                     RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                         .fill(ChumenStyle.controlFill)
@@ -314,19 +296,14 @@ struct DashboardView: View {
         .help(model.t(.quickControlsConfiguration))
     }
 
-    private var commandActionFlow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            CommandActionFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
-                ForEach(commandPinnedActionItems) { item in
-                    quickActionButton(item)
-                }
-                dashboardEditButton
+    private var commandPinnedActionRow: some View {
+        HStack(spacing: 5) {
+            ForEach(commandPinnedActionItems) { item in
+                quickActionButton(item)
             }
-
-            if !commandExtensionActionItems.isEmpty {
-                commandActionRow(commandExtensionActionItems)
-            }
+            dashboardEditButton
         }
+        .fixedSize(horizontal: true, vertical: false)
         .controlSize(.regular)
     }
 
@@ -334,12 +311,13 @@ struct DashboardView: View {
     // system proxy, TUN, and quick-control editing are muscle-memory operations and should stay
     // together; optional startup/network preferences belong below so enabling more shortcuts does
     // not disrupt the primary controls.
-    private func commandActionRow(_ items: [DashboardItem]) -> some View {
+    private var commandExtensionActionFlow: some View {
         CommandActionFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
-            ForEach(items) { item in
+            ForEach(commandExtensionActionItems) { item in
                 quickActionButton(item)
             }
         }
+        .controlSize(.regular)
     }
 
     private var commandPinnedActionItems: [DashboardItem] {
@@ -390,12 +368,12 @@ struct DashboardView: View {
 
     private func quickActionLabel(_ item: DashboardItem) -> some View {
         Label(item.title, systemImage: item.systemImage)
-            .font(.subheadline.weight(.semibold))
+            .font(.caption.weight(.semibold))
             .foregroundStyle(quickActionForeground(for: item))
             .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .padding(.horizontal, 10)
-            .frame(height: 32)
+            .minimumScaleFactor(0.64)
+            .padding(.horizontal, 6)
+            .frame(width: quickActionWidth(for: item), height: 30)
             .background(
                 RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                     .fill(quickActionBackground(for: item))
@@ -408,19 +386,19 @@ struct DashboardView: View {
     }
 
     private func quickToggleLabel(_ item: DashboardItem, isOn: Bool) -> some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 5) {
             Image(systemName: item.systemImage)
-                .font(.subheadline.weight(.semibold))
-                .frame(width: 16)
+                .font(.caption.weight(.semibold))
+                .frame(width: 14)
             Text(item.title)
-                .font(.subheadline.weight(.semibold))
+                .font(.caption.weight(.semibold))
                 .lineLimit(1)
-                .minimumScaleFactor(0.68)
+                .minimumScaleFactor(0.64)
             switchGlyph(isOn: isOn, tint: item.tint)
         }
         .foregroundStyle(quickActionForeground(for: item))
-        .padding(.horizontal, 10)
-        .frame(height: 32)
+        .padding(.horizontal, 6)
+        .frame(width: quickActionWidth(for: item), height: 30)
         .background(
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                 .fill(quickActionBackground(for: item))
@@ -435,13 +413,32 @@ struct DashboardView: View {
     private func switchGlyph(isOn: Bool, tint: Color) -> some View {
         RoundedRectangle(cornerRadius: 7, style: .continuous)
             .fill(isOn ? tint.opacity(0.92) : ChumenStyle.mutedText.opacity(0.22))
-            .frame(width: 24, height: 13)
+            .frame(width: 22, height: 12)
             .overlay(alignment: isOn ? .trailing : .leading) {
                 Circle()
                     .fill(Color.white)
-                    .frame(width: 9, height: 9)
+                    .frame(width: 8, height: 8)
                     .padding(2)
             }
+    }
+
+    private func quickActionWidth(for item: DashboardItem) -> CGFloat {
+        switch item.id {
+        case "actions.start":
+            return 56
+        case "actions.stop":
+            return 60
+        case "actions.restart":
+            return 66
+        case "actions.refresh":
+            return 70
+        case "actions.system-proxy":
+            return 98
+        case "actions.tun":
+            return 90
+        default:
+            return 88
+        }
     }
 
     private func quickActionHelp(_ item: DashboardItem) -> String {

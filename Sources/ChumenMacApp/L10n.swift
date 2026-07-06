@@ -50,6 +50,18 @@ enum L10n {
         case aiKeyMissing
         case aiSearchOnly
         case aiUseLocalOllama
+        case aiUseCodexWebAPI
+        case aiUseCodexAgent
+        case aiCodexReady
+        case aiCodexUnavailable
+        case aiCodexDefaultModel
+        case aiCodexDefaultModelShort
+        case aiCodexModelPlaceholder
+        case aiCodexNoKeyRequired
+        case aiCodexMCPInherited
+        case aiCodexWebAPIHint
+        case aiCodexAccessKey
+        case aiCodexAccessKeyHint
         case aiOllamaReady
         case aiOllamaNoKeyRequired
         case aiRemoteAPI
@@ -513,7 +525,7 @@ enum L10n {
         .appSettings: "设置",
         .quickSettings: "快捷设置",
         .editDashboard: "编辑总览",
-        .editQuickControls: "编辑快捷控制",
+        .editQuickControls: "快捷控制",
         .dashboardConfiguration: "总览配置",
         .quickControlsConfiguration: "快捷控制配置",
         .dashboardCommandStatus: "顶部状态",
@@ -548,6 +560,18 @@ enum L10n {
         .aiKeyMissing: "请先配置 API Key",
         .aiSearchOnly: "未接入 AI，当前作为搜索使用",
         .aiUseLocalOllama: "本地 Ollama",
+        .aiUseCodexWebAPI: "Codex 网页授权",
+        .aiUseCodexAgent: "Codex Agent",
+        .aiCodexReady: "Codex 已授权",
+        .aiCodexUnavailable: "需要先启动 Codex 本地 API",
+        .aiCodexDefaultModel: "Codex 默认模型",
+        .aiCodexDefaultModelShort: "默认模型",
+        .aiCodexModelPlaceholder: "可选：模型名，留空使用默认",
+        .aiCodexNoKeyRequired: "使用本机 Codex 授权登录态，不是 OpenAI API Key；未授权请先在终端运行 codex login。",
+        .aiCodexMCPInherited: "MCP 继承本机 Codex 配置，Chumen 只审核最终变更。",
+        .aiCodexWebAPIHint: "连接本机 openai-api-server-via-codex；网页授权来自本机 Codex 登录态，不是 OpenAI API Key。",
+        .aiCodexAccessKey: "访问密钥",
+        .aiCodexAccessKeyHint: "只有服务端设置了 --api-key / OPENAI_VIA_CODEX_API_KEY 时才填写；未设置请留空。",
         .aiOllamaReady: "本地 Ollama 就绪",
         .aiOllamaNoKeyRequired: "本地无需 Key",
         .aiRemoteAPI: "远程接口需要 Key",
@@ -579,7 +603,7 @@ enum L10n {
         .routedTraffic: "累计分流",
         .proxiedTraffic: "代理",
         .directTraffic: "直连",
-        .systemProxy: "系统代理",
+        .systemProxy: "代理",
         .lastRefresh: "上次刷新",
         .start: "启动",
         .stop: "停止",
@@ -1002,7 +1026,7 @@ enum L10n {
         .appSettings: "Settings",
         .quickSettings: "Quick Settings",
         .editDashboard: "Edit Dashboard",
-        .editQuickControls: "Edit Quick Controls",
+        .editQuickControls: "Quick Controls",
         .dashboardConfiguration: "Dashboard Configuration",
         .quickControlsConfiguration: "Quick Controls Configuration",
         .dashboardCommandStatus: "Command Status",
@@ -1037,6 +1061,18 @@ enum L10n {
         .aiKeyMissing: "Configure API key first",
         .aiSearchOnly: "AI is not connected; using local search",
         .aiUseLocalOllama: "Local Ollama",
+        .aiUseCodexWebAPI: "Codex Web Auth",
+        .aiUseCodexAgent: "Codex Agent",
+        .aiCodexReady: "Codex authorized",
+        .aiCodexUnavailable: "Start the local Codex API first",
+        .aiCodexDefaultModel: "Codex default model",
+        .aiCodexDefaultModelShort: "Default model",
+        .aiCodexModelPlaceholder: "Optional model name; blank uses the default",
+        .aiCodexNoKeyRequired: "Uses the local Codex authorization session, not an OpenAI API key. If not authorized, run codex login in Terminal.",
+        .aiCodexMCPInherited: "MCP inherits the local Codex configuration; Chumen only reviews final changes.",
+        .aiCodexWebAPIHint: "Connects to local openai-api-server-via-codex. Web auth comes from the local Codex login, not an OpenAI API key.",
+        .aiCodexAccessKey: "Access Key",
+        .aiCodexAccessKeyHint: "Fill this only when the server was started with --api-key / OPENAI_VIA_CODEX_API_KEY. Otherwise leave it empty.",
         .aiOllamaReady: "Local Ollama ready",
         .aiOllamaNoKeyRequired: "No key needed locally",
         .aiRemoteAPI: "Remote API requires a key",
@@ -1068,7 +1104,7 @@ enum L10n {
         .routedTraffic: "Routed Traffic",
         .proxiedTraffic: "Proxy",
         .directTraffic: "Direct",
-        .systemProxy: "System Proxy",
+        .systemProxy: "Proxy",
         .lastRefresh: "Last Refresh",
         .start: "Start",
         .stop: "Stop",

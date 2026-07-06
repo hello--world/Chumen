@@ -140,33 +140,29 @@ struct ContentView: View {
     private var header: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 0)
-            let horizontalPadding: CGFloat = width < 1000 ? 16 : 22
+            let horizontalPadding: CGFloat = width < 1000 ? 14 : 20
             let availableWidth = max(0, width - horizontalPadding * 2)
-            let isCompact = width < 1280
-            let identityWidth = isCompact ? CGFloat(160) : CGFloat(172)
-            let leftStatusWidth = isCompact ? CGFloat(109) : CGFloat(118)
-            let rightStatusWidth = isCompact ? CGFloat(222) : CGFloat(254)
-            let fixedWidth = identityWidth + leftStatusWidth + rightStatusWidth + 42
-            let searchWidth = min(isCompact ? CGFloat(192) : CGFloat(240), max(CGFloat(180), availableWidth - fixedWidth))
+            let identityWidth = min(CGFloat(206), max(CGFloat(178), availableWidth * 0.18))
+            let searchWidth = min(CGFloat(280), max(CGFloat(220), availableWidth * 0.23))
+            let statusWidth = max(CGFloat(548), availableWidth - identityWidth - searchWidth - 44)
 
             ZStack(alignment: .topLeading) {
                 HStack(alignment: .center, spacing: 14) {
                     headerIdentity
                         .frame(width: identityWidth, alignment: .leading)
-                    headerLeftStatusPills(width: leftStatusWidth)
                     globalSearchBox
                         .frame(width: searchWidth)
                         .zIndex(20)
-                    headerRightStatusPills(width: rightStatusWidth)
+                    headerStatusRibbon(width: statusWidth)
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, horizontalPadding)
-                .padding(.vertical, 9)
+                .padding(.vertical, 8)
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
         }
-        .frame(height: 84)
+        .frame(height: 66)
         .background(ChumenStyle.pageBackground)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -179,11 +175,11 @@ struct ContentView: View {
     private var headerIdentity: some View {
         HStack(spacing: 10) {
             ChumenHeaderIcon()
-                .frame(width: 38, height: 38)
+                .frame(width: 42, height: 42)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("Chumen")
-                    .font(.system(size: 25, weight: .semibold))
+                    .font(.system(size: 27, weight: .semibold))
                     .lineLimit(1)
                 runtimeProfileBadge
             }
@@ -208,21 +204,64 @@ struct ContentView: View {
                 Spacer(minLength: 8)
             }
             .padding(.horizontal, 11)
-            .frame(height: 34)
+            .frame(height: 36)
             .background(
-                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                    .fill(ChumenStyle.surface)
+                Capsule(style: .continuous)
+                    .fill(ChumenStyle.groupedSurface.opacity(0.62))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                    .strokeBorder(ChumenStyle.border)
+                Capsule(style: .continuous)
+                    .strokeBorder(ChumenStyle.border.opacity(0.72))
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .focusable(false)
         .opacity(globalSearchPresented ? 0 : 1)
-        .frame(height: 34)
+        .frame(height: 36)
+    }
+
+    // Header statuses are one baseline-aligned ribbon. The old two-column stack made the top area
+    // look like scattered cards. Do not hide any status in compact windows; compress the proxy chip
+    // first because it is the only field that can be safely truncated without losing state.
+    private func headerStatusRibbon(width: CGFloat) -> some View {
+        let gap = CGFloat(7)
+        let apiWidth = CGFloat(94)
+        let configWidth = CGFloat(104)
+        let modeWidth = CGFloat(88)
+        let tunWidth = CGFloat(80)
+        let proxyWidth = max(CGFloat(154), width - apiWidth - configWidth - modeWidth - tunWidth - gap * 4)
+
+        return HStack(spacing: gap) {
+            headerAPIStatusPill(width: apiWidth)
+            headerStatusPill(
+                title: model.t(.profiles),
+                value: model.activeProfileConfigUpdateText,
+                icon: "clock",
+                accent: .orange,
+                width: configWidth,
+                help: "\(model.t(.configUpdated)): \(model.activeProfileConfigUpdateText)"
+            )
+            headerProxyChainPill(width: proxyWidth)
+            headerStatusPill(
+                title: model.t(.mode),
+                value: model.settings.mode.rawValue,
+                icon: "arrow.triangle.branch",
+                accent: .purple,
+                width: modeWidth,
+                help: "\(model.t(.mode)): \(model.settings.mode.rawValue)"
+            )
+            headerStatusPill(
+                title: "TUN",
+                value: headerTunStateText,
+                icon: "shield.lefthalf.filled",
+                accent: headerTunAccent,
+                width: tunWidth,
+                help: "\(model.t(.tunMode)): \(headerTunStateText)"
+            )
+        }
+        .frame(width: width, alignment: .trailing)
+        .clipped()
     }
 
     private var globalSearchOverlay: some View {
@@ -319,31 +358,31 @@ struct ContentView: View {
     private func headerStatusPill(title: String, value: String, icon: String, accent: Color, width: CGFloat, help: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(accent.opacity(0.9))
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(accent.opacity(0.92))
                 .frame(width: 13)
             Text(title)
-                .font(.caption2.weight(.semibold))
+                .font(.caption.weight(.medium))
                 .foregroundStyle(ChumenStyle.mutedText)
                 .lineLimit(1)
             Text(value)
-                .font(.caption.weight(.semibold))
+                .font(.caption.weight(.bold))
                 .foregroundStyle(accent)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .minimumScaleFactor(0.50)
                 .allowsTightening(true)
         }
-        .padding(.horizontal, 7)
-        .frame(width: width, height: 29, alignment: .leading)
+        .padding(.horizontal, 9)
+        .frame(width: width, height: 32, alignment: .leading)
         .clipped()
         .background(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .fill(ChumenStyle.surface)
+            Capsule(style: .continuous)
+                .fill(ChumenStyle.groupedSurface.opacity(0.58))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .strokeBorder(ChumenStyle.border.opacity(0.72))
+            Capsule(style: .continuous)
+                .strokeBorder(accent.opacity(0.14))
         )
         .help(help)
     }
@@ -351,18 +390,18 @@ struct ContentView: View {
     private func headerProxyChainPill(width: CGFloat) -> some View {
         HStack(spacing: 4) {
             Image(systemName: model.systemProxyEnabled ? "checkmark.shield" : "shield")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(headerProxyAccent.opacity(0.9))
                 .frame(width: 13)
             Text(model.t(.systemProxy))
-                .font(.caption2.weight(.semibold))
+                .font(.caption.weight(.medium))
                 .foregroundStyle(ChumenStyle.mutedText)
                 .lineLimit(1)
             Text(">")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(ChumenStyle.mutedText)
             Text(headerProxyStateValueText)
-                .font(.caption2.weight(.semibold))
+                .font(.caption.weight(.bold))
                 .foregroundStyle(headerProxyAccent)
                 .lineLimit(1)
             if let address = headerProxyEndpointText {
@@ -370,7 +409,7 @@ struct ContentView: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(ChumenStyle.mutedText)
                 Text(address)
-                    .font(.caption2.weight(.semibold))
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(headerProxyAccent)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -378,16 +417,16 @@ struct ContentView: View {
                     .allowsTightening(true)
             }
         }
-        .padding(.horizontal, 7)
-        .frame(width: width, height: 29, alignment: .leading)
+        .padding(.horizontal, 9)
+        .frame(width: width, height: 32, alignment: .leading)
         .clipped()
         .background(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .fill(ChumenStyle.surface)
+            Capsule(style: .continuous)
+                .fill(ChumenStyle.groupedSurface.opacity(0.58))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .strokeBorder(ChumenStyle.border.opacity(0.72))
+            Capsule(style: .continuous)
+                .strokeBorder(headerProxyAccent.opacity(0.14))
         )
         .help("\(model.t(.systemProxy)): \(model.systemProxyStateText)")
     }

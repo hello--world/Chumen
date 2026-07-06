@@ -17,7 +17,14 @@ let package = Package(
         .package(url: "https://github.com/krzyzanowskim/STTextView", from: "2.2.0")
     ],
     targets: [
-        .target(name: "ChumenCore"),
+        .target(
+            name: "ChumenCore",
+            resources: [
+                // Knowledge files intentionally keep directory names because upstream and Chumen
+                // docs both contain common filenames like index.md and log.md.
+                .copy("Resources")
+            ]
+        ),
         .executableTarget(
             name: "ChumenMacApp",
             dependencies: [

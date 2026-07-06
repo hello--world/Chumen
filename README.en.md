@@ -113,11 +113,25 @@ Default ports intentionally avoid common proxy clients:
 
 ## Build The App
 
+Daily development builds default to a debug package:
+
 ```bash
 bash ./scripts/build_app.sh
 ```
 
 Output:
+
+```text
+dist/debug/Chumen.app
+```
+
+Use release explicitly for formal packages:
+
+```bash
+bash ./scripts/build_app.sh release
+```
+
+Release output:
 
 ```text
 dist/Chumen.app
@@ -127,6 +141,7 @@ Bundle a specific core binary:
 
 ```bash
 CHUMEN_CORE_PATH="$PWD/bin/chumen-door" bash ./scripts/build_app.sh
+CHUMEN_CORE_PATH="$PWD/bin/chumen-door" bash ./scripts/build_app.sh release
 ```
 
 ## Features

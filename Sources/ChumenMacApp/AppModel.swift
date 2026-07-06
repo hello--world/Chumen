@@ -215,6 +215,7 @@ final class AppModel: ObservableObject {
     private var lastSavedSettings: ChumenRuntimeSettings
     private var isPreparingForQuit = false
     private let aiKeychainStore = ChumenAIKeychainStore()
+    private let aiCodexWebAPIKeychainStore = ChumenAIKeychainStore(account: "codex-web-api-access-key")
     private let aiClient = ChumenAIClient()
     private let notificationService: ChumenNotificationService
 
@@ -329,13 +330,15 @@ final class AppModel: ObservableObject {
         self.profileLibrary = library
         self.manager = CoreProcessManager(paths: paths, protectionKeyStore: self.protectionKeyStore)
         self.lastSavedSettings = loadedSettings
-        self.aiAPIKeyStored = aiKeychainStore.hasAPIKey()
+        self.aiAPIKeyStored = Self.hasStoredAIKey(for: loadedSettings.ai, apiKeyStore: aiKeychainStore, codexWebAPIKeyStore: aiCodexWebAPIKeychainStore)
         let loadedLanguage = loadedSettings.language ?? .system
         if loadedSettings.ai.usesLocalOllama {
             self.aiStatusText = L10n.text(.aiOllamaReady, language: loadedLanguage)
             if loadedSettings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 self.aiStatusText = L10n.text(.aiModelRequired, language: loadedLanguage)
             }
+        } else if loadedSettings.ai.usesCodexWebAPI || loadedSettings.ai.usesCodexAgent {
+            self.aiStatusText = L10n.text(.aiCodexReady, language: loadedLanguage)
         } else if self.aiAPIKeyStored {
             self.aiStatusText = L10n.text(.aiKeyStored, language: loadedLanguage)
         } else {
@@ -1488,9 +1491,24 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private var currentAIKeychainStore: ChumenAIKeychainStore {
+        settings.ai.usesCodexWebAPI ? aiCodexWebAPIKeychainStore : aiKeychainStore
+    }
+
+    private static func hasStoredAIKey(
+        for settings: ChumenAISettings,
+        apiKeyStore: ChumenAIKeychainStore,
+        codexWebAPIKeyStore: ChumenAIKeychainStore
+    ) -> Bool {
+        if settings.usesCodexWebAPI {
+            return codexWebAPIKeyStore.hasAPIKey()
+        }
+        return apiKeyStore.hasAPIKey()
+    }
+
     var aiReady: Bool {
-        settings.ai.isEnabled &&
-            (!settings.ai.requiresAPIKey || aiAPIKeyStored) &&
+        guard settings.ai.isEnabled else { return false }
+        return (!settings.ai.requiresAPIKey || aiAPIKeyStored) &&
             !settings.ai.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !settings.ai.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -1505,25 +1523,55 @@ final class AppModel: ObservableObject {
     }
 
     func useCustomAIEndpoint() {
-        settings.ai.isEnabled = true
-        if settings.ai.usesLocalOllama {
-            settings.ai.baseURL = ChumenAISettings.remoteOpenAIBaseURL
-            settings.ai.model = ""
+        if settings.ai.provider == .customEndpoint {
+            settings.ai.isEnabled = true
+        } else {
+            settings.ai.useCustomEndpointDefaults()
         }
         aiOllamaModelsTask?.cancel()
         aiOllamaModelsTask = nil
         aiOllamaModelsLoading = false
         aiOllamaModels = []
+        aiAPIKeyStored = currentAIKeychainStore.hasAPIKey()
         aiStatusText = aiAPIKeyStored ? t(.aiKeyStored) : t(.aiSearchOnly)
+        saveSettings()
+    }
+
+    func useCodexWebAPIAI() {
+        if settings.ai.provider == .codexWebAPI {
+            settings.ai.isEnabled = true
+        } else {
+            settings.ai.useCodexWebAPIDefaults()
+        }
+        aiOllamaModelsTask?.cancel()
+        aiOllamaModelsTask = nil
+        aiOllamaModelsLoading = false
+        aiOllamaModels = []
+        aiAPIKeyStored = currentAIKeychainStore.hasAPIKey()
+        aiStatusText = t(.aiCodexReady)
+        saveSettings()
+    }
+
+    func useCodexAgentAI() {
+        settings.ai.useCodexAgentDefaults()
+        aiOllamaModelsTask?.cancel()
+        aiOllamaModelsTask = nil
+        aiOllamaModelsLoading = false
+        aiOllamaModels = []
+        aiStatusText = t(.aiCodexReady)
         saveSettings()
     }
 
     func setAIModel(_ modelName: String) {
         settings.ai.model = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
         saveSettings()
-        aiStatusText = settings.ai.model.isEmpty
-            ? t(.aiModelRequired)
-            : (settings.ai.usesLocalOllama ? t(.aiOllamaReady) : aiStatusText)
+        if settings.ai.usesCodexAgent || settings.ai.usesCodexWebAPI {
+            aiStatusText = t(.aiCodexReady)
+        } else {
+            aiStatusText = settings.ai.model.isEmpty
+                ? t(.aiModelRequired)
+                : (settings.ai.usesLocalOllama ? t(.aiOllamaReady) : aiStatusText)
+        }
     }
 
     func refreshOllamaModelsIfNeeded() {
@@ -1587,7 +1635,7 @@ final class AppModel: ObservableObject {
         }
 
         do {
-            try aiKeychainStore.saveAPIKey(key)
+            try currentAIKeychainStore.saveAPIKey(key)
             aiAPIKeyInput = ""
             aiAPIKeyStored = true
             aiStatusText = t(.aiKeyStored)
@@ -1598,10 +1646,16 @@ final class AppModel: ObservableObject {
 
     func clearAIAPIKey() {
         do {
-            try aiKeychainStore.deleteAPIKey()
+            try currentAIKeychainStore.deleteAPIKey()
             aiAPIKeyInput = ""
             aiAPIKeyStored = false
-            aiStatusText = settings.ai.usesLocalOllama ? t(.aiOllamaReady) : t(.aiSearchOnly)
+            if settings.ai.usesLocalOllama {
+                aiStatusText = t(.aiOllamaReady)
+            } else if settings.ai.usesCodexAgent || settings.ai.usesCodexWebAPI {
+                aiStatusText = t(.aiCodexReady)
+            } else {
+                aiStatusText = t(.aiSearchOnly)
+            }
         } catch {
             aiStatusText = displayError(error)
         }
@@ -1622,17 +1676,29 @@ final class AppModel: ObservableObject {
             aiStatusText = t(.aiSearchOnly)
             return
         }
+        if let localHelp = ChumenAIKnowledgeBase.localHelpAnswer(for: prompt, language: language) {
+            aiTask?.cancel()
+            aiTask = nil
+            aiInputText = ""
+            aiMessages.append(ChumenAIChatMessage(role: .user, content: prompt))
+            aiMessages.append(ChumenAIChatMessage(role: .assistant, content: localHelp))
+            aiIsSending = false
+            aiStatusText = ""
+            return
+        }
         let apiKey: String
         if settings.ai.requiresAPIKey {
-            guard let storedKey = try? aiKeychainStore.loadAPIKey(),
+            guard let storedKey = try? currentAIKeychainStore.loadAPIKey(),
                   !storedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 aiAPIKeyStored = false
                 aiStatusText = t(.aiKeyMissing)
                 return
             }
             apiKey = storedKey
+        } else if settings.ai.acceptsOptionalAPIKey {
+            apiKey = (try? currentAIKeychainStore.loadAPIKey()) ?? ""
         } else {
-            apiKey = "ollama"
+            apiKey = ""
         }
 
         aiTask?.cancel()
@@ -1643,7 +1709,7 @@ final class AppModel: ObservableObject {
         aiStatusText = t(.aiThinking)
         let requestMessages = Array(aiMessages.suffix(16))
         let aiSettings = settings.ai
-        let systemPrompt = aiSystemPrompt()
+        let systemPrompt = aiSystemPrompt(for: prompt)
 
         aiTask = Task { [weak self] in
             guard let self else { return }
@@ -1885,15 +1951,22 @@ final class AppModel: ObservableObject {
         """
     }
 
-    private func aiSystemPrompt() -> String {
+    private func aiSystemPrompt(for prompt: String) -> String {
         let profiles = profileLibrary.profiles.map { profile in
             "- \(profile.name): \(profile.remoteURL ?? profile.filePath)"
         }.joined(separator: "\n")
         let connectionAnalysis = connectionAnalysisSnapshot.aiContext
         let logAnalysis = logAnalysisSnapshot.aiContext
         let responseLanguage = languageTitle(language)
+        let knowledgeContext = ChumenAIKnowledgeStore.context(for: prompt, language: language)
+        let retrievedKnowledge = knowledgeContext.isEmpty ? "" : """
+
+        Relevant local knowledge base excerpts:
+        \(knowledgeContext)
+        """
         return """
         \(ChumenAIKnowledgeBase.text)
+        \(retrievedKnowledge)
 
         Current Chumen state:
         - response language: \(responseLanguage)
@@ -1915,6 +1988,8 @@ final class AppModel: ObservableObject {
         \(logAnalysis)
 
         Never claim a proposed change has been applied. Say it is waiting for review.
+        For product help or configuration editing questions, answer from the knowledge base even if the core API is unavailable.
+        Do not answer "could not connect to core API" unless the user specifically asks about live runtime status or diagnostics.
         Do not propose destructive delete operations.
         Reply in the configured Chumen UI language unless the user explicitly asks otherwise.
         Keep replies easy to scan: no greeting, lead with the answer, use at most 4 short bullets by default, avoid nested lists, and avoid long paragraphs.
@@ -2889,11 +2964,16 @@ final class AppModel: ObservableObject {
 
     func restartApplication() {
         guard scheduleRelaunch() else {
-            quit()
+            NSApplication.shared.terminate(nil)
             return
         }
-        prepareForQuit()
+        prepareForAppTerminationPreservingProxy()
         NSApplication.shared.terminate(nil)
+    }
+
+    func prepareForApplicationTermination() {
+        guard !isPreparingForQuit else { return }
+        prepareForAppTerminationPreservingProxy()
     }
 
     func prepareForQuit() {
@@ -2919,6 +2999,21 @@ final class AppModel: ObservableObject {
         manager.stop(waitForExit: true)
         isRunning = false
         statusText = t(.stopped)
+    }
+
+    private func prepareForAppTerminationPreservingProxy() {
+        guard !isPreparingForQuit else { return }
+        isPreparingForQuit = true
+        // 普通 App 终止只关闭 GUI 自己的异步任务和文件句柄；代理内核继续运行。
+        // 只有状态栏菜单里的 Quit 调用 prepareForQuit()，才会停止内核并清理系统代理/TUN。
+        saveSettings()
+        coreTransitionTask?.cancel()
+        coreTransitionTask = nil
+        stopControllerStreams()
+        updateCoordinator.stopAll()
+        profileVisualPreloadTask?.cancel()
+        profileVisualPreloadTask = nil
+        manager.detachForAppTerminationPreservingCore()
     }
 
     private func scheduleRelaunch() -> Bool {

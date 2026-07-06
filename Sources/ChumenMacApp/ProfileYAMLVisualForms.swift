@@ -351,13 +351,13 @@ private struct YAMLSectionPatchQuickAddForm: View {
     private var ruleForm: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
-                pickerField(model.t(.ruleType), selection: $ruleType, values: ruleTypes)
+                comboField(model.t(.ruleType), text: $ruleType, values: ruleTypes, placeholder: "DOMAIN-SUFFIX")
                     .frame(width: 145)
                 if ruleType != "MATCH" {
                     textField(model.t(.matchValue), text: $matchValue, placeholder: "example.com / 1.1.1.1/32")
                         .frame(minWidth: 160)
                 }
-                pickerField(model.t(.targetPolicy), selection: $policy, values: rulePolicyOptions)
+                comboField(model.t(.targetPolicy), text: $policy, values: rulePolicyOptions, placeholder: "DIRECT")
                     .frame(width: 160)
             }
             textField(model.t(.optionalArgs), text: $extraRuleOption, placeholder: "no-resolve")
@@ -377,14 +377,14 @@ private struct YAMLSectionPatchQuickAddForm: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
                 textField(model.t(.name), text: $itemName, placeholder: "us-1")
-                pickerField(model.t(.nodeType), selection: $proxyType, values: proxyTypes)
-                    .frame(width: 112)
+                comboField(model.t(.nodeType), text: $proxyType, values: proxyTypes, placeholder: "vless")
+                    .frame(width: 132)
             }
             if operation != .delete, proxyType != "direct" {
                 HStack(alignment: .top, spacing: 8) {
                     textField(model.t(.server), text: $server, placeholder: "example.com")
-                    pickerField(model.t(.portNumber), selection: $port, values: orderedUniqueValues([port] + commonPorts))
-                        .frame(width: 82)
+                    comboField(model.t(.portNumber), text: $port, values: commonPorts, placeholder: "443")
+                        .frame(width: 112)
                 }
                 proxyCredentialFields
                 HStack {
@@ -406,7 +406,7 @@ private struct YAMLSectionPatchQuickAddForm: View {
     private var proxyCredentialFields: some View {
         switch proxyType {
         case "ss":
-            pickerField(model.t(.cipher), selection: $cipher, values: ssCiphers)
+            comboField(model.t(.cipher), text: $cipher, values: ssCiphers, placeholder: "auto")
             textField(model.t(.password), text: $password, placeholder: "password")
         case "vmess", "vless":
             textField("UUID", text: $uuid, placeholder: "uuid")
@@ -435,8 +435,8 @@ private struct YAMLSectionPatchQuickAddForm: View {
             HStack(alignment: .top, spacing: 8) {
                 textField(model.t(.name), text: $itemName, placeholder: "Auto")
                 if operation != .delete {
-                    pickerField(model.t(.groupType), selection: $groupType, values: groupTypes)
-                        .frame(width: 122)
+                    comboField(model.t(.groupType), text: $groupType, values: groupTypes, placeholder: "select")
+                        .frame(width: 142)
                 }
             }
             if operation != .delete {
@@ -451,13 +451,7 @@ private struct YAMLSectionPatchQuickAddForm: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(ChumenStyle.mutedText)
             HStack(spacing: 8) {
-                Picker("", selection: $selectedMember) {
-                    ForEach(availableProxyMembers, id: \.self) { value in
-                        Text(value).tag(value)
-                    }
-                }
-                .labelsHidden()
-                .controlSize(.small)
+                comboField(model.t(.groupMembers), text: $selectedMember, values: availableProxyMembers, placeholder: "DIRECT")
 
                 Button {
                     addSelectedMember()
@@ -660,6 +654,31 @@ private struct YAMLSectionPatchQuickAddForm: View {
         }
     }
 
+    private func comboField(_ title: String, text: Binding<String>, values: [String], placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(ChumenStyle.mutedText)
+            HStack(spacing: 4) {
+                TextField(placeholder, text: text)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                Menu {
+                    ForEach(orderedUniqueValues([text.wrappedValue] + values), id: \.self) { value in
+                        Button(value) {
+                            text.wrappedValue = value
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .frame(width: 22, height: 22)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+        }
+    }
+
     private func multilineField(_ title: String, text: Binding<String>, minHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
@@ -820,13 +839,13 @@ struct YAMLCommonScalarForm: View {
                 ))
                 .toggleStyle(.switch)
             case "port", "socks-port", "mixed-port", "redir-port", "tproxy-port":
-                YAMLPickerField(
+                YAMLComboField(
                     title: title(for: sectionKey),
                     options: orderedUniqueValues([yamlBody, "7890", "7897", "7898", "7899", "1080", "8080"]),
                     selection: $yamlBody
                 )
             case "external-controller":
-                YAMLPickerField(
+                YAMLComboField(
                     title: model.t(.controlAddress),
                     options: orderedUniqueValues([yamlBody, "127.0.0.1:9090", "127.0.0.1:19897", "0.0.0.0:9090"]),
                     selection: $yamlBody
@@ -895,13 +914,13 @@ struct YAMLRulesShortcutForm: View {
             Text(model.t(.quickAddRule))
                 .font(.caption.weight(.semibold))
 
-            YAMLPickerField(
+            YAMLComboField(
                 title: model.t(.ruleType),
                 options: ["DOMAIN-SUFFIX", "DOMAIN", "DOMAIN-KEYWORD", "IP-CIDR", "GEOIP", "PROCESS-NAME", "MATCH"],
                 selection: $ruleType
             )
             YAMLTextField(title: model.t(.matchValue), text: $ruleValue)
-            YAMLPickerField(title: model.t(.targetPolicy), options: policyOptions, selection: $policy)
+            YAMLComboField(title: model.t(.targetPolicy), options: policyOptions, selection: $policy)
             Toggle(model.t(.noResolve), isOn: $noResolve)
                 .toggleStyle(.switch)
 
@@ -969,11 +988,11 @@ struct YAMLNodeShortcutForm: View {
                 .font(.caption.weight(.semibold))
 
             YAMLTextField(title: model.t(.name), text: $nodeName)
-            YAMLPickerField(title: model.t(.nodeType), options: nodeTypes, selection: $nodeType)
+            YAMLComboField(title: model.t(.nodeType), options: nodeTypes, selection: $nodeType)
             if nodeType != "direct" {
                 HStack(spacing: 8) {
                     YAMLTextField(title: model.t(.server), text: $server)
-                    YAMLPickerField(title: model.t(.portNumber), options: orderedUniqueValues([port] + commonPorts), selection: $port)
+                    YAMLComboField(title: model.t(.portNumber), options: orderedUniqueValues([port] + commonPorts), selection: $port)
                         .frame(width: 110)
                 }
                 protocolFields
@@ -1001,7 +1020,7 @@ struct YAMLNodeShortcutForm: View {
     private var protocolFields: some View {
         switch nodeType {
         case "ss":
-            YAMLPickerField(title: model.t(.cipher), options: ssCiphers, selection: $cipher)
+            YAMLComboField(title: model.t(.cipher), options: ssCiphers, selection: $cipher)
             YAMLTextField(title: model.t(.password), text: $password)
         case "vmess", "vless":
             YAMLTextField(title: "UUID", text: $uuid)
@@ -1089,7 +1108,7 @@ struct YAMLProxyGroupShortcutForm: View {
                 .font(.caption.weight(.semibold))
 
             YAMLTextField(title: model.t(.name), text: $groupName)
-            YAMLPickerField(title: model.t(.groupType), options: ["select", "url-test", "fallback", "load-balance"], selection: $groupType)
+            YAMLComboField(title: model.t(.groupType), options: ["select", "url-test", "fallback", "load-balance"], selection: $groupType)
             groupMemberPicker
             if groupType != "select" {
                 YAMLTextField(title: model.t(.testURL), text: $testURL)
@@ -1116,7 +1135,7 @@ struct YAMLProxyGroupShortcutForm: View {
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(ChumenStyle.mutedText)
             HStack(spacing: 8) {
-                YAMLPickerField(title: "", options: availableMembers, selection: $selectedMember)
+                YAMLComboField(title: model.t(.groupMembers), options: availableMembers, selection: $selectedMember)
                 Button {
                     addSelectedMember()
                 } label: {
@@ -1361,6 +1380,36 @@ private struct YAMLPickerField: View {
             }
             .pickerStyle(.menu)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct YAMLComboField: View {
+    let title: String
+    let options: [String]
+    @Binding var selection: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(ChumenStyle.mutedText)
+            HStack(spacing: 4) {
+                TextField(title, text: $selection)
+                    .textFieldStyle(.roundedBorder)
+                Menu {
+                    ForEach(orderedUniqueValues([selection] + options), id: \.self) { option in
+                        Button(option) {
+                            selection = option
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .frame(width: 22, height: 22)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
         }
     }
 }
