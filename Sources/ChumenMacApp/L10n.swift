@@ -393,6 +393,9 @@ enum L10n {
         case files
         case openDataDirectory
         case more
+        case appVersion
+        case buildDate
+        case buildChannel
         case debugBuild
         case releaseBuild
         case restartApplication
@@ -903,6 +906,9 @@ enum L10n {
         .files: "文件",
         .openDataDirectory: "打开数据目录",
         .more: "更多",
+        .appVersion: "版本",
+        .buildDate: "构建时间",
+        .buildChannel: "构建类型",
         .debugBuild: "Debug 版",
         .releaseBuild: "正式版",
         .restartApplication: "重启应用",
@@ -1410,6 +1416,9 @@ enum L10n {
         .files: "Files",
         .openDataDirectory: "Open Data Directory",
         .more: "More",
+        .appVersion: "Version",
+        .buildDate: "Build Date",
+        .buildChannel: "Build Channel",
         .debugBuild: "Debug",
         .releaseBuild: "Release",
         .restartApplication: "Restart App",

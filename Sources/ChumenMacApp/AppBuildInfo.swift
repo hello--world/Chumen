@@ -38,16 +38,41 @@ enum AppBuildInfo {
     }
 
     static var buildDate: String? {
-        bundleString(for: "ChumenBuildDate")
+        bundleString(for: "ChumenBuildDate") ?? executableModificationDate()
     }
 
     @MainActor
     static func menuTitle(model: AppModel) -> String {
-        let versionText = build.isEmpty || build == version
-            ? "v\(version)"
-            : "v\(version) (\(build))"
         let dateText = buildDate.map { " · \($0)" } ?? ""
         return "\(versionText)\(dateText) · \(model.t(configuration.titleKey))"
+    }
+
+    static var versionText: String {
+        build.isEmpty || build == version
+            ? "v\(version)"
+            : "v\(version) (\(build))"
+    }
+
+    @MainActor
+    static func menuInfoLines(model: AppModel) -> [String] {
+        [
+            "\(model.t(.appVersion)): \(versionText)",
+            "\(model.t(.buildDate)): \(buildDate ?? model.t(.unknown))",
+            "\(model.t(.buildChannel)): \(model.t(configuration.titleKey))"
+        ]
+    }
+
+    private static func executableModificationDate() -> String? {
+        // Packaged apps carry ChumenBuildDate in Info.plist. SwiftPM debug launches do not, so the
+        // executable mtime is a practical build-time fallback for day-to-day development runs.
+        let candidateURL = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
+        guard let date = try? candidateURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else {
+            return nil
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
+        return formatter.string(from: date)
     }
 
     private static func bundleString(for key: String) -> String? {

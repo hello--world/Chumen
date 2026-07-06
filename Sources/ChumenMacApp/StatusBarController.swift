@@ -557,11 +557,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             action: #selector(restartApplication)
         ))
         menu.addItem(.separator())
-        menu.addItem(menuItem(
-            title: AppBuildInfo.menuTitle(model: model),
-            symbol: "info.circle",
-            enabled: false
-        ))
+        let buildInfoLines = AppBuildInfo.menuInfoLines(model: model)
+        for (index, title) in buildInfoLines.enumerated() {
+            menu.addItem(menuItem(
+                title: title,
+                symbol: index == 0 ? "info.circle" : nil,
+                enabled: false
+            ))
+        }
         return menu
     }
 
