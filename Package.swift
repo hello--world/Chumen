@@ -14,6 +14,7 @@ let package = Package(
         .executable(name: "ChumenHelper", targets: ["ChumenHelper"])
     ],
     dependencies: [
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.1"),
         .package(url: "https://github.com/krzyzanowskim/STTextView", from: "2.2.0")
     ],
     targets: [
@@ -29,6 +30,7 @@ let package = Package(
             name: "ChumenMacApp",
             dependencies: [
                 "ChumenCore",
+                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
                 .product(name: "STTextView", package: "STTextView")
             ]
         ),

@@ -22,6 +22,7 @@ struct ContentView: View {
     @State private var aiAssistantPresented = true
     @State private var aiSearchResults: [GlobalSearchResult] = []
     @State private var aiSearchTask: Task<Void, Never>?
+    @StateObject private var aiMarkdownCache = AIAssistantMarkdownCache()
 
     // First-run setup is modal in practice. Rendering only the blocking background prevents the
     // normal tab surface from accepting focus while PIN/import decisions are incomplete.
@@ -43,6 +44,7 @@ struct ContentView: View {
                             selectedTab: $selectedTab,
                             aiAssistantPresented: $aiAssistantPresented,
                             aiSearchResults: aiSearchResults,
+                            aiMarkdownCache: aiMarkdownCache,
                             onAISearchChanged: {
                                 scheduleAISearch()
                             },

@@ -1,14 +1,7 @@
 import ChumenCore
 import Foundation
+import MarkdownUI
 import SwiftUI
-
-private enum AIAssistantRendering {
-    // The assistant lives on the overview page, so its rendering cost directly affects tab
-    // switching. Keep the visible transcript bounded and avoid synchronous Markdown parsing for
-    // long model replies; the full conversation still remains in AppModel for request context.
-    static let visibleMessageLimit = 18
-    static let markdownCharacterLimit = 1_800
-}
 
 // AI assistant presentation is isolated from ContentView so the app shell only coordinates
 // search scheduling and navigation. The assistant can be embedded in the dashboard workspace
@@ -18,6 +11,7 @@ struct AIAssistantOverlayView: View {
     @Binding var isPresented: Bool
 
     let searchResults: [GlobalSearchResult]
+    @ObservedObject var markdownCache: AIAssistantMarkdownCache
     let onSearchChanged: () -> Void
     let onSearchImmediately: () -> Void
     let onClearSearchResults: () -> Void
@@ -39,6 +33,10 @@ struct AIAssistantOverlayView: View {
                 if model.settings.ai.usesLocalOllama {
                     model.refreshOllamaModelsIfNeeded()
                 }
+                markdownCache.prepare(messages: model.aiMessages)
+            }
+            .onChange(of: model.aiMessages) { _, messages in
+                markdownCache.prepare(messages: messages)
             }
     }
 
@@ -538,9 +536,7 @@ struct AIAssistantOverlayView: View {
     }
 
     private var recentAIMessages: [ChumenAIChatMessage] {
-        let messages = model.aiMessages
-        guard messages.count > AIAssistantRendering.visibleMessageLimit else { return messages }
-        return Array(messages.suffix(AIAssistantRendering.visibleMessageLimit))
+        AIAssistantRendering.visibleMessages(from: model.aiMessages)
     }
 
     private func aiMessageBubble(_ message: ChumenAIChatMessage) -> some View {
@@ -549,7 +545,7 @@ struct AIAssistantOverlayView: View {
             if isUser {
                 Spacer(minLength: 36)
             }
-            aiMessageContent(message.content)
+            aiMessageContent(message)
                 .font(.callout)
                 .lineSpacing(3)
                 .textSelection(.enabled)
@@ -567,215 +563,14 @@ struct AIAssistantOverlayView: View {
         .frame(maxWidth: .infinity)
     }
 
-    // Chat output may include Markdown from local or remote models. macOS 14 ships a native
-    // AttributedString Markdown parser, so we use it first and keep a plain-text fallback instead of
-    // adding a package for basic chat rendering. A third-party renderer is only justified if we later
-    // need richer block layout such as tables or syntax-highlighted fenced code.
     @ViewBuilder
-    private func aiMessageContent(_ content: String) -> some View {
-        if content.count > AIAssistantRendering.markdownCharacterLimit {
-            Text(content)
+    private func aiMessageContent(_ message: ChumenAIChatMessage) -> some View {
+        if let markdownContent = markdownCache.content(for: message) {
+            Markdown(markdownContent)
+                .markdownTheme(.gitHub)
         } else {
-            let blocks = aiMessageBlocks(from: content)
-            if blocks.count == 1, case .paragraph = blocks[0].kind {
-                aiInlineText(blocks[0].text)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(blocks) { block in
-                        aiMessageBlock(block)
-                    }
-                }
-            }
+            Text(message.content)
         }
-    }
-
-    @ViewBuilder
-    private func aiMessageBlock(_ block: AIMessageBlock) -> some View {
-        switch block.kind {
-        case .heading:
-            aiInlineText(block.text)
-                .font(.callout.weight(.semibold))
-                .padding(.top, 2)
-        case .paragraph:
-            aiInlineText(block.text)
-                .lineSpacing(3)
-        case .bullet:
-            HStack(alignment: .top, spacing: 7) {
-                Text("•")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(ChumenStyle.mutedText)
-                    .padding(.top, 2)
-                aiInlineText(block.text)
-                    .lineSpacing(3)
-            }
-        case .numbered(let marker):
-            HStack(alignment: .top, spacing: 7) {
-                Text(marker)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(ChumenStyle.mutedText)
-                    .frame(minWidth: 18, alignment: .trailing)
-                    .padding(.top, 2)
-                aiInlineText(block.text)
-                    .lineSpacing(3)
-            }
-        case .code:
-            ScrollView(.horizontal, showsIndicators: true) {
-                Text(block.text)
-                    .font(.system(.caption, design: .monospaced))
-                    .padding(8)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(ChumenStyle.surface.opacity(0.82))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(ChumenStyle.border)
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func aiInlineText(_ text: String) -> some View {
-        if text.count <= AIAssistantRendering.markdownCharacterLimit,
-           let markdown = aiMarkdownAttributedString(text) {
-            Text(markdown)
-        } else {
-            Text(text)
-        }
-    }
-
-    private func aiMarkdownAttributedString(_ content: String) -> AttributedString? {
-        guard content.contains("*") ||
-            content.contains("#") ||
-            content.contains("`") ||
-            content.contains("[") ||
-            content.contains("- ") ||
-            content.contains("1. ") else {
-            return nil
-        }
-
-        return try? AttributedString(
-            markdown: content,
-            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .full)
-        )
-    }
-
-    private struct AIMessageBlock: Identifiable {
-        enum Kind {
-            case heading
-            case paragraph
-            case bullet
-            case numbered(String)
-            case code
-        }
-
-        let id: String
-        let kind: Kind
-        let text: String
-    }
-
-    private func aiMessageBlocks(from content: String) -> [AIMessageBlock] {
-        var blocks: [AIMessageBlock] = []
-        var paragraphLines: [String] = []
-        var codeLines: [String] = []
-        var inCodeBlock = false
-        var nextBlockIndex = 0
-
-        func appendBlock(kind: AIMessageBlock.Kind, text: String) {
-            blocks.append(AIMessageBlock(id: "\(nextBlockIndex)", kind: kind, text: text))
-            nextBlockIndex += 1
-        }
-
-        func flushParagraph() {
-            let text = paragraphLines
-                .joined(separator: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty {
-                appendBlock(kind: .paragraph, text: text)
-            }
-            paragraphLines.removeAll()
-        }
-
-        for rawLine in content.components(separatedBy: .newlines) {
-            let trimmedLine = rawLine.trimmingCharacters(in: .whitespaces)
-
-            if trimmedLine.hasPrefix("```") {
-                if inCodeBlock {
-                    appendBlock(kind: .code, text: codeLines.joined(separator: "\n"))
-                    codeLines.removeAll()
-                    inCodeBlock = false
-                } else {
-                    flushParagraph()
-                    inCodeBlock = true
-                }
-                continue
-            }
-
-            if inCodeBlock {
-                codeLines.append(rawLine)
-                continue
-            }
-
-            if trimmedLine.isEmpty {
-                flushParagraph()
-                continue
-            }
-
-            if let heading = aiHeadingText(trimmedLine) {
-                flushParagraph()
-                appendBlock(kind: .heading, text: heading)
-                continue
-            }
-
-            if let bullet = aiBulletText(trimmedLine) {
-                flushParagraph()
-                appendBlock(kind: .bullet, text: bullet)
-                continue
-            }
-
-            if let numbered = aiNumberedText(trimmedLine) {
-                flushParagraph()
-                appendBlock(kind: .numbered(numbered.marker), text: numbered.text)
-                continue
-            }
-
-            paragraphLines.append(trimmedLine)
-        }
-
-        if inCodeBlock {
-            appendBlock(kind: .code, text: codeLines.joined(separator: "\n"))
-        }
-        flushParagraph()
-        if blocks.isEmpty {
-            appendBlock(kind: .paragraph, text: content)
-        }
-        return blocks
-    }
-
-    private func aiHeadingText(_ line: String) -> String? {
-        let hashes = line.prefix(while: { $0 == "#" }).count
-        guard (1...4).contains(hashes) else { return nil }
-        let text = line.dropFirst(hashes).trimmingCharacters(in: .whitespaces)
-        return text.isEmpty ? nil : text
-    }
-
-    private func aiBulletText(_ line: String) -> String? {
-        for prefix in ["- ", "* ", "• "] where line.hasPrefix(prefix) {
-            return String(line.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
-        }
-        return nil
-    }
-
-    private func aiNumberedText(_ line: String) -> (marker: String, text: String)? {
-        let parts = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
-        guard parts.count == 2,
-              let marker = parts.first,
-              marker.hasSuffix("."),
-              marker.dropLast().allSatisfy(\.isNumber) else {
-            return nil
-        }
-        return (String(marker), String(parts[1]).trimmingCharacters(in: .whitespaces))
     }
 
     // When AI is disabled or incomplete, the assistant intentionally remains useful as search.

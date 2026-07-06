@@ -6,6 +6,7 @@ struct DashboardView: View {
     @Binding var selectedTab: AppTab
     @Binding var aiAssistantPresented: Bool
     let aiSearchResults: [GlobalSearchResult]
+    let aiMarkdownCache: AIAssistantMarkdownCache
     let onAISearchChanged: () -> Void
     let onAISearchImmediately: () -> Void
     let onAIClearSearchResults: () -> Void
@@ -43,6 +44,7 @@ struct DashboardView: View {
                 AIAssistantOverlayView(
                     isPresented: $aiAssistantPresented,
                     searchResults: aiSearchResults,
+                    markdownCache: aiMarkdownCache,
                     onSearchChanged: onAISearchChanged,
                     onSearchImmediately: onAISearchImmediately,
                     onClearSearchResults: onAIClearSearchResults,
