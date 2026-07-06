@@ -555,24 +555,6 @@ struct StartupImportOverlay: View {
     }
 
     private var displayedImportCandidates: [ExternalProfileCandidate] {
-        let query = importSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return model.externalProfileCandidates }
-
-        // First-run import search is intentionally local and synchronous: the candidate list is
-        // small after scanner de-duplication, and keeping it in this overlay prevents AppModel from
-        // growing UI-only filtering state.
-        let tokens = query
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
-        return model.externalProfileCandidates.filter { candidate in
-            let searchable = [
-                candidate.name,
-                candidate.sourceName,
-                candidate.filePath,
-                candidate.rootPath,
-                candidate.remoteURL ?? ""
-            ].joined(separator: "\n")
-            return tokens.allSatisfy { searchable.localizedCaseInsensitiveContains($0) }
-        }
+        ExternalProfileCandidateSearch.filter(model.externalProfileCandidates, query: importSearchText)
     }
 }

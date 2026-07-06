@@ -137,9 +137,9 @@ final class ChumenConfigProtectionTests: XCTestCase {
         XCTAssertThrowsError(try protection.readText(at: profileURL)) { error in
             let message = error.localizedDescription
             XCTAssertTrue(message.contains(profileURL.path))
-            XCTAssertTrue(message.contains("mihomo age decrypt failed"))
+            XCTAssertTrue(message.contains("chumen-door age decrypt failed"))
             XCTAssertTrue(message.contains("stored age identity cannot decrypt"))
-            XCTAssertFalse(message.contains("mihomo age age failed"))
+            XCTAssertFalse(message.contains("chumen-door age age failed"))
             XCTAssertFalse(message.contains("goroutine"))
         }
     }

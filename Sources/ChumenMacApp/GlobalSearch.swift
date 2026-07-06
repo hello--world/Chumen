@@ -316,6 +316,8 @@ enum GlobalSearchEngine {
         }
 
         for candidate in snapshot.externalProfileCandidates {
+            let candidateDetail = candidate.remoteURL
+                ?? ExternalProfileCandidateSearch.displayPath(candidate.filePath)
             add(
                 id: "external-profile-\(candidate.id)",
                 tab: .profiles,
@@ -323,9 +325,9 @@ enum GlobalSearchEngine {
                 icon: "tray.and.arrow.down",
                 title: candidate.name,
                 subtitle: candidate.sourceName,
-                detail: candidate.remoteURL ?? candidate.filePath,
+                detail: candidateDetail,
                 priority: GlobalSearchScope.profiles.sortPriority + 12,
-                tokens: [candidate.filePath, candidate.remoteURL]
+                tokens: [ExternalProfileCandidateSearch.searchableText(for: candidate)]
             )
         }
 

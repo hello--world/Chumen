@@ -45,6 +45,169 @@ public struct ExternalProfileCandidate: Codable, Equatable, Sendable, Identifiab
     }
 }
 
+/// Shared search policy for imported client profiles.
+///
+/// Candidate files live under absolute home-directory paths, but the UI presents those locations
+/// as `~` paths. Search indexes the displayed form so common input such as `us` does not match
+/// every `/Users/...` path on macOS. Results are ranked by user intent: direct profile-name
+/// matches first, pinyin profile-name matches second, and path/source/URL metadata last.
+public enum ExternalProfileCandidateSearch {
+    public static func filter(
+        _ candidates: [ExternalProfileCandidate],
+        query: String,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [ExternalProfileCandidate] {
+        let tokens = searchTokens(query)
+        guard !tokens.isEmpty else { return candidates }
+
+        return candidates.enumerated()
+            .compactMap { offset, candidate -> RankedCandidate? in
+                guard let rank = matchRank(for: candidate, tokens: tokens, homeDirectory: homeDirectory) else {
+                    return nil
+                }
+                return RankedCandidate(candidate: candidate, rank: rank, offset: offset)
+            }
+            .sorted { lhs, rhs in
+                if lhs.rank != rhs.rank {
+                    return lhs.rank.rawValue < rhs.rank.rawValue
+                }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.candidate)
+    }
+
+    public static func searchableText(
+        for candidate: ExternalProfileCandidate,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> String {
+        searchableValues(for: candidate, homeDirectory: homeDirectory)
+            .joined(separator: "\n")
+    }
+
+    public static func displayPath(
+        _ path: String,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        guard trimmed.hasPrefix("/") else { return trimmed }
+
+        let standardizedPath = URL(fileURLWithPath: trimmed).standardizedFileURL.path
+        let homePath = homeDirectory.standardizedFileURL.path
+        guard !homePath.isEmpty else { return standardizedPath }
+
+        if standardizedPath == homePath {
+            return "~"
+        }
+        if standardizedPath.hasPrefix(homePath + "/") {
+            return "~" + standardizedPath.dropFirst(homePath.count)
+        }
+        return standardizedPath
+    }
+
+    private static func searchTokens(_ query: String) -> [String] {
+        query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+    }
+
+    private static func matchRank(
+        for candidate: ExternalProfileCandidate,
+        tokens: [String],
+        homeDirectory: URL
+    ) -> MatchRank? {
+        if values(nameSearchValues(for: candidate), matchAll: tokens) {
+            return .name
+        }
+        if values(pinyinSearchValues(for: candidate.name), matchAll: tokens) {
+            return .pinyinName
+        }
+        if values(metadataSearchValues(for: candidate, homeDirectory: homeDirectory), matchAll: tokens) {
+            return .metadata
+        }
+        return nil
+    }
+
+    private static func searchableValues(
+        for candidate: ExternalProfileCandidate,
+        homeDirectory: URL
+    ) -> [String] {
+        (
+            nameSearchValues(for: candidate) +
+            pinyinSearchValues(for: candidate.name) +
+            metadataSearchValues(for: candidate, homeDirectory: homeDirectory)
+        )
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    }
+
+    private static func nameSearchValues(for candidate: ExternalProfileCandidate) -> [String] {
+        [candidate.name]
+    }
+
+    private static func pinyinSearchValues(for name: String) -> [String] {
+        guard let latin = name.applyingTransform(.toLatin, reverse: false)?
+            .applyingTransform(.stripDiacritics, reverse: false) else {
+            return []
+        }
+        let compact = latin.filter { !$0.isWhitespace && $0 != "'" && $0 != "’" }
+        return [latin, compact]
+    }
+
+    private static func metadataSearchValues(
+        for candidate: ExternalProfileCandidate,
+        homeDirectory: URL
+    ) -> [String] {
+        [
+            candidate.sourceName,
+            displayPath(candidate.filePath, homeDirectory: homeDirectory),
+            displayPath(candidate.rootPath, homeDirectory: homeDirectory),
+            relativePath(candidate.filePath, rootPath: candidate.rootPath),
+            URL(fileURLWithPath: candidate.filePath).lastPathComponent,
+            candidate.remoteURL ?? "",
+            candidate.sourceID
+        ]
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    }
+
+    private static func values(_ values: [String], matchAll tokens: [String]) -> Bool {
+        tokens.allSatisfy { token in
+            values.contains { value in
+                value.range(of: token, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
+        }
+    }
+
+    private static func relativePath(_ filePath: String, rootPath: String) -> String {
+        let trimmedFilePath = filePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedRootPath = rootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedFilePath.hasPrefix("/"), trimmedRootPath.hasPrefix("/") else {
+            return trimmedFilePath
+        }
+
+        let standardizedFilePath = URL(fileURLWithPath: trimmedFilePath).standardizedFileURL.path
+        let standardizedRootPath = URL(fileURLWithPath: trimmedRootPath).standardizedFileURL.path
+        guard standardizedFilePath.hasPrefix(standardizedRootPath + "/") else {
+            return standardizedFilePath
+        }
+        return String(standardizedFilePath.dropFirst(standardizedRootPath.count + 1))
+    }
+
+    private struct RankedCandidate {
+        let candidate: ExternalProfileCandidate
+        let rank: MatchRank
+        let offset: Int
+    }
+
+    private enum MatchRank: Int {
+        case name = 0
+        case pinyinName = 1
+        case metadata = 2
+    }
+}
+
 public struct ExternalProfileImportSkipped: Codable, Equatable, Sendable {
     public var candidate: ExternalProfileCandidate
     public var reason: String

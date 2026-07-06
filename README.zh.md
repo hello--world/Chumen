@@ -50,7 +50,7 @@ debug 包使用独立身份，运行数据放在：
 Chumen 的配置保护规则以 [docs/security-model.zh.md](docs/security-model.zh.md) 为准。
 
 - 配置文件默认加密保存，目标是避免订阅和节点被明文扫描、误分享或随手打开看到。
-- PIN 默认参与保护 age 私钥，但不等于应用锁屏。
+- PIN 可选用于保护 age 私钥，未启用 PIN 不会阻止启动内核。
 - 应用锁屏是独立选项，默认关闭；只有开启后，启动时才必须输入 PIN。
 - 默认不把 age 私钥存到 Keychain；本地文件是默认路径，Keychain 是可选路径。
 - 不用 PIN 也可以继续，配置仍会加密，但 age 私钥会直接保存在所选位置，本机保护更弱。
@@ -93,13 +93,21 @@ CHUMEN_HOME=/tmp/chumen-test swift run chumenctl settings show
 
 ## 内核
 
-下载本地 `mihomo`：
+下载本地 `chumen-door` 内核：
 
 ```bash
 bash ./scripts/download_mihomo.sh
 ```
 
-下载结果写入 `bin/chumen-door`。该目录不进 git；当 `corePath` 为空或旧路径不可执行时，GUI 和 CLI 会自动优先查找这个文件。Chumen 启动内核前会按设置里的进程名后缀创建托管链接，默认后缀是 `door`，因此默认进程名是 `chumen-door`，方便在进程列表里和系统安装的 `mihomo` 区分。
+下载结果写入 `bin/chumen-door`。该目录不进 git；当 `corePath` 为空或旧路径不可执行时，GUI 和 CLI 会自动优先查找这个文件。Chumen 启动内核前会按设置里的进程名后缀创建托管链接，默认后缀是 `door`，因此默认进程名是 `chumen-door`。
+
+需要把内核一起打进可同时支持 Apple Silicon 和 Intel Mac 的 App 时，先下载 universal 内核：
+
+```bash
+CHUMEN_CORE_ARCH=universal bash ./scripts/download_mihomo.sh
+```
+
+脚本会保留 `bin/chumen-door-arm64`、`bin/chumen-door-x86_64`，并用 `lipo` 合成 `bin/chumen-door`。
 
 默认端口刻意避开常见代理客户端：
 
@@ -119,7 +127,7 @@ debug 包的 DNS listen 默认是 `127.0.0.1:1153`，TUN 设备默认是 `utun10
 
 ## 构建 App
 
-日常开发默认打 debug 包：
+日常开发默认打 debug 包。打包脚本默认生成 universal App，包含 `arm64` 和 `x86_64`：
 
 ```bash
 bash ./scripts/build_app.sh
@@ -145,12 +153,37 @@ dist/Chumen.dmg
 
 DMG 内会附带 `README.zh.txt` 和 `README.en.txt`，说明当前未使用 Developer ID 签名和公证时，其他机器首次运行可能需要移除 quarantine 属性。
 
+一次性打出多个分发版本：
+
+```bash
+bash ./scripts/build_app.sh release all
+```
+
+release 多版本产物：
+
+```text
+dist/Chumen-arm64.dmg
+dist/Chumen-x86_64.dmg
+dist/Chumen-universal.dmg
+```
+
+debug 多版本产物放在 `dist/debug/<variant>/Chumen.app`。
+
+只想构建当前机器架构，或只验证 Intel slice 时，可以指定架构：
+
+```bash
+CHUMEN_BUILD_ARCHS=native bash ./scripts/build_app.sh
+CHUMEN_BUILD_ARCHS=x86_64 bash ./scripts/build_app.sh
+```
+
 把指定内核打进 App Bundle：
 
 ```bash
 CHUMEN_CORE_PATH="$PWD/bin/chumen-door" bash ./scripts/build_app.sh
 CHUMEN_CORE_PATH="$PWD/bin/chumen-door" bash ./scripts/build_app.sh release
 ```
+
+universal App 如果发现自动候选内核缺少某个架构，会跳过内嵌内核并打印提示；如果必须要求包内带 core，可加 `CHUMEN_REQUIRE_BUNDLED_CORE=1`。也可以用 `CHUMEN_CORE_ARM64_PATH` 和 `CHUMEN_CORE_X86_64_PATH` 分别传入两个架构的内核，打包脚本会合成 `Contents/Resources/chumen-door`。
 
 ## 功能
 

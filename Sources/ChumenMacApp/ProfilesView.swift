@@ -800,7 +800,7 @@ private struct ExternalProfileImportSheet: View {
                 }
 
                 Label {
-                    Text(candidate.filePath)
+                    Text(ExternalProfileCandidateSearch.displayPath(candidate.filePath))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
@@ -862,11 +862,6 @@ private struct ExternalProfileImportSheet: View {
     }
 
     private var displayedCandidates: [ExternalProfileCandidate] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return model.externalProfileCandidates }
-        return model.externalProfileCandidates.filter { candidate in
-            [candidate.name, candidate.sourceName, candidate.filePath, candidate.remoteURL ?? ""]
-                .contains { $0.localizedCaseInsensitiveContains(query) }
-        }
+        ExternalProfileCandidateSearch.filter(model.externalProfileCandidates, query: searchText)
     }
 }

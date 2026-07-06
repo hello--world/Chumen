@@ -55,7 +55,7 @@ Important files:
 Chumen's config protection rules are defined in [docs/security-model.en.md](docs/security-model.en.md).
 
 - Config files are encrypted by default to avoid plaintext subscription and node scanning.
-- PIN protects the age private key by default, but PIN does not imply app lock.
+- PIN can optionally protect the age private key. Leaving PIN disabled does not block core start.
 - App lock is an independent option and is off by default; only when enabled should startup require a
   PIN.
 - Local file storage is the default age private-key location; Keychain is optional.
@@ -102,7 +102,7 @@ CHUMEN_HOME=/tmp/chumen-test swift run chumenctl settings show
 
 ## Core
 
-Download the local `mihomo` binary:
+Download the local `chumen-door` core:
 
 ```bash
 bash ./scripts/download_mihomo.sh
@@ -111,8 +111,16 @@ bash ./scripts/download_mihomo.sh
 The result is written to `bin/chumen-door`, which is not tracked by git. When `corePath` is empty
 or the old path is not executable, the GUI and CLI prefer this local binary automatically. Before
 starting the core, Chumen creates a managed link using the configured process-name suffix. The
-default suffix is `door`, so the default process name is `chumen-door`, distinct from a
-system-installed `mihomo` in process lists.
+default suffix is `door`, so the default process name is `chumen-door`.
+
+When packaging a bundled core for both Apple Silicon and Intel Macs, download a universal core first:
+
+```bash
+CHUMEN_CORE_ARCH=universal bash ./scripts/download_mihomo.sh
+```
+
+The script keeps `bin/chumen-door-arm64` and `bin/chumen-door-x86_64`, then combines them into
+`bin/chumen-door` with `lipo`.
 
 Default ports intentionally avoid common proxy clients:
 
@@ -132,7 +140,8 @@ The debug package also defaults DNS listen to `127.0.0.1:1153` and TUN device to
 
 ## Build The App
 
-Daily development builds default to a debug package:
+Daily development builds default to a debug package. The packaging script builds a universal app by
+default, containing both `arm64` and `x86_64`:
 
 ```bash
 bash ./scripts/build_app.sh
@@ -158,12 +167,40 @@ dist/Chumen.dmg
 
 The DMG includes `README.zh.txt` and `README.en.txt` with unsigned-build installation notes for removing the quarantine attribute on another Mac when needed.
 
+Build all distribution variants in one run:
+
+```bash
+bash ./scripts/build_app.sh release all
+```
+
+Release multi-variant output:
+
+```text
+dist/Chumen-arm64.dmg
+dist/Chumen-x86_64.dmg
+dist/Chumen-universal.dmg
+```
+
+Debug multi-variant output uses `dist/debug/<variant>/Chumen.app`.
+
+To build only the current host architecture, or to verify only the Intel slice:
+
+```bash
+CHUMEN_BUILD_ARCHS=native bash ./scripts/build_app.sh
+CHUMEN_BUILD_ARCHS=x86_64 bash ./scripts/build_app.sh
+```
+
 Bundle a specific core binary:
 
 ```bash
 CHUMEN_CORE_PATH="$PWD/bin/chumen-door" bash ./scripts/build_app.sh
 CHUMEN_CORE_PATH="$PWD/bin/chumen-door" bash ./scripts/build_app.sh release
 ```
+
+If a universal app finds that the auto-detected core is missing a required architecture, it skips the
+bundled core and prints a warning. Set `CHUMEN_REQUIRE_BUNDLED_CORE=1` to make that a hard failure.
+You can also pass `CHUMEN_CORE_ARM64_PATH` and `CHUMEN_CORE_X86_64_PATH`; the packaging script will
+combine them into `Contents/Resources/chumen-door`.
 
 ## Features
 

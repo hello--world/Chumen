@@ -2,6 +2,13 @@ import XCTest
 @testable import ChumenCore
 
 final class ChumenConfigurationBuilderTests: XCTestCase {
+    func testRuntimeSettingsCleanupDefaultsAreOff() {
+        let settings = ChumenRuntimeSettings()
+
+        XCTAssertFalse(settings.clearSystemProxyOnStop)
+        XCTAssertFalse(settings.disableTunOnQuit)
+    }
+
     func testRuntimeYamlOverridesControllerAndPorts() {
         let profile = """
         mixed-port: 1
@@ -412,7 +419,8 @@ final class ChumenConfigurationBuilderTests: XCTestCase {
         XCTAssertEqual(settings.systemProxyHost, "127.0.0.1")
         XCTAssertTrue(settings.showStatusBarItem)
         XCTAssertFalse(settings.enableTunOnStart)
-        XCTAssertTrue(settings.disableTunOnQuit)
+        XCTAssertTrue(settings.clearSystemProxyOnStop)
+        XCTAssertFalse(settings.disableTunOnQuit)
         XCTAssertEqual(settings.statusBarDisplayMode, .stackedSpeed)
         XCTAssertFalse(settings.statusBarCustomTemplate.isEmpty)
         XCTAssertTrue(settings.dashboardHiddenSectionIDs.isEmpty)
@@ -420,6 +428,20 @@ final class ChumenConfigurationBuilderTests: XCTestCase {
         XCTAssertEqual(settings.managedCoreExecutableName, "chumen-door")
         XCTAssertFalse(settings.usesPlaceholderSecret)
         XCTAssertNotEqual(settings.secret, ChumenRuntimeSettings.placeholderSecret)
+    }
+
+    func testDefaultCoreCandidatesExposeOnlyChumenDoorName() {
+        let executableNames = Set(
+            ChumenRuntimeSettings.defaultCoreCandidates()
+                .map { URL(fileURLWithPath: $0).lastPathComponent }
+        )
+
+        XCTAssertTrue(executableNames.contains("chumen-door"))
+        XCTAssertFalse(executableNames.contains("mihomo"))
+        XCTAssertFalse(executableNames.contains("chumen-mihomo"))
+        XCTAssertFalse(executableNames.contains("verge-mihomo"))
+        XCTAssertFalse(executableNames.contains("chumen-door-arm64"))
+        XCTAssertFalse(executableNames.contains("chumen-door-x86_64"))
     }
 
     func testSettingsStoreMigratesLegacyBundledCorePath() throws {

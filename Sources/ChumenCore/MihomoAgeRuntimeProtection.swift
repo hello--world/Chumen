@@ -60,7 +60,7 @@ public final class MihomoAgeRuntimeProtection: MihomoAgeRuntimeProtecting, @unch
     public static func generateKeyPair(corePath: String) throws -> MihomoAgeKeyPair {
         let output = try runAgeCommand(corePath: corePath, arguments: ["age", "keygen"])
         guard let text = String(data: output, encoding: .utf8) else {
-            throw ChumenError.commandFailed("mihomo age keygen returned non-UTF-8 output.")
+            throw ChumenError.commandFailed("chumen-door age keygen returned non-UTF-8 output.")
         }
 
         var publicKey = ""
@@ -74,7 +74,7 @@ public final class MihomoAgeRuntimeProtection: MihomoAgeRuntimeProtecting, @unch
         }
 
         guard !publicKey.isEmpty, !secretKey.isEmpty else {
-            throw ChumenError.commandFailed("mihomo age keygen did not return a usable key pair.")
+            throw ChumenError.commandFailed("chumen-door age keygen did not return a usable key pair.")
         }
         return MihomoAgeKeyPair(secretKey: secretKey, publicKey: publicKey)
     }
@@ -164,16 +164,16 @@ public final class MihomoAgeRuntimeProtection: MihomoAgeRuntimeProtecting, @unch
         let message = rawMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if message.contains("identity did not match any of the recipients") ||
             message.contains("incorrect identity for recipient block") {
-            return "mihomo age \(operation) failed: stored age identity cannot decrypt this encrypted config."
+            return "chumen-door age \(operation) failed: stored age identity cannot decrypt this encrypted config."
         }
         if message.isEmpty {
-            return "mihomo age \(operation) failed."
+            return "chumen-door age \(operation) failed."
         }
         // Keep the first panic line but drop Go stack frames; the stack is noisy and usually hides
         // the actionable age/config error from the GUI notification and process log.
         if let firstLine = message.components(separatedBy: .newlines).first,
            firstLine.hasPrefix("panic: ") {
-            return "mihomo age \(operation) failed: \(String(firstLine.dropFirst("panic: ".count)))"
+            return "chumen-door age \(operation) failed: \(String(firstLine.dropFirst("panic: ".count)))"
         }
         return message
     }

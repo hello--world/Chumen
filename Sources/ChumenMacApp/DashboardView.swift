@@ -28,6 +28,15 @@ struct DashboardView: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
         .background(ChumenStyle.pageBackground)
+        .onAppear {
+            model.appendAppLog(
+                "ui dashboard appear; assistantPresented=\(aiAssistantPresented); " +
+                    "aiReady=\(model.aiReady); aiMessages=\(model.aiMessages.count)"
+            )
+        }
+        .onDisappear {
+            model.appendAppLog("ui dashboard disappear")
+        }
     }
 
     // The overview is now agent-first: quick controls stay on top, while the lower half is a single

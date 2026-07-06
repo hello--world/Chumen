@@ -315,15 +315,16 @@ final class AppModel: ObservableObject {
             self.pinSetupProtectAgeKey = loadedSettings.protectAgeKeyWithPIN
             self.pinStorageKind = loadedSettings.ageKeyStorage
             self.pinAppLockOnLaunch = false
-            self.pinStatusText = needsPINSetup
-                ? L10n.text(.pinSetupRequired, language: loadedSettings.language ?? .system)
-                : ""
+            self.pinStatusText = ""
             if needsPINSetup {
                 let generatedPIN = Self.generateDefaultPIN()
                 self.pinSetupPIN = generatedPIN
                 self.pinSetupConfirm = generatedPIN
             }
-            shouldDeferStartup = needsPINSetup
+            // First-run security setup is a settings choice, not an app-lock state. Keep the
+            // shell usable even when no core binary exists yet so the user can choose/download
+            // chumen-door from the normal Core page instead of being trapped behind the PIN panel.
+            shouldDeferStartup = false
         }
         self.settings = loadedSettings
         self.profileLibrary = library
@@ -399,6 +400,10 @@ final class AppModel: ObservableObject {
             body: t(.notificationTestBody),
             level: .info
         )
+    }
+
+    func appendAppLog(_ message: String) {
+        manager.appendEventLog(message)
     }
 
     func syncBackendTitle(_ backend: ChumenSyncBackendKind) -> String {
@@ -670,7 +675,7 @@ final class AppModel: ObservableObject {
     }
 
     var pinOverlayPresented: Bool {
-        pinSetupRequired || pinStorageLocked || pinAppLocked
+        pinStorageLocked || pinAppLocked
     }
 
     func unlockPIN() {
@@ -1590,7 +1595,14 @@ final class AppModel: ObservableObject {
     }
 
     func refreshOllamaModelsIfNeeded() {
-        guard settings.ai.usesLocalOllama, aiOllamaModels.isEmpty, !aiOllamaModelsLoading else { return }
+        guard settings.ai.usesLocalOllama else { return }
+        guard aiOllamaModels.isEmpty, !aiOllamaModelsLoading else {
+            appendAppLog(
+                "ai ollama models refresh skipped; cached=\(aiOllamaModels.count); loading=\(aiOllamaModelsLoading)"
+            )
+            return
+        }
+        appendAppLog("ai ollama models refresh requested by dashboard")
         refreshOllamaModels()
     }
 
@@ -1607,12 +1619,14 @@ final class AppModel: ObservableObject {
         aiOllamaModelsLoading = true
         let baseURL = settings.ai.baseURL
         let client = aiClient
+        appendAppLog("ai ollama models refresh start; baseURL=\(baseURL)")
         aiOllamaModelsTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let models = try await client.listOllamaModels(baseURL: baseURL)
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    self.appendAppLog("ai ollama models refresh finished; count=\(models.count)")
                     self.aiOllamaModels = models
                     self.aiOllamaModelsLoading = false
                     self.aiOllamaModelsTask = nil
@@ -1634,6 +1648,7 @@ final class AppModel: ObservableObject {
             } catch {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    self.appendAppLog("ai ollama models refresh failed: \(error.localizedDescription)")
                     self.aiOllamaModelsLoading = false
                     self.aiOllamaModelsTask = nil
                     self.aiStatusText = self.displayError(error)
@@ -2017,11 +2032,15 @@ final class AppModel: ObservableObject {
     }
 
     private func startExternalProfileScan(updateStatusText: Bool) {
-        guard externalProfileScanTask == nil else { return }
+        guard externalProfileScanTask == nil else {
+            appendAppLog("external profile scan skipped; already running")
+            return
+        }
         if updateStatusText {
             externalProfileScanCompleted = false
             statusText = t(.scanClients)
         }
+        appendAppLog("external profile scan start; updateStatus=\(updateStatusText)")
 
         // Client profile discovery can recurse through large third-party config directories on a
         // user's machine. Keep that filesystem walk off the main actor so first-run onboarding and
@@ -2035,6 +2054,7 @@ final class AppModel: ObservableObject {
             externalProfileCandidates = candidates
             externalProfileScanCompleted = true
             externalProfileScanTask = nil
+            appendAppLog("external profile scan finished; candidates=\(candidates.count)")
 
             guard updateStatusText else { return }
             if candidates.isEmpty {
@@ -2507,11 +2527,28 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func settleOptionalPINSetupForCoreStart() {
+        guard pinSetupRequired else { return }
+        // Starting the core is a normal app action, not consent to enable app lock. If the user has
+        // not created a PIN vault yet, continue with the direct age-key storage path so first run,
+        // Intel builds, and no-core states never dead-end behind security setup.
+        settings.protectAgeKeyWithPIN = false
+        settings.securitySetupCompleted = true
+        settings.ageKeyStorage = pinStorageKind
+        pinSetupRequired = false
+        pinSetupProtectAgeKey = false
+        pinAppLockOnLaunch = false
+        pinStatusText = ""
+        pinSetupPIN = ""
+        pinSetupConfirm = ""
+    }
+
     func start() {
         guard !pinOverlayPresented else {
             statusText = pinStatusText.isEmpty ? t(.pinRequired) : pinStatusText
             return
         }
+        settleOptionalPINSetupForCoreStart()
         guard !isCoreTransitioning else { return }
         let launch = launchSettings(applyStartAutomation: true)
         let profileAppendixYAML = activeProfileAppendixYAML
@@ -2626,6 +2663,7 @@ final class AppModel: ObservableObject {
             statusText = pinStatusText.isEmpty ? t(.pinRequired) : pinStatusText
             return
         }
+        settleOptionalPINSetupForCoreStart()
         guard !isCoreTransitioning else { return }
         let launch = launchSettings()
         let profileAppendixYAML = activeProfileAppendixYAML
@@ -3366,7 +3404,7 @@ final class AppModel: ObservableObject {
     func saveSettings() {
         settingsAutosaveTask?.cancel()
         settingsAutosaveTask = nil
-        guard !pinStorageLocked, !pinSetupRequired else { return }
+        guard !pinStorageLocked else { return }
         guard settings != lastSavedSettings else { return }
         do {
             try paths.ensureDirectories()

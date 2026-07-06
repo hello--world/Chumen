@@ -33,12 +33,15 @@ struct ContentView: View {
     // macOS TabView may still evaluate hidden child bodies when the selection changes. Keep the
     // shell as the ownership boundary for heavyweight pages so switching tabs does not construct
     // settings forms, provider lists, charts, or log surfaces that are not currently visible.
+    // The dashboard is the exception: it hosts the assistant/Textual workspace and should stay warm
+    // after launch instead of being rebuilt every time the user returns to the overview.
     @ViewBuilder
     private func activeTabContent<Content: View>(
         for tab: AppTab,
+        retain: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        if selectedTab == tab {
+        if selectedTab == tab || retain {
             content()
         } else {
             ChumenStyle.pageBackground
@@ -55,7 +58,7 @@ struct ContentView: View {
                     header
                     Divider()
                     TabView(selection: $selectedTab) {
-                        activeTabContent(for: .dashboard) {
+                        activeTabContent(for: .dashboard, retain: true) {
                             DashboardView(
                                 selectedTab: $selectedTab,
                                 aiAssistantPresented: $aiAssistantPresented,
@@ -171,6 +174,12 @@ struct ContentView: View {
             if isPresented {
                 clearBlockingOverlayFocus()
             }
+        }
+        .onChange(of: selectedTab) { oldTab, newTab in
+            model.appendAppLog(
+                "ui tab selected \(String(describing: oldTab)) -> \(String(describing: newTab)); " +
+                    "assistantPresented=\(aiAssistantPresented); aiMessages=\(model.aiMessages.count)"
+            )
         }
     }
 

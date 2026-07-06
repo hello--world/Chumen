@@ -256,8 +256,8 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         autoStartCoreOnLaunch: Bool = true,
         setSystemProxyOnStart: Bool = false,
         enableTunOnStart: Bool = false,
-        clearSystemProxyOnStop: Bool = true,
-        disableTunOnQuit: Bool = true,
+        clearSystemProxyOnStop: Bool = false,
+        disableTunOnQuit: Bool = false,
         language: AppLanguage? = nil,
         showStatusBarItem: Bool = true,
         statusBarDisplayMode: StatusBarDisplayMode = .stackedSpeed,
@@ -544,8 +544,8 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
             autoStartCoreOnLaunch: try container.decodeIfPresent(Bool.self, forKey: .autoStartCoreOnLaunch) ?? true,
             setSystemProxyOnStart: try container.decodeIfPresent(Bool.self, forKey: .setSystemProxyOnStart) ?? false,
             enableTunOnStart: try container.decodeIfPresent(Bool.self, forKey: .enableTunOnStart) ?? false,
-            clearSystemProxyOnStop: try container.decodeIfPresent(Bool.self, forKey: .clearSystemProxyOnStop) ?? true,
-            disableTunOnQuit: try container.decodeIfPresent(Bool.self, forKey: .disableTunOnQuit) ?? true,
+            clearSystemProxyOnStop: try container.decodeIfPresent(Bool.self, forKey: .clearSystemProxyOnStop) ?? false,
+            disableTunOnQuit: try container.decodeIfPresent(Bool.self, forKey: .disableTunOnQuit) ?? false,
             language: try container.decodeIfPresent(AppLanguage.self, forKey: .language),
             showStatusBarItem: try container.decodeIfPresent(Bool.self, forKey: .showStatusBarItem) ?? true,
             statusBarDisplayMode: (try? container.decode(StatusBarDisplayMode.self, forKey: .statusBarDisplayMode)) ?? .stackedSpeed,
@@ -655,13 +655,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         candidates.append(contentsOf: [
             "/opt/homebrew/bin/chumen-door",
             "/usr/local/bin/chumen-door",
-            "/usr/bin/chumen-door",
-            "/opt/homebrew/bin/chumen-mihomo",
-            "/usr/local/bin/chumen-mihomo",
-            "/usr/bin/chumen-mihomo",
-            "/opt/homebrew/bin/mihomo",
-            "/usr/local/bin/mihomo",
-            "/usr/bin/mihomo"
+            "/usr/bin/chumen-door"
         ])
 
         var seen = Set<String>()
@@ -674,14 +668,6 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
     }
 
     private static let coreNames = [
-        "chumen-door",
-        "chumen-mihomo",
-        "verge-mihomo",
-        "verge-mihomo-alpha",
-        "verge-mihomo-aarch64-apple-darwin",
-        "verge-mihomo-x86_64-apple-darwin",
-        "verge-mihomo-alpha-aarch64-apple-darwin",
-        "verge-mihomo-alpha-x86_64-apple-darwin",
-        "mihomo"
+        "chumen-door"
     ]
 }

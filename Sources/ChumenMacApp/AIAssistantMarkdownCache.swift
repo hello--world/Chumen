@@ -37,7 +37,7 @@ enum AIAssistantRendering {
     }
 }
 
-struct AIAssistantMarkdownDocument {
+struct AIAssistantMarkdownDocument: Sendable {
     let source: String
     let attributedString: AttributedString
 }
@@ -54,12 +54,13 @@ struct CachedAIMarkdownParser: MarkupParser {
 final class AIAssistantMarkdownCache: ObservableObject {
     private var entries: [String: AIAssistantMarkdownDocument] = [:]
     private var fingerprints: [String: String] = [:]
-    private let parser = AttributedStringMarkdownParser(baseURL: nil)
+    private var prepareTask: Task<Void, Never>?
 
-    func prepare(messages: [ChumenAIChatMessage]) {
+    func prepare(messages: [ChumenAIChatMessage], log: ((String) -> Void)? = nil) {
         let visibleMessages = AIAssistantRendering.visibleMessages(from: messages)
         var nextEntries: [String: AIAssistantMarkdownDocument] = [:]
         var nextFingerprints: [String: String] = [:]
+        var jobs: [MarkdownRenderJob] = []
 
         for message in visibleMessages {
             let fingerprint = Self.fingerprint(for: message)
@@ -75,17 +76,69 @@ final class AIAssistantMarkdownCache: ObservableObject {
             }
 
             let source = AIAssistantRendering.markdownSource(for: message.content)
-            guard let attributedString = try? parser.attributedString(for: source) else { continue }
-            nextEntries[message.id] = AIAssistantMarkdownDocument(
-                source: source,
-                attributedString: attributedString
+            jobs.append(
+                MarkdownRenderJob(
+                    id: message.id,
+                    source: source,
+                    characterCount: message.content.count
+                )
             )
         }
 
         guard nextFingerprints != fingerprints else { return }
+        prepareTask?.cancel()
         objectWillChange.send()
         entries = nextEntries
         fingerprints = nextFingerprints
+
+        guard !jobs.isEmpty else {
+            prepareTask = nil
+            log?("ai markdown cache updated; visibleMessages=\(visibleMessages.count); renderJobs=0")
+            return
+        }
+
+        let totalCharacters = jobs.reduce(0) { $0 + $1.characterCount }
+        log?(
+            "ai markdown render start; visibleMessages=\(visibleMessages.count); " +
+                "renderJobs=\(jobs.count); characters=\(totalCharacters)"
+        )
+
+        prepareTask = Task { [weak self, nextFingerprints, nextEntries, jobs] in
+            let started = Date()
+            let renderedEntries = await Task.detached(priority: .utility) {
+                var rendered: [String: AIAssistantMarkdownDocument] = [:]
+                for job in jobs {
+                    if Task.isCancelled { return rendered }
+                    guard let attributedString = try? AttributedString(markdown: job.source) else {
+                        continue
+                    }
+                    rendered[job.id] = AIAssistantMarkdownDocument(
+                        source: job.source,
+                        attributedString: attributedString
+                    )
+                }
+                return rendered
+            }.value
+
+            guard !Task.isCancelled, let self else { return }
+            guard self.fingerprints == nextFingerprints else {
+                log?("ai markdown render discarded; newer transcript is active")
+                return
+            }
+
+            var completedEntries = nextEntries
+            for (id, document) in renderedEntries {
+                completedEntries[id] = document
+            }
+            self.prepareTask = nil
+            self.objectWillChange.send()
+            self.entries = completedEntries
+            let elapsedMs = Int(Date().timeIntervalSince(started) * 1_000)
+            log?(
+                "ai markdown render finished; rendered=\(renderedEntries.count)/\(jobs.count); " +
+                    "elapsedMs=\(elapsedMs)"
+            )
+        }
     }
 
     func document(for message: ChumenAIChatMessage) -> AIAssistantMarkdownDocument? {
@@ -95,5 +148,11 @@ final class AIAssistantMarkdownCache: ObservableObject {
 
     private static func fingerprint(for message: ChumenAIChatMessage) -> String {
         "\(message.content.count):\(message.content.hashValue)"
+    }
+
+    private struct MarkdownRenderJob: Sendable {
+        let id: String
+        let source: String
+        let characterCount: Int
     }
 }

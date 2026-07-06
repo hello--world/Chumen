@@ -26,6 +26,10 @@ struct AIAssistantOverlayView: View {
     var body: some View {
         aiAssistantPanel
             .onAppear {
+                model.appendAppLog(
+                    "ai assistant appear; ready=\(model.aiReady); provider=\(String(describing: model.settings.ai.provider)); " +
+                        "messages=\(model.aiMessages.count); pendingChanges=\(model.aiPendingChanges.count)"
+                )
                 if !model.aiReady {
                     onSearchImmediately()
                     aiAdvancedConfigExpanded = true
@@ -33,10 +37,10 @@ struct AIAssistantOverlayView: View {
                 if model.settings.ai.usesLocalOllama {
                     model.refreshOllamaModelsIfNeeded()
                 }
-                markdownCache.prepare(messages: model.aiMessages)
+                markdownCache.prepare(messages: model.aiMessages, log: model.appendAppLog)
             }
             .onChange(of: model.aiMessages) { _, messages in
-                markdownCache.prepare(messages: messages)
+                markdownCache.prepare(messages: messages, log: model.appendAppLog)
             }
     }
 
