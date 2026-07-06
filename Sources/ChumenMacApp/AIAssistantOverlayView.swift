@@ -2,6 +2,14 @@ import ChumenCore
 import Foundation
 import SwiftUI
 
+private enum AIAssistantRendering {
+    // The assistant lives on the overview page, so its rendering cost directly affects tab
+    // switching. Keep the visible transcript bounded and avoid synchronous Markdown parsing for
+    // long model replies; the full conversation still remains in AppModel for request context.
+    static let visibleMessageLimit = 18
+    static let markdownCharacterLimit = 1_800
+}
+
 // AI assistant presentation is isolated from ContentView so the app shell only coordinates
 // search scheduling and navigation. The assistant can be embedded in the dashboard workspace
 // without owning routing, and it preserves the review-before-apply security boundary.
@@ -503,7 +511,9 @@ struct AIAssistantOverlayView: View {
     }
 
     private var aiMessagesList: some View {
-        ScrollView {
+        let visibleMessages = recentAIMessages
+
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 9) {
                 if model.aiMessages.isEmpty {
                     Text(model.t(.aiNoMessages))
@@ -511,7 +521,7 @@ struct AIAssistantOverlayView: View {
                         .foregroundStyle(ChumenStyle.mutedText)
                         .frame(maxWidth: .infinity, minHeight: 120)
                 } else {
-                    ForEach(model.aiMessages) { message in
+                    ForEach(visibleMessages) { message in
                         aiMessageBubble(message)
                     }
                 }
@@ -525,6 +535,12 @@ struct AIAssistantOverlayView: View {
             }
             .padding(14)
         }
+    }
+
+    private var recentAIMessages: [ChumenAIChatMessage] {
+        let messages = model.aiMessages
+        guard messages.count > AIAssistantRendering.visibleMessageLimit else { return messages }
+        return Array(messages.suffix(AIAssistantRendering.visibleMessageLimit))
     }
 
     private func aiMessageBubble(_ message: ChumenAIChatMessage) -> some View {
@@ -557,13 +573,17 @@ struct AIAssistantOverlayView: View {
     // need richer block layout such as tables or syntax-highlighted fenced code.
     @ViewBuilder
     private func aiMessageContent(_ content: String) -> some View {
-        let blocks = aiMessageBlocks(from: content)
-        if blocks.count == 1, case .paragraph = blocks[0].kind {
-            aiInlineText(blocks[0].text)
+        if content.count > AIAssistantRendering.markdownCharacterLimit {
+            Text(content)
         } else {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(blocks) { block in
-                    aiMessageBlock(block)
+            let blocks = aiMessageBlocks(from: content)
+            if blocks.count == 1, case .paragraph = blocks[0].kind {
+                aiInlineText(blocks[0].text)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(blocks) { block in
+                        aiMessageBlock(block)
+                    }
                 }
             }
         }
@@ -617,7 +637,8 @@ struct AIAssistantOverlayView: View {
 
     @ViewBuilder
     private func aiInlineText(_ text: String) -> some View {
-        if let markdown = aiMarkdownAttributedString(text) {
+        if text.count <= AIAssistantRendering.markdownCharacterLimit,
+           let markdown = aiMarkdownAttributedString(text) {
             Text(markdown)
         } else {
             Text(text)
@@ -649,7 +670,7 @@ struct AIAssistantOverlayView: View {
             case code
         }
 
-        let id = UUID()
+        let id: String
         let kind: Kind
         let text: String
     }
@@ -659,13 +680,19 @@ struct AIAssistantOverlayView: View {
         var paragraphLines: [String] = []
         var codeLines: [String] = []
         var inCodeBlock = false
+        var nextBlockIndex = 0
+
+        func appendBlock(kind: AIMessageBlock.Kind, text: String) {
+            blocks.append(AIMessageBlock(id: "\(nextBlockIndex)", kind: kind, text: text))
+            nextBlockIndex += 1
+        }
 
         func flushParagraph() {
             let text = paragraphLines
                 .joined(separator: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
-                blocks.append(AIMessageBlock(kind: .paragraph, text: text))
+                appendBlock(kind: .paragraph, text: text)
             }
             paragraphLines.removeAll()
         }
@@ -675,7 +702,7 @@ struct AIAssistantOverlayView: View {
 
             if trimmedLine.hasPrefix("```") {
                 if inCodeBlock {
-                    blocks.append(AIMessageBlock(kind: .code, text: codeLines.joined(separator: "\n")))
+                    appendBlock(kind: .code, text: codeLines.joined(separator: "\n"))
                     codeLines.removeAll()
                     inCodeBlock = false
                 } else {
@@ -697,19 +724,19 @@ struct AIAssistantOverlayView: View {
 
             if let heading = aiHeadingText(trimmedLine) {
                 flushParagraph()
-                blocks.append(AIMessageBlock(kind: .heading, text: heading))
+                appendBlock(kind: .heading, text: heading)
                 continue
             }
 
             if let bullet = aiBulletText(trimmedLine) {
                 flushParagraph()
-                blocks.append(AIMessageBlock(kind: .bullet, text: bullet))
+                appendBlock(kind: .bullet, text: bullet)
                 continue
             }
 
             if let numbered = aiNumberedText(trimmedLine) {
                 flushParagraph()
-                blocks.append(AIMessageBlock(kind: .numbered(numbered.marker), text: numbered.text))
+                appendBlock(kind: .numbered(numbered.marker), text: numbered.text)
                 continue
             }
 
@@ -717,10 +744,13 @@ struct AIAssistantOverlayView: View {
         }
 
         if inCodeBlock {
-            blocks.append(AIMessageBlock(kind: .code, text: codeLines.joined(separator: "\n")))
+            appendBlock(kind: .code, text: codeLines.joined(separator: "\n"))
         }
         flushParagraph()
-        return blocks.isEmpty ? [AIMessageBlock(kind: .paragraph, text: content)] : blocks
+        if blocks.isEmpty {
+            appendBlock(kind: .paragraph, text: content)
+        }
+        return blocks
     }
 
     private func aiHeadingText(_ line: String) -> String? {

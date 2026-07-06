@@ -19,7 +19,7 @@ struct ContentView: View {
     @State private var globalSearchPresented = false
     @State private var globalSearchResults: [GlobalSearchResult] = []
     @State private var globalSearchTask: Task<Void, Never>?
-    @State private var aiAssistantPresented = true
+    @State private var aiAssistantPresented = false
     @State private var aiSearchResults: [GlobalSearchResult] = []
     @State private var aiSearchTask: Task<Void, Never>?
 
