@@ -37,12 +37,17 @@ enum AppBuildInfo {
         bundleString(for: "CFBundleVersion") ?? fallbackBuild
     }
 
+    static var buildDate: String? {
+        bundleString(for: "ChumenBuildDate")
+    }
+
     @MainActor
     static func menuTitle(model: AppModel) -> String {
         let versionText = build.isEmpty || build == version
             ? "v\(version)"
             : "v\(version) (\(build))"
-        return "\(versionText) · \(model.t(configuration.titleKey))"
+        let dateText = buildDate.map { " · \($0)" } ?? ""
+        return "\(versionText)\(dateText) · \(model.t(configuration.titleKey))"
     }
 
     private static func bundleString(for key: String) -> String? {

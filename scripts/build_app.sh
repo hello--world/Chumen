@@ -17,6 +17,7 @@ EOF
 }
 
 BUILD_CONFIGURATION="${1:-debug}"
+BUILD_DATE="$(date '+%Y-%m-%d %H:%M:%S %z')"
 if [[ $# -gt 1 ]]; then
   usage >&2
   exit 2
@@ -94,6 +95,7 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$ROOT_DIR/.build/$BUILD_CONFIGURATION/Chumen" "$MACOS_DIR/Chumen"
 cp "$ROOT_DIR/.build/$BUILD_CONFIGURATION/ChumenHelper" "$RESOURCES_DIR/ChumenHelper"
 cp "$ROOT_DIR/Packaging/Info.plist" "$CONTENTS_DIR/Info.plist"
+plist_set_string "ChumenBuildDate" "$BUILD_DATE"
 if [[ "$BUILD_CONFIGURATION" == "debug" ]]; then
   plist_set_string "CFBundleIdentifier" "io.github.chumen.native-macos.debug"
   plist_set_string "CFBundleName" "Chumen Debug"
