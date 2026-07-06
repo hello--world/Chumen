@@ -4,6 +4,10 @@ Chumen 是一个 macOS 原生 SwiftUI 客户端，用来启动、控制和观察
 
 English version: [README.en.md](README.en.md)
 
+## 系统要求
+
+- macOS 15 或更新版本。
+
 ## 项目结构
 
 ```text

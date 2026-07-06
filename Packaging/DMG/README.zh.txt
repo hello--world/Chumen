@@ -1,5 +1,7 @@
 Chumen 安装说明
 
+系统要求：macOS 15 或更新版本。
+
 当前 release 包使用本地 ad-hoc 签名，没有 Apple Developer ID 签名和公证。
 在其他 Mac 上首次打开时，macOS 可能提示应用已损坏、无法打开，或阻止启动。
 

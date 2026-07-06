@@ -1,5 +1,7 @@
 Chumen Installation Notes
 
+System requirement: macOS 15 or later.
+
 This release build uses local ad-hoc signing. It does not have an Apple Developer ID signature or notarization yet.
 On another Mac, macOS may report that the app is damaged, cannot be opened, or was blocked from launching.
 

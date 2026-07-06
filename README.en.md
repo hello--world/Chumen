@@ -6,6 +6,10 @@ validated through command-line commands.
 
 Chinese version: [README.zh.md](README.zh.md)
 
+## Requirements
+
+- macOS 15 or later.
+
 ## Project Layout
 
 ```text
