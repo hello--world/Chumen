@@ -2936,11 +2936,19 @@ final class AppModel: ObservableObject {
             }.value
             let currentSettings = settings
             let ownedByChumen = state.matches(host: currentSettings.systemProxyHost, port: currentSettings.mixedPort)
+            let nextStateText = systemProxyText(for: state, ownedByChumen: ownedByChumen, settings: currentSettings)
             resetSystemProxyRuntimeState()
-            systemProxyEnabled = ownedByChumen
-            systemProxyStateText = systemProxyText(for: state, ownedByChumen: ownedByChumen, settings: currentSettings)
+            if systemProxyEnabled != ownedByChumen {
+                systemProxyEnabled = ownedByChumen
+            }
+            if systemProxyStateText != nextStateText {
+                systemProxyStateText = nextStateText
+            }
         } catch {
-            systemProxyStateText = displayError(error)
+            let nextStateText = displayError(error)
+            if systemProxyStateText != nextStateText {
+                systemProxyStateText = nextStateText
+            }
         }
     }
 
@@ -3067,8 +3075,12 @@ final class AppModel: ObservableObject {
     }
 
     private func resetSystemProxyRuntimeState() {
-        systemProxyRuntimeFailed = false
-        systemProxyRuntimeFailureMessage = ""
+        if systemProxyRuntimeFailed {
+            systemProxyRuntimeFailed = false
+        }
+        if !systemProxyRuntimeFailureMessage.isEmpty {
+            systemProxyRuntimeFailureMessage = ""
+        }
     }
 
     private func recordSystemProxyFailure(_ error: Error) {

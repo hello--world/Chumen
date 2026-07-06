@@ -1,4 +1,5 @@
 import Foundation
+import SystemConfiguration
 
 public struct SystemProxyManager: Sendable {
     public var host: String
@@ -29,6 +30,13 @@ public struct SystemProxyManager: Sendable {
     }
 
     public func currentState() throws -> SystemProxyState {
+        if let state = Self.currentDynamicStoreState() {
+            return state
+        }
+        return try currentStateUsingNetworkSetup()
+    }
+
+    private func currentStateUsingNetworkSetup() throws -> SystemProxyState {
         let services = try services()
         guard !services.isEmpty else {
             return SystemProxyState(service: nil, webEnabled: false, secureWebEnabled: false, socksEnabled: false)
@@ -54,6 +62,37 @@ public struct SystemProxyManager: Sendable {
             return enabled
         }
         return states[0]
+    }
+
+    static func currentState(fromDynamicStoreProxies proxies: [String: Any], service: String = "macOS") -> SystemProxyState {
+        SystemProxyState(
+            service: service,
+            web: SystemProxyEndpoint(
+                enabled: proxyEnabled(proxies[kSCPropNetProxiesHTTPEnable as String]),
+                server: proxyString(proxies[kSCPropNetProxiesHTTPProxy as String]),
+                port: proxyPort(proxies[kSCPropNetProxiesHTTPPort as String])
+            ),
+            secureWeb: SystemProxyEndpoint(
+                enabled: proxyEnabled(proxies[kSCPropNetProxiesHTTPSEnable as String]),
+                server: proxyString(proxies[kSCPropNetProxiesHTTPSProxy as String]),
+                port: proxyPort(proxies[kSCPropNetProxiesHTTPSPort as String])
+            ),
+            socks: SystemProxyEndpoint(
+                enabled: proxyEnabled(proxies[kSCPropNetProxiesSOCKSEnable as String]),
+                server: proxyString(proxies[kSCPropNetProxiesSOCKSProxy as String]),
+                port: proxyPort(proxies[kSCPropNetProxiesSOCKSPort as String])
+            )
+        )
+    }
+
+    private static func currentDynamicStoreState() -> SystemProxyState? {
+        guard let proxies = SCDynamicStoreCopyProxies(nil) as? [String: Any] else {
+            return nil
+        }
+        // Reading the current proxy via SystemConfiguration avoids spawning networksetup for every
+        // service on every UI refresh. networksetup stays on the write path where macOS persists
+        // per-service proxy settings.
+        return currentState(fromDynamicStoreProxies: proxies)
     }
 
     public static func parseNetworkServices(_ output: String) -> [String] {
@@ -161,6 +200,39 @@ public struct SystemProxyManager: Sendable {
         }
 
         return SystemProxyEndpoint(enabled: enabled, server: server, port: port)
+    }
+
+    private static func proxyEnabled(_ value: Any?) -> Bool {
+        if let value = value as? Bool {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.intValue != 0
+        }
+        if let value = value as? String {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized == "yes" || normalized == "on" || normalized == "true" || normalized == "1"
+        }
+        return false
+    }
+
+    private static func proxyString(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func proxyPort(_ value: Any?) -> Int? {
+        if let value = value as? Int {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.intValue
+        }
+        if let value = value as? String {
+            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
     }
 }
 
