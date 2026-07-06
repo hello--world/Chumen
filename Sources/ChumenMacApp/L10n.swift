@@ -216,7 +216,23 @@ enum L10n {
         case noMatchingRules
         case closeAll
         case activeConnections
+        case closedConnections
+        case connectionHistory
+        case viewMore
+        case clearHistory
+        case noClosedConnections
         case close
+        case connectionDownloadAmount
+        case connectionUploadAmount
+        case connectionDownloadSpeed
+        case connectionUploadSpeed
+        case connectionChain
+        case connectionRule
+        case connectionProcess
+        case connectionStartTime
+        case connectionSourceAddress
+        case connectionDestinationAddress
+        case connectionType
         case networkReport
         case activeTraffic
         case routeDistribution
@@ -365,6 +381,8 @@ enum L10n {
         case files
         case openDataDirectory
         case more
+        case debugBuild
+        case releaseBuild
         case restartApplication
         case quit
         case saveSettings
@@ -696,7 +714,23 @@ enum L10n {
         .noMatchingRules: "无匹配规则",
         .closeAll: "全部关闭",
         .activeConnections: "活跃连接",
+        .closedConnections: "已关闭",
+        .connectionHistory: "连接历史",
+        .viewMore: "查看更多",
+        .clearHistory: "清空历史",
+        .noClosedConnections: "暂无已关闭连接",
         .close: "关闭",
+        .connectionDownloadAmount: "下载量",
+        .connectionUploadAmount: "上传量",
+        .connectionDownloadSpeed: "下载速度",
+        .connectionUploadSpeed: "上传速度",
+        .connectionChain: "链路",
+        .connectionRule: "规则",
+        .connectionProcess: "进程",
+        .connectionStartTime: "连接时间",
+        .connectionSourceAddress: "源地址",
+        .connectionDestinationAddress: "目标地址",
+        .connectionType: "类型",
         .networkReport: "网络报表",
         .activeTraffic: "活跃流量",
         .routeDistribution: "路由分布",
@@ -845,6 +879,8 @@ enum L10n {
         .files: "文件",
         .openDataDirectory: "打开数据目录",
         .more: "更多",
+        .debugBuild: "Debug 版",
+        .releaseBuild: "正式版",
         .restartApplication: "重启应用",
         .quit: "退出",
         .saveSettings: "保存设置",
@@ -1169,7 +1205,23 @@ enum L10n {
         .noMatchingRules: "No Matching Rules",
         .closeAll: "Close All",
         .activeConnections: "active",
+        .closedConnections: "closed",
+        .connectionHistory: "Connection History",
+        .viewMore: "View More",
+        .clearHistory: "Clear History",
+        .noClosedConnections: "No Closed Connections",
         .close: "Close",
+        .connectionDownloadAmount: "Download",
+        .connectionUploadAmount: "Upload",
+        .connectionDownloadSpeed: "Down Speed",
+        .connectionUploadSpeed: "Up Speed",
+        .connectionChain: "Chain",
+        .connectionRule: "Rule",
+        .connectionProcess: "Process",
+        .connectionStartTime: "Connected",
+        .connectionSourceAddress: "Source",
+        .connectionDestinationAddress: "Destination",
+        .connectionType: "Type",
         .networkReport: "Network Report",
         .activeTraffic: "Active Traffic",
         .routeDistribution: "Route Distribution",
@@ -1322,6 +1374,8 @@ enum L10n {
         .files: "Files",
         .openDataDirectory: "Open Data Directory",
         .more: "More",
+        .debugBuild: "Debug",
+        .releaseBuild: "Release",
         .restartApplication: "Restart App",
         .quit: "Quit",
         .saveSettings: "Save Settings",

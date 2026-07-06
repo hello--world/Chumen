@@ -517,6 +517,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             symbol: "arrow.clockwise",
             action: #selector(restartApplication)
         ))
+        menu.addItem(.separator())
+        menu.addItem(menuItem(
+            title: AppBuildInfo.menuTitle(model: model),
+            symbol: "info.circle",
+            enabled: false
+        ))
         return menu
     }
 

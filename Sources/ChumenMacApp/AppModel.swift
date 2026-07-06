@@ -87,6 +87,10 @@ private enum AppUpdateID {
     static let coreSnapshot = "coreSnapshot"
 }
 
+private enum ConnectionHistoryPolicy {
+    static let closedConnectionLimit = 500
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     // AppModel 是 GUI 的单一状态源：窗口、状态栏菜单和异步内核任务都从这里读写状态。
@@ -125,6 +129,7 @@ final class AppModel: ObservableObject {
     @Published var ruleProviders: [MihomoProvider] = []
     @Published var proxyDelays: [String: Int] = [:]
     @Published var connections: [MihomoConnection] = []
+    @Published var closedConnections: [MihomoConnection] = []
     @Published var connectionReportSamples: [ConnectionReportSample] = []
     @Published var logReportSamples: [LogReportSample] = []
     @Published var rules: [MihomoRule] = []
@@ -349,7 +354,7 @@ final class AppModel: ObservableObject {
         manager.onExit = { [weak self] status in
             Task { @MainActor in
                 guard let self else { return }
-                self.stopControllerStreams()
+                self.resetRuntimeSnapshotForStoppedCore()
                 self.isRunning = false
                 self.statusText = status == 0 ? self.t(.stopped) : "\(self.t(.coreExited)): \(status)"
                 if status != 0 {
@@ -2395,8 +2400,7 @@ final class AppModel: ObservableObject {
         let launch = launchSettings(applyStartAutomation: true)
         let profileAppendixYAML = activeProfileAppendixYAML
         resetTunRuntimeState(for: launch)
-        resetConnectionTrafficBreakdown()
-        resetMemoryTelemetry()
+        prepareRuntimeSnapshotForStartingCore()
         isCoreTransitioning = true
         statusText = t(.pending)
 
@@ -2462,7 +2466,7 @@ final class AppModel: ObservableObject {
 
     func stop() {
         guard !isCoreTransitioning else { return }
-        stopControllerStreams()
+        resetRuntimeSnapshotForStoppedCore()
         isCoreTransitioning = true
         statusText = t(.pending)
         let shouldClearProxy = settings.clearSystemProxyOnStop && systemProxyEnabled
@@ -2510,9 +2514,7 @@ final class AppModel: ObservableObject {
         let launch = launchSettings()
         let profileAppendixYAML = activeProfileAppendixYAML
         resetTunRuntimeState(for: launch)
-        resetConnectionTrafficBreakdown()
-        resetMemoryTelemetry()
-        stopControllerStreams()
+        prepareRuntimeSnapshotForStartingCore()
         isCoreTransitioning = true
         statusText = t(.coreRestartRequested)
 
@@ -2599,7 +2601,13 @@ final class AppModel: ObservableObject {
             }
         } catch {
             isRunning = ownsCore
-            statusText = ownsCore ? t(.controllerUnavailable) : t(.stopped)
+            if ownsCore {
+                apiText = t(.controllerUnavailable)
+                statusText = t(.controllerUnavailable)
+            } else {
+                resetRuntimeSnapshotForStoppedCore()
+                statusText = t(.stopped)
+            }
         }
     }
 
@@ -2751,6 +2759,10 @@ final class AppModel: ObservableObject {
                 statusText = displayError(error)
             }
         }
+    }
+
+    func clearClosedConnections() {
+        closedConnections.removeAll()
     }
 
     func refreshRules() async {
@@ -3276,6 +3288,29 @@ final class AppModel: ObservableObject {
         startCoreSnapshotUpdates()
     }
 
+    private func prepareRuntimeSnapshotForStartingCore() {
+        resetRuntimeSnapshotForStoppedCore()
+        apiText = t(.apiNotTested)
+    }
+
+    private func resetRuntimeSnapshotForStoppedCore() {
+        stopControllerStreams()
+        archiveActiveConnectionsForHistory()
+        apiText = t(.apiNotTested)
+        connections.removeAll()
+        proxyGroups.removeAll()
+        proxyProviders.removeAll()
+        ruleProviders.removeAll()
+        proxyDelays.removeAll()
+        rules.removeAll()
+        resetConnectionTrafficBreakdown()
+        resetMemoryTelemetry()
+    }
+
+    private func archiveActiveConnectionsForHistory() {
+        appendClosedConnections(fromPreviousActive: connections, nextActive: [])
+    }
+
     private func stopControllerStreams() {
         logStream.stop()
         trafficStream.stop()
@@ -3338,6 +3373,7 @@ final class AppModel: ObservableObject {
     }
 
     private func applyConnectionTelemetry(_ response: MihomoConnectionsResponse) {
+        appendClosedConnections(fromPreviousActive: connections, nextActive: response.connections)
         connections = response.connections
         let connectionTotals = Self.connectionTrafficTotals(response.connections)
         let nextUploadTotal = Self.resolvedTrafficTotal(
@@ -3369,6 +3405,23 @@ final class AppModel: ObservableObject {
         unknownRoutedUploadTotal = connectionTrafficAccumulator.unknownUploadTotal
         unknownRoutedDownloadTotal = connectionTrafficAccumulator.unknownDownloadTotal
         appendConnectionReportSample(from: connectionAnalysisSnapshot)
+    }
+
+    private func appendClosedConnections(fromPreviousActive previousActive: [MihomoConnection], nextActive: [MihomoConnection]) {
+        guard !previousActive.isEmpty else { return }
+
+        let nextActiveIDs = Set(nextActive.map(\.id))
+        let removedConnections = previousActive.filter { !nextActiveIDs.contains($0.id) }
+        guard !removedConnections.isEmpty else { return }
+
+        let removedIDs = Set(removedConnections.map(\.id))
+        var nextClosedConnections = closedConnections.filter { !removedIDs.contains($0.id) }
+        nextClosedConnections.append(contentsOf: removedConnections)
+
+        if nextClosedConnections.count > ConnectionHistoryPolicy.closedConnectionLimit {
+            nextClosedConnections.removeFirst(nextClosedConnections.count - ConnectionHistoryPolicy.closedConnectionLimit)
+        }
+        closedConnections = nextClosedConnections
     }
 
     private func applyConnectionSpeedFallback(uploadTotal: Int64, downloadTotal: Int64, at now: Date = Date()) {

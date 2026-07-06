@@ -7,6 +7,12 @@ private enum ChumenWindowMetrics {
     // Keep the established app width stable and add vertical room for the overview command surface
     // plus its assistant rail. This follows the current layout direction: width unchanged, height +20%.
     static let contentSize = NSSize(width: 1080, height: 684)
+    static let connectionsDetailSize = NSSize(width: 920, height: 640)
+}
+
+enum ChumenWindowID {
+    static let main = "main"
+    static let connectionsDetail = "connections-detail"
 }
 
 @main
@@ -26,7 +32,7 @@ struct ChumenMacApp: App {
     }
 
     var body: some Scene {
-        Window("Chumen", id: "main") {
+        Window("Chumen", id: ChumenWindowID.main) {
             ZStack {
                 ContentView()
                 StatusBarInstaller()
@@ -52,6 +58,19 @@ struct ChumenMacApp: App {
             height: ChumenWindowMetrics.contentSize.height
         )
         .windowResizability(.contentSize)
+
+        Window("Connections", id: ChumenWindowID.connectionsDetail) {
+            ConnectionsDetailWindow()
+                .environmentObject(model)
+                .frame(
+                    minWidth: ChumenWindowMetrics.connectionsDetailSize.width,
+                    minHeight: ChumenWindowMetrics.connectionsDetailSize.height
+                )
+        }
+        .defaultSize(
+            width: ChumenWindowMetrics.connectionsDetailSize.width,
+            height: ChumenWindowMetrics.connectionsDetailSize.height
+        )
     }
 }
 
@@ -105,7 +124,7 @@ private struct StatusBarInstaller: View {
             .onAppear {
                 StatusBarController.shared.install(model: model) {
                     NSApplication.shared.setActivationPolicy(.regular)
-                    openWindow(id: "main")
+                    openWindow(id: ChumenWindowID.main)
                     DispatchQueue.main.async {
                         model.showMainWindow()
                     }
