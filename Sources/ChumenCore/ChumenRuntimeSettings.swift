@@ -100,15 +100,16 @@ public enum ChumenAgeKeyStorageKind: String, CaseIterable, Codable, Identifiable
 
 public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
     public static let placeholderSecret = "set-your-secret"
-    public static let defaultMixedPort = 19881
-    public static let defaultSocksPort = 19882
-    public static let defaultHTTPPort = 19883
-    public static let defaultRedirPort = 19884
-    public static let defaultTProxyPort = 19885
-    public static let defaultExternalControllerPort = 19897
-    public static let defaultDNSListen = "127.0.0.1:1053"
+    public static var defaultMixedPort: Int { ChumenAppIdentity.defaultMixedPort }
+    public static var defaultSocksPort: Int { ChumenAppIdentity.defaultSocksPort }
+    public static var defaultHTTPPort: Int { ChumenAppIdentity.defaultHTTPPort }
+    public static var defaultRedirPort: Int { ChumenAppIdentity.defaultRedirPort }
+    public static var defaultTProxyPort: Int { ChumenAppIdentity.defaultTProxyPort }
+    public static var defaultExternalControllerPort: Int { ChumenAppIdentity.defaultExternalControllerPort }
+    public static var defaultDNSListen: String { ChumenAppIdentity.defaultDNSListen }
+    public static var defaultTunDevice: String { ChumenAppIdentity.defaultTunDevice }
     public static let defaultStatusBarCustomTemplate = "↑{up}/s ↓{down}/s"
-    public static let defaultCoreProcessName = "door"
+    public static var defaultCoreProcessName: String { ChumenAppIdentity.defaultCoreProcessName }
     public static let defaultDashboardHiddenQuickActionIDs = [
         "actions.profiles",
         "actions.logs",
@@ -269,7 +270,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
         logLevel: CoreLogLevel = .info,
         enableTun: Bool = false,
         tunStack: TunStack = .gvisor,
-        tunDevice: String = "utun1024",
+        tunDevice: String = Self.defaultTunDevice,
         tunAutoRoute: Bool = true,
         tunStrictRoute: Bool = false,
         tunAutoDetectInterface: Bool = true,
@@ -560,7 +561,7 @@ public struct ChumenRuntimeSettings: Codable, Equatable, Sendable {
             logLevel: (try? container.decode(CoreLogLevel.self, forKey: .logLevel)) ?? .info,
             enableTun: try container.decodeIfPresent(Bool.self, forKey: .enableTun) ?? false,
             tunStack: (try? container.decode(TunStack.self, forKey: .tunStack)) ?? .gvisor,
-            tunDevice: try container.decodeIfPresent(String.self, forKey: .tunDevice) ?? "utun1024",
+            tunDevice: try container.decodeIfPresent(String.self, forKey: .tunDevice) ?? Self.defaultTunDevice,
             tunAutoRoute: try container.decodeIfPresent(Bool.self, forKey: .tunAutoRoute) ?? true,
             tunStrictRoute: try container.decodeIfPresent(Bool.self, forKey: .tunStrictRoute) ?? false,
             tunAutoDetectInterface: try container.decodeIfPresent(Bool.self, forKey: .tunAutoDetectInterface) ?? true,

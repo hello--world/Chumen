@@ -603,18 +603,16 @@ public final class CoreProcessManager: @unchecked Sendable {
         + "\""
     }
 
-    private static let privilegedLaunchDaemonLabel = "io.github.chumen.native-macos.mihomo"
-    private static let privilegedLaunchDaemonPlistPath = "/Library/LaunchDaemons/io.github.chumen.native-macos.mihomo.plist"
-    private static let privilegedHelperLaunchDaemonLabel = "io.github.chumen.native-macos.helper"
-    private static let privilegedHelperLaunchDaemonPlistPath = "/Library/LaunchDaemons/io.github.chumen.native-macos.helper.plist"
-    private static let privilegedHelperInstallPath = "/Library/PrivilegedHelperTools/io.github.chumen.native-macos.helper"
-    private static let previousAppToken = "lu" + "men"
-    private static let previousBundleID = "io.github." + previousAppToken + ".native-macos"
-    private static let legacyPrivilegedLaunchDaemonLabel = previousBundleID + ".mihomo"
-    private static let legacyPrivilegedLaunchDaemonPlistPath = "/Library/LaunchDaemons/" + legacyPrivilegedLaunchDaemonLabel + ".plist"
-    private static let legacyPrivilegedHelperLaunchDaemonLabel = previousBundleID + ".helper"
-    private static let legacyPrivilegedHelperLaunchDaemonPlistPath = "/Library/LaunchDaemons/" + legacyPrivilegedHelperLaunchDaemonLabel + ".plist"
-    private static let legacyPrivilegedHelperInstallPath = "/Library/PrivilegedHelperTools/" + legacyPrivilegedHelperLaunchDaemonLabel
+    private static var privilegedLaunchDaemonLabel: String { ChumenAppIdentity.privilegedLaunchDaemonLabel }
+    private static var privilegedLaunchDaemonPlistPath: String { ChumenAppIdentity.privilegedLaunchDaemonPlistPath }
+    private static var privilegedHelperLaunchDaemonLabel: String { ChumenAppIdentity.privilegedHelperLaunchDaemonLabel }
+    private static var privilegedHelperLaunchDaemonPlistPath: String { ChumenAppIdentity.privilegedHelperLaunchDaemonPlistPath }
+    private static var privilegedHelperInstallPath: String { ChumenAppIdentity.privilegedHelperInstallPath }
+    private static var legacyPrivilegedLaunchDaemonLabel: String { ChumenAppIdentity.legacyPrivilegedLaunchDaemonLabel }
+    private static var legacyPrivilegedLaunchDaemonPlistPath: String { ChumenAppIdentity.legacyPrivilegedLaunchDaemonPlistPath }
+    private static var legacyPrivilegedHelperLaunchDaemonLabel: String { ChumenAppIdentity.legacyPrivilegedHelperLaunchDaemonLabel }
+    private static var legacyPrivilegedHelperLaunchDaemonPlistPath: String { ChumenAppIdentity.legacyPrivilegedHelperLaunchDaemonPlistPath }
+    private static var legacyPrivilegedHelperInstallPath: String { ChumenAppIdentity.legacyPrivilegedHelperInstallPath }
 
     private static func helperLaunchDaemonPlist(
         helperPath: String,

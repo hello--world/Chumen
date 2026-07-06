@@ -43,6 +43,21 @@ esac
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+PLIST_BUDDY="/usr/libexec/PlistBuddy"
+
+plist_set_string() {
+  local key="$1"
+  local value="$2"
+  "$PLIST_BUDDY" -c "Set :$key $value" "$CONTENTS_DIR/Info.plist" 2>/dev/null ||
+    "$PLIST_BUDDY" -c "Add :$key string $value" "$CONTENTS_DIR/Info.plist"
+}
+
+plist_set_integer() {
+  local key="$1"
+  local value="$2"
+  "$PLIST_BUDDY" -c "Set :$key $value" "$CONTENTS_DIR/Info.plist" 2>/dev/null ||
+    "$PLIST_BUDDY" -c "Add :$key integer $value" "$CONTENTS_DIR/Info.plist"
+}
 
 cd "$ROOT_DIR"
 echo "Building Chumen $BUILD_CONFIGURATION package..."
@@ -55,6 +70,20 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$ROOT_DIR/.build/$BUILD_CONFIGURATION/Chumen" "$MACOS_DIR/Chumen"
 cp "$ROOT_DIR/.build/$BUILD_CONFIGURATION/ChumenHelper" "$RESOURCES_DIR/ChumenHelper"
 cp "$ROOT_DIR/Packaging/Info.plist" "$CONTENTS_DIR/Info.plist"
+if [[ "$BUILD_CONFIGURATION" == "debug" ]]; then
+  plist_set_string "CFBundleIdentifier" "io.github.chumen.native-macos.debug"
+  plist_set_string "CFBundleName" "Chumen Debug"
+  plist_set_string "CFBundleDisplayName" "Chumen Debug"
+  plist_set_integer "ChumenDefaultMixedPort" "19981"
+  plist_set_integer "ChumenDefaultSocksPort" "19982"
+  plist_set_integer "ChumenDefaultHTTPPort" "19983"
+  plist_set_integer "ChumenDefaultRedirPort" "19984"
+  plist_set_integer "ChumenDefaultTProxyPort" "19985"
+  plist_set_integer "ChumenDefaultExternalControllerPort" "19997"
+  plist_set_string "ChumenDefaultDNSListen" "127.0.0.1:1153"
+  plist_set_string "ChumenDefaultTunDevice" "utun1025"
+  plist_set_string "ChumenDefaultCoreProcessName" "door-debug"
+fi
 cp "$ROOT_DIR/Packaging/Assets/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 cp "$ROOT_DIR/Packaging/Assets/StatusBarDoorClosed.png" "$RESOURCES_DIR/StatusBarDoorClosed.png"
 cp "$ROOT_DIR/Packaging/Assets/StatusBarDoorProxy.png" "$RESOURCES_DIR/StatusBarDoorProxy.png"

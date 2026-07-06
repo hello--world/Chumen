@@ -1,10 +1,8 @@
 import Foundation
 
 public struct ChumenPaths: Sendable {
-    private static let appSupportDirectoryName = "io.github.chumen.native-macos"
     // 旧代号仅用于迁移历史数据和清理旧 helper，不在源码中保留完整旧名字字面量。
-    private static let previousAppToken = "lu" + "men"
-    private static let legacyAppSupportDirectoryName = "io.github." + previousAppToken + ".native-macos"
+    private static let legacyAppSupportDirectoryName = ChumenAppIdentity.legacyBundleIdentifier
 
     public let appHome: URL
 
@@ -23,10 +21,12 @@ public struct ChumenPaths: Sendable {
             appropriateFor: nil,
             create: true
         )
-        let appHome = support.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
-        let legacyAppHome = support.appendingPathComponent(legacyAppSupportDirectoryName, isDirectory: true)
-        // 默认路径初始化时顺手做一次幂等迁移，CLI 和 GUI 都会走同一套逻辑。
-        try migrateLegacyAppHomeIfNeeded(from: legacyAppHome, to: appHome, fileManager: fileManager)
+        let appHome = support.appendingPathComponent(ChumenAppIdentity.appSupportDirectoryName, isDirectory: true)
+        if ChumenAppIdentity.shouldMigrateLegacyAppSupport {
+            let legacyAppHome = support.appendingPathComponent(legacyAppSupportDirectoryName, isDirectory: true)
+            // 默认路径初始化时顺手做一次幂等迁移，CLI 和 GUI 都会走同一套逻辑。
+            try migrateLegacyAppHomeIfNeeded(from: legacyAppHome, to: appHome, fileManager: fileManager)
+        }
         return Self(appHome: appHome)
     }
 

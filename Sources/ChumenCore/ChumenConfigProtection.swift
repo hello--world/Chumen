@@ -21,7 +21,7 @@ public struct ChumenConfigProtectionKeyStore: Sendable {
     private let ageKeyPairOverride: MihomoAgeKeyPair?
 
     public init(
-        service: String = "io.github.chumen.native-macos.config-protection",
+        service: String = ChumenAppIdentity.keychainService(suffix: "config-protection"),
         account: String = "storage-master-key",
         ageIdentityURL: URL? = nil,
         useKeychainForAgeKey: Bool = false,

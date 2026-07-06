@@ -41,7 +41,7 @@ public struct ChumenPINVault: Sendable {
 
     public init(
         paths: ChumenPaths,
-        service: String = "io.github.chumen.native-macos.pin-vault",
+        service: String = ChumenAppIdentity.keychainService(suffix: "pin-vault"),
         account: String = "age-key-vault"
     ) {
         self.vaultURL = paths.pinVaultURL

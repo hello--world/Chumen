@@ -6,7 +6,7 @@ public struct ChumenAIKeychainStore: Sendable {
     private let account: String
 
     public init(
-        service: String = "io.github.chumen.native-macos.ai",
+        service: String = ChumenAppIdentity.keychainService(suffix: "ai"),
         account: String = "llm-api-key"
     ) {
         self.service = service

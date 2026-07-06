@@ -137,13 +137,15 @@ private struct StatusBarInstaller: View {
 }
 
 private enum ChumenSingleInstance {
-    static let bundleIdentifier = "io.github.chumen.native-macos"
-    static let reopenNotificationName = Notification.Name("\(bundleIdentifier).reopen")
-    static let reopenNotificationObject = bundleIdentifier
+    static var bundleIdentifier: String { ChumenAppIdentity.bundleIdentifier }
+    static var reopenNotificationName: Notification.Name {
+        Notification.Name("\(bundleIdentifier).reopen")
+    }
+    static var reopenNotificationObject: String { bundleIdentifier }
 
     static func terminateDuplicateInstanceIfNeeded() {
         let currentProcessIdentifier = getpid()
-        let identifier = Bundle.main.bundleIdentifier ?? bundleIdentifier
+        let identifier = bundleIdentifier
         let runningPeer = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
             .first { application in
                 application.processIdentifier != currentProcessIdentifier && !application.isTerminated

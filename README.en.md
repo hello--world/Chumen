@@ -15,7 +15,7 @@ Sources/ChumenMacApp          SwiftUI/AppKit GUI, menu bar, window lifecycle
 Sources/ChumenCLI             chumenctl command-line entry point
 Sources/ChumenHelper          Privileged helper for TUN scenarios
 Packaging/Info.plist          macOS App Bundle metadata
-scripts/build_app.sh          Builds dist/Chumen.app
+scripts/build_app.sh          Builds debug/release app bundles
 scripts/download_mihomo.sh    Downloads the local mihomo core
 ```
 
@@ -23,6 +23,12 @@ Default runtime data directory:
 
 ```text
 ~/Library/Application Support/io.github.chumen.native-macos
+```
+
+Debug packages use a separate identity and runtime data directory:
+
+```text
+~/Library/Application Support/io.github.chumen.native-macos.debug
 ```
 
 Important files:
@@ -110,6 +116,15 @@ Default ports intentionally avoid common proxy clients:
 - SOCKS: `19882`
 - HTTP: `19883`
 - controller: `19897`
+
+Debug packages use another default port set so they can run beside release packages:
+
+- mixed: `19981`
+- SOCKS: `19982`
+- HTTP: `19983`
+- controller: `19997`
+
+The debug package also defaults DNS listen to `127.0.0.1:1153` and TUN device to `utun1025`; the release package keeps `127.0.0.1:1053` and `utun1024`.
 
 ## Build The App
 
