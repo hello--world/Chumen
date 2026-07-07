@@ -30,12 +30,22 @@ struct ContentView: View {
         model.pinOverlayPresented || model.startupImportPromptPresented
     }
 
-    // Keep TabView children structurally stable. SwiftUI's macOS tab container updates selection
-    // and reinserts child subgraphs in the same AttributeGraph transaction; making child existence
-    // depend on that same selection can produce a dependency cycle. Heavy pages receive isVisible
-    // so they can pause work without being removed from the tab graph.
-    private func tabIsVisible(_ tab: AppTab) -> Bool {
-        selectedTab == tab
+    // Avoid SwiftUI's macOS TabView/StatefulTabContainer. It can enter an AttributeGraph cycle when
+    // selection changes and child subgraphs are inserted in the same transaction. The shell owns a
+    // lightweight tab bar and mounts only the selected page.
+    private var mainTabs: [AppTab] {
+        [
+            .dashboard,
+            .profiles,
+            .proxies,
+            .providers,
+            .connections,
+            .rules,
+            .core,
+            .coreTools,
+            .logs,
+            .settings
+        ]
     }
 
     var body: some View {
@@ -47,60 +57,10 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     header
                     Divider()
-                    TabView(selection: $selectedTab) {
-                        DashboardView(
-                            isVisible: tabIsVisible(.dashboard),
-                            aiAssistantPresented: $aiAssistantPresented,
-                            aiSearchResults: aiSearchResults,
-                            aiMarkdownCache: aiMarkdownCache,
-                            onOpenTab: { tab in
-                                selectedTab = tab
-                            },
-                            onAISearchChanged: {
-                                scheduleAISearch()
-                            },
-                            onAISearchImmediately: {
-                                scheduleAISearch(delay: .zero)
-                            },
-                            onAIClearSearchResults: {
-                                aiSearchResults = []
-                            },
-                            onAISubmit: submitAIInput,
-                            onAISelectSearchResult: selectAISearchResult
-                        )
-                        .tabItem { Label(model.t(.dashboard), systemImage: "gauge.with.dots.needle.50percent") }
-                        .tag(AppTab.dashboard)
-                        ProfilesView(choosingProfile: $choosingProfile)
-                            .tabItem { Label(model.t(.profiles), systemImage: "doc.text") }
-                            .tag(AppTab.profiles)
-                        ProxiesView(isVisible: tabIsVisible(.proxies))
-                            .tabItem { Label(model.t(.proxies), systemImage: "point.3.connected.trianglepath.dotted") }
-                            .tag(AppTab.proxies)
-                        ProvidersView(isVisible: tabIsVisible(.providers))
-                            .tabItem { Label(model.t(.providers), systemImage: "tray.full") }
-                            .tag(AppTab.providers)
-                        ConnectionsView(isVisible: tabIsVisible(.connections))
-                            .tabItem { Label(model.t(.connections), systemImage: "link") }
-                            .tag(AppTab.connections)
-                        RulesView(isVisible: tabIsVisible(.rules))
-                            .tabItem { Label(model.t(.rules), systemImage: "list.bullet.rectangle") }
-                            .tag(AppTab.rules)
-                        CoreSettingsView(choosingCore: $choosingCore)
-                            .tabItem { Label(model.t(.coreSettings), systemImage: "gearshape.2") }
-                            .tag(AppTab.core)
-                        CoreToolsView()
-                            .tabItem { Label(model.t(.coreTools), systemImage: "terminal") }
-                            .tag(AppTab.coreTools)
-                        LogsView(isVisible: tabIsVisible(.logs))
-                            .tabItem { Label(model.t(.logs), systemImage: "text.alignleft") }
-                            .tag(AppTab.logs)
-                        AppSettingsView()
-                            .tabItem { Label(model.t(.appSettings), systemImage: "gearshape") }
-                            .tag(AppTab.settings)
-                    }
-                    .focusable(false)
-                    .padding(.top, 8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    mainTabBar
+                    Divider()
+                    selectedTabContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
                 if globalSearchPresented {
@@ -153,6 +113,111 @@ struct ContentView: View {
                 "ui tab selected \(String(describing: oldTab)) -> \(String(describing: newTab)); " +
                     "assistantPresented=\(aiAssistantPresented); aiMessages=\(model.aiMessages.count)"
             )
+        }
+    }
+
+    private var mainTabBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(mainTabs, id: \.self) { tab in
+                    mainTabButton(tab)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+        .background(ChumenStyle.pageBackground)
+    }
+
+    private func mainTabButton(_ tab: AppTab) -> some View {
+        let isSelected = selectedTab == tab
+        return Button {
+            selectedTab = tab
+        } label: {
+            Label(mainTabTitle(tab), systemImage: mainTabIcon(tab))
+                .font(.callout.weight(isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                        .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var selectedTabContent: some View {
+        switch selectedTab {
+        case .dashboard:
+            DashboardView(
+                aiAssistantPresented: $aiAssistantPresented,
+                aiSearchResults: aiSearchResults,
+                aiMarkdownCache: aiMarkdownCache,
+                onOpenTab: { tab in
+                    selectedTab = tab
+                },
+                onAISearchChanged: {
+                    scheduleAISearch()
+                },
+                onAISearchImmediately: {
+                    scheduleAISearch(delay: .zero)
+                },
+                onAIClearSearchResults: {
+                    aiSearchResults = []
+                },
+                onAISubmit: submitAIInput,
+                onAISelectSearchResult: selectAISearchResult
+            )
+        case .profiles:
+            ProfilesView(choosingProfile: $choosingProfile)
+        case .proxies:
+            ProxiesView(isVisible: true)
+        case .providers:
+            ProvidersView(isVisible: true)
+        case .connections:
+            ConnectionsView(isVisible: true)
+        case .rules:
+            RulesView(isVisible: true)
+        case .core:
+            CoreSettingsView(choosingCore: $choosingCore)
+        case .coreTools:
+            CoreToolsView()
+        case .logs:
+            LogsView(isVisible: true)
+        case .settings:
+            AppSettingsView()
+        }
+    }
+
+    private func mainTabTitle(_ tab: AppTab) -> String {
+        switch tab {
+        case .dashboard: model.t(.dashboard)
+        case .profiles: model.t(.profiles)
+        case .proxies: model.t(.proxies)
+        case .providers: model.t(.providers)
+        case .connections: model.t(.connections)
+        case .rules: model.t(.rules)
+        case .core: model.t(.coreSettings)
+        case .coreTools: model.t(.coreTools)
+        case .logs: model.t(.logs)
+        case .settings: model.t(.appSettings)
+        }
+    }
+
+    private func mainTabIcon(_ tab: AppTab) -> String {
+        switch tab {
+        case .dashboard: "gauge.with.dots.needle.50percent"
+        case .profiles: "doc.text"
+        case .proxies: "point.3.connected.trianglepath.dotted"
+        case .providers: "tray.full"
+        case .connections: "link"
+        case .rules: "list.bullet.rectangle"
+        case .core: "gearshape.2"
+        case .coreTools: "terminal"
+        case .logs: "text.alignleft"
+        case .settings: "gearshape"
         }
     }
 

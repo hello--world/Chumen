@@ -3,7 +3,6 @@ import SwiftUI
 
 struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
-    let isVisible: Bool
     @Binding var aiAssistantPresented: Bool
     let aiSearchResults: [GlobalSearchResult]
     let aiMarkdownCache: AIAssistantMarkdownCache
@@ -17,16 +16,18 @@ struct DashboardView: View {
     @State private var quickActionConfigurationPresented = false
 
     var body: some View {
-        Group {
-            if isVisible {
-                dashboardContent
-            } else {
-                ChumenStyle.pageBackground
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            commandPanel
+            dashboardAssistantWorkspace
+                .layoutPriority(1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(ChumenStyle.pageBackground)
         .onAppear {
-            guard isVisible else { return }
             model.appendAppLog(
                 "ui dashboard appear; assistantPresented=\(aiAssistantPresented); " +
                     "aiReady=\(model.aiReady); aiMessages=\(model.aiMessages.count)"
@@ -34,23 +35,6 @@ struct DashboardView: View {
         }
         .onDisappear {
             model.appendAppLog("ui dashboard disappear")
-        }
-    }
-
-    // Dashboard remains a stable TabView child, but the expensive command/assistant tree is only
-    // present while selected. This keeps the tab graph cycle-free while preventing hidden overview
-    // layout from involving the embedded assistant workspace.
-    private var dashboardContent: some View {
-        GeometryReader { proxy in
-            VStack(alignment: .leading, spacing: 12) {
-                commandPanel
-                dashboardAssistantWorkspace
-                    .layoutPriority(1)
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 14)
-            .padding(.bottom, 14)
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
     }
 

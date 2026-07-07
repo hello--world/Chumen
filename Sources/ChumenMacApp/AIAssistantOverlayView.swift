@@ -56,28 +56,25 @@ struct AIAssistantOverlayView: View {
 
             Divider()
 
-            GeometryReader { proxy in
-                let inspectorWidth = min(CGFloat(360), max(CGFloat(308), proxy.size.width * 0.28))
-                if proxy.size.width >= 980 {
-                    HStack(spacing: 0) {
-                        aiConversationColumn
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) {
+                    aiConversationColumn
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                        Divider()
+                    Divider()
 
-                        aiInspectorColumn
-                            .frame(width: inspectorWidth)
-                    }
-                } else {
-                    VStack(spacing: 0) {
-                        aiConversationColumn
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    aiInspectorColumn
+                        .frame(width: 340)
+                }
 
-                        Divider()
+                VStack(spacing: 0) {
+                    aiConversationColumn
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                        aiInspectorColumn
-                            .frame(maxWidth: .infinity, maxHeight: 230)
-                    }
+                    Divider()
+
+                    aiInspectorColumn
+                        .frame(maxWidth: .infinity, maxHeight: 230)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
