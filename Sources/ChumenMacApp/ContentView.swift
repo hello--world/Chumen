@@ -10,7 +10,7 @@ struct ContentView: View {
     @EnvironmentObject private var model: AppModel
 
     // Shell state only. Individual pages own their local controls; this view keeps the cross-page
-    // state needed for tab routing, file import sheets, global search, and the fixed assistant rail.
+    // state needed for tab routing, file import sheets, global search, and the floating assistant.
     @State private var selectedTab: AppTab = .dashboard
     @State private var choosingCore = false
     @State private var choosingProfile = false
@@ -19,7 +19,7 @@ struct ContentView: View {
     @State private var globalSearchPresented = false
     @State private var globalSearchResults: [GlobalSearchResult] = []
     @State private var globalSearchTask: Task<Void, Never>?
-    @State private var aiAssistantPresented = true
+    @State private var aiAssistantPresented = false
     @State private var aiSearchResults: [GlobalSearchResult] = []
     @State private var aiSearchTask: Task<Void, Never>?
     @StateObject private var aiMarkdownCache = AIAssistantMarkdownCache()
@@ -30,24 +30,6 @@ struct ContentView: View {
         model.pinOverlayPresented || model.startupImportPromptPresented
     }
 
-    // Avoid SwiftUI's macOS TabView/StatefulTabContainer. It can enter an AttributeGraph cycle when
-    // selection changes and child subgraphs are inserted in the same transaction. The shell owns a
-    // lightweight tab bar and mounts only the selected page.
-    private var mainTabs: [AppTab] {
-        [
-            .dashboard,
-            .profiles,
-            .proxies,
-            .providers,
-            .connections,
-            .rules,
-            .core,
-            .coreTools,
-            .logs,
-            .settings
-        ]
-    }
-
     var body: some View {
         ZStack(alignment: .top) {
             if blockingSetupOverlayPresented {
@@ -55,12 +37,48 @@ struct ContentView: View {
                     .ignoresSafeArea()
             } else {
                 VStack(spacing: 0) {
-                    header
-                    Divider()
-                    mainTabBar
-                    Divider()
-                    selectedTabContent
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    TabView(selection: $selectedTab) {
+                        DashboardView(
+                            aiAssistantPresented: $aiAssistantPresented,
+                            aiSearchResults: aiSearchResults,
+                            aiMarkdownCache: aiMarkdownCache,
+                            onOpenTab: { selectedTab = $0 },
+                            onAISearchChanged: { scheduleAISearch() },
+                            onAISearchImmediately: { scheduleAISearch(delay: .zero) },
+                            onAIClearSearchResults: { aiSearchResults = [] },
+                            onAISubmit: submitAIInput,
+                            onAISelectSearchResult: selectAISearchResult
+                        )
+                            .tabItem { Label(model.t(.dashboard), systemImage: "gauge.with.dots.needle.50percent") }
+                            .tag(AppTab.dashboard)
+                        ProfilesView(choosingProfile: $choosingProfile)
+                            .tabItem { Label(model.t(.profiles), systemImage: "doc.text") }
+                            .tag(AppTab.profiles)
+                        ProxiesView(isVisible: selectedTab == .proxies)
+                            .tabItem { Label(model.t(.proxies), systemImage: "point.3.connected.trianglepath.dotted") }
+                            .tag(AppTab.proxies)
+                        ProvidersView(isVisible: selectedTab == .providers)
+                            .tabItem { Label(model.t(.providers), systemImage: "tray.full") }
+                            .tag(AppTab.providers)
+                        ConnectionsView(isVisible: selectedTab == .connections)
+                            .tabItem { Label(model.t(.connections), systemImage: "link") }
+                            .tag(AppTab.connections)
+                        RulesView(isVisible: selectedTab == .rules)
+                            .tabItem { Label(model.t(.rules), systemImage: "list.bullet.rectangle") }
+                            .tag(AppTab.rules)
+                        CoreSettingsView(choosingCore: $choosingCore)
+                            .tabItem { Label(model.t(.coreSettings), systemImage: "gearshape.2") }
+                            .tag(AppTab.core)
+                        CoreToolsView()
+                            .tabItem { Label(model.t(.coreTools), systemImage: "terminal") }
+                            .tag(AppTab.coreTools)
+                        LogsView(isVisible: selectedTab == .logs)
+                            .tabItem { Label(model.t(.logs), systemImage: "text.alignleft") }
+                            .tag(AppTab.logs)
+                        AppSettingsView()
+                            .tabItem { Label(model.t(.appSettings), systemImage: "gearshape") }
+                            .tag(AppTab.settings)
+                    }
                 }
 
                 if globalSearchPresented {
@@ -108,145 +126,40 @@ struct ContentView: View {
                 clearBlockingOverlayFocus()
             }
         }
-        .onChange(of: selectedTab) { oldTab, newTab in
-            model.appendAppLog(
-                "ui tab selected \(String(describing: oldTab)) -> \(String(describing: newTab)); " +
-                    "assistantPresented=\(aiAssistantPresented); aiMessages=\(model.aiMessages.count)"
-            )
-        }
-    }
-
-    private var mainTabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(mainTabs, id: \.self) { tab in
-                    mainTabButton(tab)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-        }
-        .background(ChumenStyle.pageBackground)
-    }
-
-    private func mainTabButton(_ tab: AppTab) -> some View {
-        let isSelected = selectedTab == tab
-        return Button {
-            selectedTab = tab
-        } label: {
-            Label(mainTabTitle(tab), systemImage: mainTabIcon(tab))
-                .font(.callout.weight(isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                        .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
-                )
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var selectedTabContent: some View {
-        switch selectedTab {
-        case .dashboard:
-            DashboardView(
-                aiAssistantPresented: $aiAssistantPresented,
-                aiSearchResults: aiSearchResults,
-                aiMarkdownCache: aiMarkdownCache,
-                onOpenTab: { tab in
-                    selectedTab = tab
-                },
-                onAISearchChanged: {
-                    scheduleAISearch()
-                },
-                onAISearchImmediately: {
-                    scheduleAISearch(delay: .zero)
-                },
-                onAIClearSearchResults: {
-                    aiSearchResults = []
-                },
-                onAISubmit: submitAIInput,
-                onAISelectSearchResult: selectAISearchResult
-            )
-        case .profiles:
-            ProfilesView(choosingProfile: $choosingProfile)
-        case .proxies:
-            ProxiesView(isVisible: true)
-        case .providers:
-            ProvidersView(isVisible: true)
-        case .connections:
-            ConnectionsView(isVisible: true)
-        case .rules:
-            RulesView(isVisible: true)
-        case .core:
-            CoreSettingsView(choosingCore: $choosingCore)
-        case .coreTools:
-            CoreToolsView()
-        case .logs:
-            LogsView(isVisible: true)
-        case .settings:
-            AppSettingsView()
-        }
-    }
-
-    private func mainTabTitle(_ tab: AppTab) -> String {
-        switch tab {
-        case .dashboard: model.t(.dashboard)
-        case .profiles: model.t(.profiles)
-        case .proxies: model.t(.proxies)
-        case .providers: model.t(.providers)
-        case .connections: model.t(.connections)
-        case .rules: model.t(.rules)
-        case .core: model.t(.coreSettings)
-        case .coreTools: model.t(.coreTools)
-        case .logs: model.t(.logs)
-        case .settings: model.t(.appSettings)
-        }
-    }
-
-    private func mainTabIcon(_ tab: AppTab) -> String {
-        switch tab {
-        case .dashboard: "gauge.with.dots.needle.50percent"
-        case .profiles: "doc.text"
-        case .proxies: "point.3.connected.trianglepath.dotted"
-        case .providers: "tray.full"
-        case .connections: "link"
-        case .rules: "list.bullet.rectangle"
-        case .core: "gearshape.2"
-        case .coreTools: "terminal"
-        case .logs: "text.alignleft"
-        case .settings: "gearshape"
-        }
     }
 
     private var header: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 0)
-            let horizontalPadding: CGFloat = width < 1000 ? 14 : 20
+            let horizontalPadding: CGFloat = width < 1000 ? 16 : 20
             let availableWidth = max(0, width - horizontalPadding * 2)
-            let identityWidth = min(CGFloat(206), max(CGFloat(178), availableWidth * 0.18))
-            let searchWidth = min(CGFloat(280), max(CGFloat(220), availableWidth * 0.23))
-            let statusWidth = max(CGFloat(548), availableWidth - identityWidth - searchWidth - 44)
+            let identityWidth = min(CGFloat(162), max(CGFloat(154), availableWidth * 0.17))
+            let searchWidth = min(CGFloat(232), max(CGFloat(220), availableWidth * 0.22))
 
             ZStack(alignment: .topLeading) {
-                HStack(alignment: .center, spacing: 14) {
-                    headerIdentity
-                        .frame(width: identityWidth, alignment: .leading)
+                ZStack {
+                    HStack(alignment: .center, spacing: 8) {
+                        headerIdentity
+                            .frame(width: identityWidth, alignment: .leading)
+
+                        headerLeftStatusPills
+
+                        Spacer(minLength: 0)
+
+                        headerRightStatusPills
+                    }
+
                     globalSearchBox
                         .frame(width: searchWidth)
                         .zIndex(20)
-                    headerStatusRibbon(width: statusWidth)
-                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, horizontalPadding)
-                .padding(.vertical, 8)
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
+                .padding(.vertical, 10)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
         }
-        .frame(height: 66)
+        .frame(height: 64)
         .background(ChumenStyle.pageBackground)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -258,14 +171,35 @@ struct ContentView: View {
 
     private var headerIdentity: some View {
         HStack(spacing: 10) {
-            ChumenHeaderIcon()
-                .frame(width: 42, height: 42)
+            ZStack {
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .fill(ChumenStyle.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                            .fill((model.isRunning ? Color.green : ChumenStyle.accent).opacity(0.06))
+                    )
+                Image(systemName: model.isRunning ? "bolt.horizontal.fill" : "bolt.horizontal")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(model.isRunning ? .green : ChumenStyle.accent)
+            }
+            .frame(width: 38, height: 38)
+            .overlay(
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .strokeBorder(ChumenStyle.border)
+            )
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text("Chumen")
-                    .font(.system(size: 27, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold))
                     .lineLimit(1)
-                runtimeProfileBadge
+                HStack(spacing: 8) {
+                    runtimeBadge
+                    Text(model.activeProfile?.name ?? "-")
+                        .font(.subheadline)
+                        .foregroundStyle(ChumenStyle.mutedText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -288,64 +222,20 @@ struct ContentView: View {
                 Spacer(minLength: 8)
             }
             .padding(.horizontal, 11)
-            .frame(height: 36)
+            .frame(height: 34)
             .background(
-                Capsule(style: .continuous)
-                    .fill(ChumenStyle.groupedSurface.opacity(0.62))
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .fill(ChumenStyle.surface)
             )
             .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(ChumenStyle.border.opacity(0.72))
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .strokeBorder(ChumenStyle.border)
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .focusable(false)
         .opacity(globalSearchPresented ? 0 : 1)
-        .frame(height: 36)
-    }
-
-    // Header statuses are one baseline-aligned ribbon. The old two-column stack made the top area
-    // look like scattered cards. Do not hide any status in compact windows; compress the proxy chip
-    // first because it is the only field that can be safely truncated without losing state.
-    private func headerStatusRibbon(width: CGFloat) -> some View {
-        let gap = CGFloat(7)
-        let apiWidth = CGFloat(94)
-        let configWidth = CGFloat(104)
-        let modeWidth = CGFloat(88)
-        let tunWidth = CGFloat(80)
-        let proxyWidth = max(CGFloat(154), width - apiWidth - configWidth - modeWidth - tunWidth - gap * 4)
-
-        return HStack(spacing: gap) {
-            headerAPIStatusPill(width: apiWidth)
-            headerStatusPill(
-                title: model.t(.profiles),
-                value: model.activeProfileConfigUpdateText,
-                icon: "clock",
-                accent: .orange,
-                width: configWidth,
-                help: "\(model.t(.configUpdated)): \(model.activeProfileConfigUpdateText)"
-            )
-            headerProxyChainPill(width: proxyWidth)
-            headerStatusPill(
-                title: model.t(.mode),
-                value: model.settings.mode.rawValue,
-                icon: "arrow.triangle.branch",
-                accent: .purple,
-                width: modeWidth,
-                help: "\(model.t(.mode)): \(model.settings.mode.rawValue)"
-            )
-            headerStatusPill(
-                title: "TUN",
-                value: headerTunStateText,
-                icon: "shield.lefthalf.filled",
-                accent: headerTunAccent,
-                width: tunWidth,
-                help: "\(model.t(.tunMode)): \(headerTunStateText)"
-            )
-        }
-        .frame(width: width, alignment: .trailing)
-        .clipped()
+        .frame(height: 34)
     }
 
     private var globalSearchOverlay: some View {
@@ -381,111 +271,113 @@ struct ContentView: View {
         )
     }
 
-    private func headerLeftStatusPills(width: CGFloat) -> some View {
-        // The header keeps one horizontal shell, but related statuses are stacked vertically so
-        // wide windows do not turn small status facts into an unreadable long ribbon.
-        VStack(alignment: .leading, spacing: 5) {
-            headerAPIStatusPill(width: width)
+    private var headerLeftStatusPills: some View {
+        HStack(spacing: 6) {
+            headerStatusPill(
+                title: "API",
+                value: headerAPIVersionText,
+                icon: "globe",
+                accent: model.apiText == model.t(.apiNotTested) ? ChumenStyle.mutedText : .blue,
+                width: 88,
+                help: "API: \(model.apiText)"
+            )
             headerStatusPill(
                 title: model.t(.configUpdated),
                 value: model.activeProfileConfigUpdateText,
                 icon: "clock",
                 accent: .orange,
-                width: width,
+                width: 126,
                 help: "\(model.t(.configUpdated)): \(model.activeProfileConfigUpdateText)"
             )
         }
-        .frame(width: width, alignment: .leading)
     }
 
-    private func headerAPIStatusPill(width: CGFloat) -> some View {
-        headerStatusPill(
-            title: "API",
-            value: headerAPIVersionText,
-            icon: "globe",
-            accent: headerAPIAccent,
-            width: width,
-            help: headerAPIHelpText
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard headerAPIIsError else { return }
-            selectedTab = .logs
+    private var headerRightStatusPills: some View {
+        HStack(spacing: 6) {
+            headerProxyChainPill
+            headerStatusPill(
+                title: model.t(.mode),
+                value: model.settings.mode.rawValue,
+                icon: "arrow.triangle.branch",
+                accent: .purple,
+                width: 82,
+                help: "\(model.t(.mode)): \(model.settings.mode.rawValue)"
+            )
+            headerStatusPill(
+                title: "TUN",
+                value: headerTunStateText,
+                icon: "shield.lefthalf.filled",
+                accent: headerTunAccent,
+                width: 70,
+                help: "\(model.t(.tunMode)): \(headerTunStateText)"
+            )
         }
     }
 
-    private func headerRightStatusPills(width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            headerProxyChainPill(width: width)
-            HStack(spacing: 6) {
-                headerStatusPill(
-                    title: model.t(.mode),
-                    value: model.settings.mode.rawValue,
-                    icon: "arrow.triangle.branch",
-                    accent: .purple,
-                    width: max(116, (width - 6) * 0.54),
-                    help: "\(model.t(.mode)): \(model.settings.mode.rawValue)"
-                )
-                headerStatusPill(
-                    title: "TUN",
-                    value: headerTunStateText,
-                    icon: "shield.lefthalf.filled",
-                    accent: headerTunAccent,
-                    width: max(96, (width - 6) * 0.46),
-                    help: "\(model.t(.tunMode)): \(headerTunStateText)"
-                )
-            }
-        }
-        .frame(width: width, alignment: .leading)
+    private var runtimeBadge: some View {
+        Label(model.isRunning ? model.t(.running) : model.t(.stopped), systemImage: model.isRunning ? "checkmark.circle.fill" : "pause.circle.fill")
+            .font(.caption.weight(.semibold))
+            .labelStyle(.titleAndIcon)
+            .foregroundStyle(model.isRunning ? .green : ChumenStyle.mutedText)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .fill(ChumenStyle.groupedSurface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .strokeBorder((model.isRunning ? Color.green.opacity(0.35) : ChumenStyle.border))
+            )
     }
 
     private func headerStatusPill(title: String, value: String, icon: String, accent: Color, width: CGFloat, help: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon)
-                .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(accent.opacity(0.92))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(accent.opacity(0.9))
                 .frame(width: 13)
             Text(title)
-                .font(.caption.weight(.medium))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(ChumenStyle.mutedText)
                 .lineLimit(1)
             Text(value)
-                .font(.caption.weight(.bold))
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(accent)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .minimumScaleFactor(0.50)
+                .minimumScaleFactor(0.58)
                 .allowsTightening(true)
         }
-        .padding(.horizontal, 9)
-        .frame(width: width, height: 32, alignment: .leading)
+        .padding(.horizontal, 7)
+        .frame(width: width, height: 34, alignment: .leading)
         .clipped()
         .background(
-            Capsule(style: .continuous)
-                .fill(ChumenStyle.groupedSurface.opacity(0.58))
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(ChumenStyle.surface)
         )
         .overlay(
-            Capsule(style: .continuous)
-                .strokeBorder(accent.opacity(0.14))
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .strokeBorder(ChumenStyle.border.opacity(0.72))
         )
         .help(help)
     }
 
-    private func headerProxyChainPill(width: CGFloat) -> some View {
+    private var headerProxyChainPill: some View {
         HStack(spacing: 4) {
             Image(systemName: model.systemProxyEnabled ? "checkmark.shield" : "shield")
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(headerProxyAccent.opacity(0.9))
                 .frame(width: 13)
             Text(model.t(.systemProxy))
-                .font(.caption.weight(.medium))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(ChumenStyle.mutedText)
                 .lineLimit(1)
             Text(">")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(ChumenStyle.mutedText)
             Text(headerProxyStateValueText)
-                .font(.caption.weight(.bold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(headerProxyAccent)
                 .lineLimit(1)
             if let address = headerProxyEndpointText {
@@ -493,7 +385,7 @@ struct ContentView: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(ChumenStyle.mutedText)
                 Text(address)
-                    .font(.caption.weight(.bold))
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(headerProxyAccent)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -501,118 +393,27 @@ struct ContentView: View {
                     .allowsTightening(true)
             }
         }
-        .padding(.horizontal, 9)
-        .frame(width: width, height: 32, alignment: .leading)
+        .padding(.horizontal, 7)
+        .frame(width: headerProxyEndpointText == nil ? 106 : 208, height: 34, alignment: .leading)
         .clipped()
         .background(
-            Capsule(style: .continuous)
-                .fill(ChumenStyle.groupedSurface.opacity(0.58))
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(ChumenStyle.surface)
         )
         .overlay(
-            Capsule(style: .continuous)
-                .strokeBorder(headerProxyAccent.opacity(0.14))
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .strokeBorder(ChumenStyle.border.opacity(0.72))
         )
         .help("\(model.t(.systemProxy)): \(model.systemProxyStateText)")
     }
 
-    private var runtimeProfileBadge: some View {
-        HStack(spacing: 0) {
-            Image(systemName: model.isRunning ? "checkmark.circle.fill" : "pause.circle.fill")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(model.isRunning ? .green : ChumenStyle.mutedText)
-                .padding(.trailing, 3)
-            Text(headerRuntimeProfileText)
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-                .foregroundStyle(model.isRunning ? .green : ChumenStyle.mutedText)
-            Text(headerRuntimeProfileSeparator)
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-                .foregroundStyle(ChumenStyle.mutedText)
-            Text(headerCompactProfileName)
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-                .foregroundStyle(Color.blue)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(
-            Capsule()
-                .fill((model.isRunning ? Color.green : ChumenStyle.mutedText).opacity(0.06))
-        )
-        .overlay {
-            Capsule()
-                .stroke((model.isRunning ? Color.green : ChumenStyle.mutedText).opacity(0.35), lineWidth: 1)
-        }
-        .help("\(model.isRunning ? model.t(.running) : model.t(.stopped))\(headerRuntimeProfileSeparator)\(headerActiveProfileName)")
-    }
-
     private var headerAPIVersionText: String {
         let text = model.apiText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !headerAPIIsError else {
-            return model.language == .zhHans ? "错误" : "Error"
-        }
         let primary = text.components(separatedBy: " / ").first ?? text
         if primary.hasPrefix("mihomo ") {
             return String(primary.dropFirst("mihomo ".count))
         }
         return primary
-    }
-
-    private var headerAPIAccent: Color {
-        if headerAPIIsError {
-            return .red
-        }
-        return model.apiText == model.t(.apiNotTested) ? ChumenStyle.mutedText : .blue
-    }
-
-    private var headerAPIHelpText: String {
-        if headerAPIIsError {
-            return model.language == .zhHans ? "API 错误，点击查看日志" : "API error. Click to view logs."
-        }
-        return "API: \(model.apiText)"
-    }
-
-    private var headerAPIIsError: Bool {
-        let text = model.apiText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return false }
-        if text == model.t(.apiNotTested) {
-            return false
-        }
-        if text.hasPrefix("mihomo ") {
-            return false
-        }
-        if text.hasPrefix(model.t(.mode)) {
-            return false
-        }
-        if text == model.t(.externalCoreDetectedHint) {
-            return false
-        }
-        return true
-    }
-
-    private var headerActiveProfileName: String {
-        let name = model.activeProfile?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return name.isEmpty ? "-" : name
-    }
-
-    private var headerCompactProfileName: String {
-        let maxCharacters = 4
-        let name = headerActiveProfileName
-            .split(whereSeparator: \.isWhitespace)
-            .joined()
-        guard name.count > maxCharacters else {
-            return name
-        }
-        return String(name.prefix(maxCharacters)) + "."
-    }
-
-    private var headerRuntimeProfileText: String {
-        model.isRunning ? model.t(.running) : model.t(.stopped)
-    }
-
-    private var headerRuntimeProfileSeparator: String {
-        ">"
     }
 
     private var headerProxyStateValueText: String {
@@ -701,7 +502,6 @@ struct ContentView: View {
         globalSearchResults = []
         globalSearchPresented = false
         globalSearchScope = .all
-        clearWindowFirstResponder()
     }
 
     private func clearGlobalSearch() {
@@ -714,9 +514,6 @@ struct ContentView: View {
     // first-run sheets clear transient search focus so the setup UI owns the visual stack.
     private func clearBlockingOverlayFocus() {
         dismissGlobalSearch()
-    }
-
-    private func clearWindowFirstResponder() {
         DispatchQueue.main.async {
             NSApp.keyWindow?.makeFirstResponder(nil)
         }
@@ -746,6 +543,9 @@ struct ContentView: View {
         selectedTab = result.tab
         model.aiInputText = ""
         aiSearchResults = []
+        withAnimation(.easeOut(duration: 0.14)) {
+            aiAssistantPresented = false
+        }
     }
 
     // AI fallback search uses the same index as global search. Cancellation avoids stale results
@@ -864,132 +664,5 @@ struct ContentView: View {
             connections: model.connections,
             rules: model.rules
         )
-    }
-}
-
-// Compact brand mark for the app shell. It mirrors the packaged AppIcon's doorway/path metaphor
-// without depending on bundle resources, so SwiftPM debug launches and packaged builds match.
-private struct ChumenHeaderIcon: View {
-    var body: some View {
-        GeometryReader { proxy in
-            let side = min(proxy.size.width, proxy.size.height)
-            let unit = side / 38
-            let originX = (proxy.size.width - side) / 2
-            let originY = (proxy.size.height - side) / 2
-
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: ChumenStyle.radius * unit, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.87, green: 0.98, blue: 1.00),
-                                Color(red: 0.29, green: 0.72, blue: 0.96),
-                                Color(red: 0.13, green: 0.47, blue: 0.88)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: side, height: side)
-
-                Path { path in
-                    path.addEllipse(in: CGRect(x: -8 * unit, y: -2 * unit, width: 30 * unit, height: 19 * unit))
-                    path.addEllipse(in: CGRect(x: 23 * unit, y: 25 * unit, width: 20 * unit, height: 10 * unit))
-                }
-                .fill(Color.white.opacity(0.28))
-
-                RoundedRectangle(cornerRadius: 5.2 * unit, style: .continuous)
-                    .fill(Color.white.opacity(0.97))
-                    .frame(width: 20 * unit, height: 27 * unit)
-                    .position(x: 17.5 * unit, y: 21 * unit)
-
-                RoundedRectangle(cornerRadius: 3.3 * unit, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 1.00, green: 0.88, blue: 0.32),
-                                Color(red: 0.37, green: 0.86, blue: 0.93),
-                                Color(red: 0.13, green: 0.47, blue: 0.88)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 11.6 * unit, height: 21.6 * unit)
-                    .position(x: 17.2 * unit, y: 21.6 * unit)
-
-                Circle()
-                    .fill(Color(red: 1.00, green: 0.86, blue: 0.34))
-                    .frame(width: 4.2 * unit, height: 4.2 * unit)
-                    .position(x: 20.8 * unit, y: 15.2 * unit)
-
-                Path { path in
-                    path.move(to: CGPoint(x: 22.2 * unit, y: 10.6 * unit))
-                    path.addLine(to: CGPoint(x: 31.5 * unit, y: 6.8 * unit))
-                    path.addLine(to: CGPoint(x: 31.5 * unit, y: 33.2 * unit))
-                    path.addLine(to: CGPoint(x: 22.2 * unit, y: 29.3 * unit))
-                    path.closeSubpath()
-                }
-                .fill(Color(red: 0.96, green: 0.99, blue: 1.00))
-                .shadow(color: Color.black.opacity(0.10), radius: 1.6 * unit, x: 0, y: 0.8 * unit)
-
-                Path { path in
-                    path.move(to: CGPoint(x: 22.2 * unit, y: 10.6 * unit))
-                    path.addLine(to: CGPoint(x: 31.5 * unit, y: 6.8 * unit))
-                    path.addLine(to: CGPoint(x: 31.5 * unit, y: 33.2 * unit))
-                    path.addLine(to: CGPoint(x: 22.2 * unit, y: 29.3 * unit))
-                    path.closeSubpath()
-                }
-                .stroke(Color(red: 0.45, green: 0.68, blue: 0.80).opacity(0.54), lineWidth: 1.1 * unit)
-
-                Circle()
-                    .fill(Color(red: 0.36, green: 0.64, blue: 0.76))
-                    .frame(width: 2.6 * unit, height: 2.6 * unit)
-                    .position(x: 27.6 * unit, y: 20.8 * unit)
-
-                routePath(unit: unit)
-                    .stroke(
-                        Color.white.opacity(0.96),
-                        style: StrokeStyle(lineWidth: 4.6 * unit, lineCap: .round, lineJoin: .round)
-                    )
-
-                routePath(unit: unit)
-                    .stroke(
-                        Color(red: 0.05, green: 0.69, blue: 0.78),
-                        style: StrokeStyle(lineWidth: 2.25 * unit, lineCap: .round, lineJoin: .round)
-                    )
-
-                Path { path in
-                    path.move(to: CGPoint(x: 22.2 * unit, y: 19.2 * unit))
-                    path.addLine(to: CGPoint(x: 19.3 * unit, y: 19.0 * unit))
-                    path.addLine(to: CGPoint(x: 21.2 * unit, y: 16.8 * unit))
-                    path.closeSubpath()
-                }
-                .fill(Color(red: 0.05, green: 0.69, blue: 0.78))
-
-                RoundedRectangle(cornerRadius: ChumenStyle.radius * unit, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.55), lineWidth: 0.9 * unit)
-                    .frame(width: side, height: side)
-            }
-            .frame(width: side, height: side)
-            .offset(x: originX, y: originY)
-            .clipShape(RoundedRectangle(cornerRadius: ChumenStyle.radius * unit, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: ChumenStyle.radius * unit, style: .continuous)
-                    .strokeBorder(ChumenStyle.border, lineWidth: 1)
-                    .offset(x: originX, y: originY)
-            )
-        }
-    }
-
-    private func routePath(unit: CGFloat) -> Path {
-        Path { path in
-            path.move(to: CGPoint(x: 5.8 * unit, y: 29.0 * unit))
-            path.addCurve(
-                to: CGPoint(x: 23.1 * unit, y: 17.7 * unit),
-                control1: CGPoint(x: 12.2 * unit, y: 28.0 * unit),
-                control2: CGPoint(x: 17.6 * unit, y: 23.2 * unit)
-            )
-        }
     }
 }

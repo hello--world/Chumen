@@ -56,28 +56,33 @@ struct AIAssistantOverlayView: View {
 
             Divider()
 
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 0) {
-                    aiConversationColumn
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if shouldShowAIInspector {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 0) {
+                        aiConversationColumn
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    Divider()
+                        Divider()
 
-                    aiInspectorColumn
-                        .frame(width: 340)
+                        aiInspectorColumn
+                            .frame(width: 320)
+                    }
+
+                    VStack(spacing: 0) {
+                        aiConversationColumn
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        Divider()
+
+                        aiInspectorColumn
+                            .frame(maxWidth: .infinity, maxHeight: 230)
+                    }
                 }
-
-                VStack(spacing: 0) {
-                    aiConversationColumn
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    Divider()
-
-                    aiInspectorColumn
-                        .frame(maxWidth: .infinity, maxHeight: 230)
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                aiConversationColumn
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ChumenStyle.surface)
@@ -93,6 +98,10 @@ struct AIAssistantOverlayView: View {
         }
     }
 
+    private var shouldShowAIInspector: Bool {
+        !model.aiReady || aiAdvancedConfigExpanded || !model.aiPendingChanges.isEmpty
+    }
+
     private var aiAssistantHeader: some View {
         HStack(spacing: 8) {
             Label(model.t(.aiAssistant), systemImage: "sparkles")
@@ -103,11 +112,21 @@ struct AIAssistantOverlayView: View {
                 .lineLimit(1)
             Spacer()
             Button {
+                aiAdvancedConfigExpanded.toggle()
+            } label: {
+                Label(model.t(.aiModelSettings), systemImage: "slider.horizontal.3")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help(model.t(.aiModelSettings))
+
+            Button {
                 model.clearAIMessages()
                 onClearSearchResults()
             } label: {
-                Image(systemName: "trash")
+                Label(model.t(.aiClearChat), systemImage: "trash")
             }
+            .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .help(model.t(.aiClearChat))
 
@@ -115,8 +134,9 @@ struct AIAssistantOverlayView: View {
                 aiInputFocused = false
                 isPresented = false
             } label: {
-                Image(systemName: "xmark")
+                Label(model.t(.aiCloseAssistant), systemImage: "xmark")
             }
+            .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .help(model.t(.aiCloseAssistant))
         }

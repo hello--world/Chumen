@@ -141,8 +141,7 @@ enum DashboardSectionRegistry {
         QuickActionsDashboardProvider(),
         RuntimeDashboardProvider(),
         TrafficDashboardProvider(),
-        DiagnosticsDashboardProvider(),
-        NavigationDashboardProvider()
+        DiagnosticsDashboardProvider()
     ]
 
     @MainActor
@@ -245,6 +244,45 @@ enum DashboardStateFormatting {
             action: commandAction(for: model),
             isEnabled: !model.isCoreTransitioning
         )
+    }
+
+    @MainActor
+    static func apiStateText(for model: AppModel) -> String {
+        if isAPIUnavailable(for: model) {
+            return model.t(.controllerUnavailable)
+        }
+        if isAPINotTested(for: model) {
+            return model.t(.pending)
+        }
+
+        let text = normalizedAPIText(for: model)
+        let primary = text.components(separatedBy: " / ").first ?? text
+        if primary.hasPrefix("mihomo ") {
+            return String(primary.dropFirst("mihomo ".count))
+        }
+        return primary.isEmpty ? "-" : primary
+    }
+
+    @MainActor
+    static func apiStateDetail(for model: AppModel) -> String {
+        if isAPIUnavailable(for: model) {
+            return "\(model.t(.apiUnavailableHint)) \(controllerAddress(for: model))"
+        }
+        if isAPINotTested(for: model) {
+            return model.t(.apiNotTestedHint)
+        }
+        return normalizedAPIText(for: model)
+    }
+
+    @MainActor
+    static func apiStateTint(for model: AppModel) -> Color {
+        if isAPIUnavailable(for: model) {
+            return .orange
+        }
+        if isAPINotTested(for: model) {
+            return .blue
+        }
+        return .blue
     }
 
     @MainActor
@@ -657,6 +695,17 @@ private struct RuntimeDashboardProvider: DashboardSectionProvider {
             priority: priority,
             items: [
                 DashboardItem(
+                    id: "runtime.api",
+                    title: "API",
+                    value: DashboardStateFormatting.apiStateText(for: model),
+                    detail: DashboardStateFormatting.apiStateDetail(for: model),
+                    systemImage: "globe",
+                    tint: DashboardStateFormatting.apiStateTint(for: model),
+                    style: .state,
+                    priority: 5,
+                    action: .refreshAll
+                ),
+                DashboardItem(
                     id: "runtime.state",
                     title: model.t(.runtime),
                     value: model.isRunning ? model.t(.running) : model.t(.stopped),
@@ -668,9 +717,9 @@ private struct RuntimeDashboardProvider: DashboardSectionProvider {
                 ),
                 DashboardItem(
                     id: "runtime.profile",
-                    title: model.t(.activeProfile),
-                    value: model.activeProfile?.name ?? "-",
-                    detail: model.activeProfileConfigUpdateText,
+                    title: model.t(.configUpdated),
+                    value: model.activeProfileConfigUpdateText,
+                    detail: model.activeProfile?.name ?? "-",
                     systemImage: "doc.text",
                     tint: .blue,
                     style: .link,
@@ -709,6 +758,16 @@ private struct RuntimeDashboardProvider: DashboardSectionProvider {
                     priority: 50,
                     action: .toggleTun,
                     isEnabled: !model.isCoreTransitioning
+                ),
+                DashboardItem(
+                    id: "runtime.app-memory",
+                    title: model.t(.appMemory),
+                    value: model.appMemoryText,
+                    detail: "Chumen",
+                    systemImage: "memorychip",
+                    tint: .indigo,
+                    style: .metric,
+                    priority: 60
                 )
             ]
         )
@@ -819,83 +878,6 @@ private struct DiagnosticsDashboardProvider: DashboardSectionProvider {
             id: "diagnostics",
             title: model.t(.logReport),
             detail: model.t(.aiAnalysisReady),
-            priority: priority,
-            items: items
-        )
-    }
-}
-
-private struct NavigationDashboardProvider: DashboardSectionProvider {
-    let priority = 40
-
-    func dashboardSection(for model: AppModel) -> DashboardSection? {
-        var items = [
-            DashboardItem(
-                id: "links.logs",
-                title: model.t(.logs),
-                value: model.t(.logReport),
-                detail: "\(model.t(.processLog)) / \(model.t(.runtimeLog))",
-                systemImage: "text.alignleft",
-                tint: .blue,
-                style: .link,
-                priority: 10,
-                action: .openTab(.logs)
-            ),
-            DashboardItem(
-                id: "links.connections",
-                title: model.t(.connections),
-                value: "\(model.connections.count)",
-                detail: model.t(.activeConnections),
-                systemImage: "link",
-                tint: .orange,
-                style: .link,
-                priority: 20,
-                action: .openTab(.connections)
-            ),
-            DashboardItem(
-                id: "links.core-settings",
-                title: model.t(.coreSettings),
-                value: model.t(.runtime),
-                detail: "\(model.t(.tunMode)) / \(model.t(.dns)) / \(model.t(.ports))",
-                systemImage: "gearshape.2",
-                tint: .indigo,
-                style: .link,
-                priority: 30,
-                action: .openTab(.core)
-            ),
-            DashboardItem(
-                id: "links.core-tools",
-                title: model.t(.coreTools),
-                value: model.t(.openDashboard),
-                detail: model.t(.controllerHost),
-                systemImage: "terminal",
-                tint: .purple,
-                style: .link,
-                priority: 40,
-                action: .openTab(.coreTools)
-            )
-        ]
-
-        if model.settings.dashboardLaunchURL(paths: model.paths, language: model.language) != nil {
-            items.append(
-                DashboardItem(
-                    id: "links.external-dashboard",
-                    title: model.t(.openDashboard),
-                    value: model.settings.externalUIName.isEmpty ? model.t(.externalUI) : model.settings.externalUIName,
-                    detail: model.t(.controllerHost),
-                    systemImage: "safari",
-                    tint: .teal,
-                    style: .link,
-                    priority: 50,
-                    action: .openDashboardURL
-                )
-            )
-        }
-
-        return DashboardSection(
-            id: "links",
-            title: model.t(.dashboardLinks),
-            detail: model.t(.globalSearch),
             priority: priority,
             items: items
         )

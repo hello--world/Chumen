@@ -468,6 +468,7 @@ enum L10n {
         case coreTools
         case speed
         case memory
+        case appMemory
         case memoryUnavailable
         case cache
         case flushFakeIP
@@ -981,6 +982,7 @@ enum L10n {
         .coreTools: "内核工具",
         .speed: "速率",
         .memory: "内存",
+        .appMemory: "应用内存",
         .memoryUnavailable: "未提供",
         .cache: "缓存",
         .flushFakeIP: "清理 Fake-IP",
@@ -1491,6 +1493,7 @@ enum L10n {
         .coreTools: "Core Tools",
         .speed: "Speed",
         .memory: "Memory",
+        .appMemory: "App Memory",
         .memoryUnavailable: "Unavailable",
         .cache: "Cache",
         .flushFakeIP: "Flush Fake-IP",

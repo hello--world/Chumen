@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import Foundation
 import ChumenCore
 import Security
@@ -149,6 +150,7 @@ final class AppModel: ObservableObject {
     @Published var memoryInUse: Int64 = 0
     @Published var memoryLimit: Int64 = 0
     @Published var memoryUnavailable = false
+    @Published private(set) var appMemoryInUse: Int64 = 0
     @Published var systemProxyStateText = ""
     @Published var systemProxyRuntimeFailed = false
     @Published var systemProxyRuntimeFailureMessage = ""
@@ -1198,7 +1200,14 @@ final class AppModel: ObservableObject {
             ?? activeProfile.updatedAt
         publishIfChanged(
             \.activeProfileConfigUpdateText,
-            modificationDate.formatted(date: .omitted, time: .standard)
+            modificationDate.formatted(
+                .dateTime
+                    .year()
+                    .month(.twoDigits)
+                    .day(.twoDigits)
+                    .hour(.twoDigits(amPM: .omitted))
+                    .minute(.twoDigits)
+            )
         )
     }
 
@@ -1418,6 +1427,10 @@ final class AppModel: ObservableObject {
             return "\(Self.formatBytes(memoryInUse)) / \(Self.formatBytes(memoryLimit))"
         }
         return Self.formatBytes(memoryInUse)
+    }
+
+    var appMemoryText: String {
+        appMemoryInUse > 0 ? Self.formatBytes(appMemoryInUse) : "-"
     }
 
     var tunRuntimeFailureTitle: String {
@@ -3642,8 +3655,31 @@ final class AppModel: ObservableObject {
             interval: .seconds(5),
             runImmediately: true
         ) { [weak self] in
-            await self?.refreshSystemProxyStateAsync()
+            guard let self else { return }
+            await self.refreshSystemProxyStateAsync()
+            self.refreshApplicationMemory()
         })
+    }
+
+    // App RSS belongs to the application-level refresh lane: it remains meaningful while the
+    // proxy core is stopped, unlike controller telemetry which only refreshes with the core.
+    private func refreshApplicationMemory() {
+        guard let bytes = Self.currentProcessResidentMemoryBytes() else { return }
+        publishIfChanged(\.appMemoryInUse, bytes)
+    }
+
+    private static func currentProcessResidentMemoryBytes() -> Int64? {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size
+        )
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { values in
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), values, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+        return Int64(info.resident_size)
     }
 
     private func startCoreSnapshotUpdates() {

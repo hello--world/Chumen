@@ -18,9 +18,14 @@ struct DashboardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             commandPanel
-            dashboardAssistantWorkspace
-                .layoutPriority(1)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if aiAssistantPresented {
+                dashboardAssistantWorkspace
+                    .layoutPriority(1)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                dashboardOverviewContent
+                    .layoutPriority(1)
+            }
         }
         .padding(.horizontal, 18)
         .padding(.top, 14)
@@ -38,12 +43,29 @@ struct DashboardView: View {
         }
     }
 
-    // The overview is now agent-first: quick controls stay on top, while the lower half is a single
-    // assistant workspace. Runtime, traffic, and log facts are already injected into the AI prompt by
-    // AppModel, so repeating them as large dashboard cards just creates noise and competes with chat.
+    // Keep the assistant opt-in from the overview. Mounting it by default made the dashboard depend
+    // on chat UI state and pushed high-signal runtime cards out of the first viewport.
     private var dashboardAssistantWorkspace: some View {
         assistantWorkbench
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var dashboardOverviewContent: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)
+                ],
+                alignment: .leading,
+                spacing: 12
+            ) {
+                ForEach(mainGridSections) { section in
+                    dashboardSectionCard(section)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var assistantWorkbench: some View {
@@ -66,10 +88,10 @@ struct DashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ChumenStyle.surface)
         .clipShape(RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous))
-        .overlay(
+        .overlay {
             RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
                 .strokeBorder(ChumenStyle.border)
-        )
+        }
     }
 
     private var assistantClosedPlaceholder: some View {
@@ -108,25 +130,23 @@ struct DashboardView: View {
         let items = commandBarItems
 
         return commandPanelBody(items: items)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .fill(ChumenStyle.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                .strokeBorder(ChumenStyle.border)
-        )
-        .sheet(isPresented: $quickActionConfigurationPresented) {
-            QuickActionConfigurationSheet()
-                .environmentObject(model)
-        }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 10)
+            .background {
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .fill(ChumenStyle.surface)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                    .strokeBorder(ChumenStyle.border)
+            }
+            .sheet(isPresented: $quickActionConfigurationPresented) {
+                QuickActionConfigurationSheet()
+                    .environmentObject(model)
+            }
     }
 
-    // Keep the command header as one left-anchored row. Widths are intentionally bounded so the
-    // overview does not split the mode switch and quick actions into separate rows.
     private func commandPanelBody(items: [DashboardItem]) -> some View {
         let statusItems = commandStatusItems(in: items)
         let actionItems = commandActionItems(in: items)
@@ -177,9 +197,6 @@ struct DashboardView: View {
         }
     }
 
-    // The command panel header needs a compact but informative status summary. Keep it as a passive
-    // view instead of a Button: macOS button labels can reserve extra hit-test/layout space even with
-    // a plain style, which was the hidden source of the large gap before the Start button.
     private func commandToolbarStatusContent(_ item: DashboardItem) -> some View {
         HStack(spacing: 10) {
             ZStack {
@@ -203,10 +220,10 @@ struct DashboardView: View {
                         .foregroundStyle(item.tint)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
-                        .background(
+                        .background {
                             Capsule(style: .continuous)
                                 .fill(item.tint.opacity(0.10))
-                        )
+                        }
                         .lineLimit(1)
                 }
 
@@ -217,12 +234,102 @@ struct DashboardView: View {
                     .truncationMode(.tail)
             }
         }
-        .frame(
-            width: commandToolbarStatusWidth,
-            alignment: .leading
-        )
+        .frame(width: commandToolbarStatusWidth, alignment: .leading)
         .clipped()
-        .contentShape(Rectangle())
+        .contentShape(.rect)
+    }
+
+    private var mainGridSections: [DashboardSection] {
+        DashboardSectionRegistry.sections(for: model)
+    }
+
+    private func dashboardSectionCard(_ section: DashboardSection) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(section.title)
+                        .font(.headline)
+                    if !section.detail.isEmpty {
+                        Text(section.detail)
+                            .font(.caption)
+                            .foregroundStyle(ChumenStyle.mutedText)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(section.items) { item in
+                    dashboardItemRow(item)
+                    if item.id != section.items.last?.id {
+                        Divider()
+                            .padding(.leading, 34)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(ChumenStyle.surface)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .strokeBorder(ChumenStyle.border)
+        }
+    }
+
+    @ViewBuilder
+    private func dashboardItemRow(_ item: DashboardItem) -> some View {
+        if toggleValue(for: item.action) != nil {
+            dashboardItemRowContent(item)
+        } else if isActionable(item.action) {
+            Button {
+                perform(item.action)
+            } label: {
+                dashboardItemRowContent(item)
+            }
+            .buttonStyle(.plain)
+            .disabled(!item.isEnabled)
+            .help(quickActionHelp(item))
+        } else {
+            dashboardItemRowContent(item)
+        }
+    }
+
+    private func dashboardItemRowContent(_ item: DashboardItem) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: item.systemImage)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(item.tint)
+                .frame(width: 22, height: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                if !item.detail.isEmpty {
+                    Text(item.detail)
+                        .font(.caption)
+                        .foregroundStyle(ChumenStyle.mutedText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Text(item.value)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(item.tint)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.vertical, 8)
+        .contentShape(.rect)
+        .opacity(item.isEnabled ? 1 : 0.45)
     }
 
     private var commandBarItems: [DashboardItem] {
@@ -319,28 +426,9 @@ struct DashboardView: View {
         .controlSize(.regular)
     }
 
-    // The command bar has a fixed core row and an extension row. Start/stop/restart/refresh,
-    // system proxy, TUN, and quick-control editing are muscle-memory operations and should stay
-    // together; optional startup/network preferences belong below so enabling more shortcuts does
-    // not disrupt the primary controls.
-    private func commandExtensionActionFlow(items: [DashboardItem]) -> some View {
-        CommandActionFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
-            ForEach(items) { item in
-                quickActionButton(item)
-            }
-        }
-        .controlSize(.regular)
-    }
-
     private func commandPinnedActionItems(in items: [DashboardItem]) -> [DashboardItem] {
         items.filter { item in
             pinnedCommandActionIDs.contains(item.id)
-        }
-    }
-
-    private func commandExtensionActionItems(in items: [DashboardItem]) -> [DashboardItem] {
-        items.filter { item in
-            !pinnedCommandActionIDs.contains(item.id)
         }
     }
 
@@ -588,45 +676,6 @@ struct DashboardView: View {
             return false
         default:
             return true
-        }
-    }
-
-    private func actionIcon(for action: DashboardItemAction) -> String {
-        switch action {
-        case .refreshAll:
-            return "arrow.triangle.2.circlepath"
-        case .startCore:
-            return "play.fill"
-        case .stopCore:
-            return "stop.fill"
-        case .restartCore:
-            return "arrow.clockwise"
-        case .toggleSystemProxy, .toggleTun:
-            return "switch.2"
-        case .toggleAutoStartCoreOnLaunch:
-            return "power.circle"
-        case .toggleSetSystemProxyOnStart:
-            return "checkmark.shield"
-        case .toggleEnableTunOnStart:
-            return "shield"
-        case .toggleClearSystemProxyOnStop:
-            return "shield.slash"
-        case .toggleDisableTunOnQuit:
-            return "rectangle.portrait.and.arrow.right"
-        case .toggleAllowLAN:
-            return "network.badge.shield.half.filled"
-        case .toggleIPv6:
-            return "6.circle"
-        case .toggleUnifiedDelay:
-            return "timer"
-        case .toggleDNS:
-            return "server.rack"
-        case .openDashboardURL:
-            return "arrow.up.forward.app"
-        case .openTab:
-            return "chevron.right"
-        case .none:
-            return ""
         }
     }
 
