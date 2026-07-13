@@ -101,6 +101,11 @@ struct ContentView: View {
             }
         }
         .background(ChumenStyle.pageBackground)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                globalSearchBox
+            }
+        }
         .fileImporter(isPresented: $choosingCore, allowedContentTypes: [.item], allowsMultipleSelection: false) { result in
             if case let .success(urls) = result, let url = urls.first {
                 model.chooseCore(url)
@@ -115,6 +120,9 @@ struct ContentView: View {
             if model.pinOverlayPresented || model.startupImportPromptPresented {
                 clearBlockingOverlayFocus()
             }
+        }
+        .onChange(of: selectedTab) {
+            dismissGlobalSearch()
         }
         .onChange(of: model.pinOverlayPresented) { _, isPresented in
             if isPresented {
@@ -206,36 +214,18 @@ struct ContentView: View {
     }
 
     private var globalSearchBox: some View {
-        Button {
-            presentGlobalSearch()
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(ChumenStyle.mutedText)
-
-                Text(model.t(.globalSearchPlaceholder))
-                    .font(.callout)
-                    .foregroundStyle(ChumenStyle.mutedText)
-                    .lineLimit(1)
-
-                Spacer(minLength: 8)
-            }
-            .padding(.horizontal, 11)
-            .frame(height: 34)
-            .background(
-                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                    .fill(ChumenStyle.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
-                    .strokeBorder(ChumenStyle.border)
-            )
-            .contentShape(Rectangle())
+        Button(action: presentGlobalSearch) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(Color.primary)
+                .frame(width: 42, height: 42)
+                .background(Circle().fill(ChumenStyle.surface))
+                .overlay(Circle().strokeBorder(ChumenStyle.border))
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .help(model.t(.globalSearchPlaceholder))
         .opacity(globalSearchPresented ? 0 : 1)
-        .frame(height: 34)
     }
 
     private var globalSearchOverlay: some View {

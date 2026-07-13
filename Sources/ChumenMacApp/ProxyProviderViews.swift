@@ -6,6 +6,7 @@ struct ProxiesView: View {
     @EnvironmentObject private var model: AppModel
     let isVisible: Bool
     @State private var proxySelectionHelpGroupID: String?
+    @State private var expandedProxyOptionsGroupID: String?
 
     private enum Layout {
         static let rowSpacing: CGFloat = 12
@@ -37,6 +38,8 @@ struct ProxiesView: View {
                 } label: {
                     Label(model.t(.refreshProxies), systemImage: "arrow.triangle.2.circlepath")
                 }
+                .buttonStyle(.bordered)
+                .tint(ChumenActionTone.refresh.color)
                 Spacer()
                 Text("\(model.proxyGroups.count) \(model.t(.groups))")
                     .foregroundStyle(.secondary)
@@ -99,16 +102,134 @@ struct ProxiesView: View {
     }
 
     private func proxyGroupRow(for group: ProxyGroupSnapshot) -> some View {
-        HStack(alignment: .center, spacing: Layout.rowSpacing) {
-            proxyGroupIdentity(for: group)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: Layout.rowSpacing) {
+                Button {
+                    let isOpening = expandedProxyOptionsGroupID != group.id
+                    expandedProxyOptionsGroupID = isOpening ? group.id : nil
+                    if isOpening {
+                        model.testDelays(in: group)
+                    }
+                } label: {
+                    proxyGroupIdentity(for: group)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(group.name)
 
-            proxySelectionMenu(for: group)
+                proxySelectionMenu(for: group)
 
-            proxyActions(for: group)
+                proxyActions(for: group)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, minHeight: Layout.rowMinHeight, alignment: .leading)
+
+            if expandedProxyOptionsGroupID == group.id {
+                Divider()
+                    .padding(.horizontal, 12)
+
+                proxyOptionGrid(for: group)
+            }
         }
+    }
+
+    // This is additive to the existing group controls: node selection and delay testing stay
+    // independent so testing a node never changes the active proxy accidentally.
+    private func proxyOptionGrid(for group: ProxyGroupSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.down.circle.fill")
+                    .foregroundStyle(ChumenActionTone.refresh.color)
+                Text(model.t(.node))
+                    .font(.caption.weight(.semibold))
+                Text("\(group.options.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(ChumenStyle.mutedText)
+                Spacer()
+            }
+
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 10), count: 3),
+                spacing: 10
+            ) {
+                ForEach(group.options, id: \.self) { option in
+                    proxyOptionCard(option, in: group)
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .fill(ChumenActionTone.refresh.color.opacity(0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChumenStyle.radius, style: .continuous)
+                .strokeBorder(ChumenActionTone.refresh.color.opacity(0.20))
+        )
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, minHeight: Layout.rowMinHeight, alignment: .leading)
+        .padding(.vertical, 10)
+    }
+
+    private func proxyOptionCard(_ option: String, in group: ProxyGroupSnapshot) -> some View {
+        let isSelected = group.selected == option
+
+        return HStack(spacing: 0) {
+            proxyOptionSelectionButton(option, in: group, isSelected: isSelected)
+            proxyOptionDelayButton(option, in: group)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isSelected ? ChumenActionTone.refresh.color.opacity(0.10) : ChumenStyle.identityFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(isSelected ? ChumenActionTone.refresh.color.opacity(0.28) : ChumenStyle.border.opacity(0.40))
+        )
+    }
+
+    private func proxyOptionSelectionButton(
+        _ option: String,
+        in group: ProxyGroupSnapshot,
+        isSelected: Bool
+    ) -> some View {
+        Button {
+            model.selectProxy(group: group, name: option)
+        } label: {
+            HStack(spacing: 8) {
+                Text(option)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(ChumenActionTone.refresh.color)
+                }
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(option)
+    }
+
+    private func proxyOptionDelayButton(_ option: String, in group: ProxyGroupSnapshot) -> some View {
+        let state = model.proxyDelayState(for: option, in: group)
+        let help = delayTitle(for: option, in: group)
+
+        return Button {
+            model.testDelay(name: option, in: group)
+        } label: {
+            proxyDelayLabel(for: state)
+                .frame(width: 62, height: 54)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+        .disabled(state == .testing)
     }
 
     private func proxyGroupIdentity(for group: ProxyGroupSnapshot) -> some View {
@@ -155,15 +276,17 @@ struct ProxiesView: View {
             proxyActionButton(
                 title: model.t(.delayTest),
                 systemImage: "speedometer",
-                help: delayTitle(for: group.selected),
+                tone: .test,
+                help: delayTitle(for: group.selected, in: group),
                 disabled: group.selected.isEmpty
             ) {
-                model.testDelay(name: group.selected)
+                model.testDelay(name: group.selected, in: group)
             }
 
             proxyActionButton(
                 title: model.t(.groupDelayTest),
                 systemImage: "gauge.with.dots.needle.50percent",
+                tone: .test,
                 help: model.t(.groupDelayTest)
             ) {
                 model.testGroupDelay(group)
@@ -172,6 +295,7 @@ struct ProxiesView: View {
             proxyActionButton(
                 title: model.t(.clearProxySelectionAction),
                 systemImage: "pin.slash",
+                tone: .clear,
                 help: model.t(.clearProxySelectionHelpTitle)
             ) {
                 model.clearProxySelection(group)
@@ -186,18 +310,11 @@ struct ProxiesView: View {
         Button {
             proxySelectionHelpGroupID = group.id
         } label: {
-            Image(systemName: "exclamationmark.circle")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(ChumenStyle.mutedText)
-                .frame(width: Layout.helpButtonWidth, height: Layout.controlHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(ChumenStyle.controlFill)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(ChumenStyle.border.opacity(0.55))
-                )
+                Image(systemName: "exclamationmark.circle")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(ChumenActionTone.help.color)
+                    .frame(width: Layout.helpButtonWidth, height: Layout.controlHeight)
+                    .chumenActionSurface(.help)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -230,6 +347,7 @@ struct ProxiesView: View {
     private func proxyActionButton(
         title: String,
         systemImage: String,
+        tone: ChumenActionTone,
         help: String,
         disabled: Bool = false,
         action: @escaping () -> Void
@@ -238,21 +356,14 @@ struct ProxiesView: View {
             HStack(spacing: 5) {
                 Image(systemName: systemImage)
                     .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(tone.color)
                 Text(title)
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
             }
-            .foregroundStyle(Color.primary)
             .frame(width: Layout.actionButtonWidth, height: Layout.controlHeight)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(ChumenStyle.controlFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(ChumenStyle.border.opacity(0.55))
-            )
+            .chumenActionSurface(tone)
             .opacity(disabled ? 0.45 : 1)
             .contentShape(Rectangle())
         }
@@ -262,11 +373,53 @@ struct ProxiesView: View {
         .disabled(disabled)
     }
 
-    private func delayTitle(for name: String) -> String {
-        guard let delay = model.proxyDelays[name] else {
-            return model.t(.delayTest)
+    @ViewBuilder
+    private func proxyDelayLabel(for state: ProxyDelayTestState) -> some View {
+        switch state {
+        case .idle:
+            Text(model.t(.delayTest))
+                .font(.callout.weight(.medium))
+                .foregroundStyle(ChumenActionTone.test.color)
+        case .testing:
+            ProgressView()
+                .controlSize(.small)
+        case let .completed(.value(delay)):
+            Text("\(delay)")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(delayColor(for: delay))
+        case .completed(.timedOut):
+            Text("—")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(ChumenActionTone.clear.color)
+        case .completed(.failed):
+            Text(model.t(.failed))
+                .font(.callout.weight(.medium))
+                .foregroundStyle(ChumenActionTone.destructive.color)
         }
-        return "\(delay) ms"
+    }
+
+    private func delayTitle(for name: String, in group: ProxyGroupSnapshot) -> String {
+        switch model.proxyDelayState(for: name, in: group) {
+        case .idle, .testing:
+            model.t(.delayTest)
+        case let .completed(.value(delay)):
+            "\(delay) ms"
+        case .completed(.timedOut):
+            "—"
+        case .completed(.failed):
+            model.t(.failed)
+        }
+    }
+
+    private func delayColor(for delay: Int) -> Color {
+        switch delay {
+        case ..<250:
+            .green
+        case ..<400:
+            ChumenActionTone.refresh.color
+        default:
+            ChumenActionTone.clear.color
+        }
     }
 }
 private struct ProxySelectionPopUpButton: NSViewRepresentable {
@@ -354,6 +507,7 @@ struct ProvidersView: View {
                 title: model.t(.proxyProviders),
                 providers: model.proxyProviders,
                 showHealthcheck: true,
+                showsRefreshControl: true,
                 updateAction: model.updateProxyProvider,
                 healthcheckAction: model.healthcheckProxyProvider
             )
@@ -363,6 +517,7 @@ struct ProvidersView: View {
                 title: model.t(.ruleProviders),
                 providers: model.ruleProviders,
                 showHealthcheck: false,
+                showsRefreshControl: false,
                 updateAction: model.updateRuleProvider,
                 healthcheckAction: { _ in }
             )
@@ -375,19 +530,13 @@ struct ProvidersView: View {
                 await model.refreshProviders()
             }
         }
-        .toolbar {
-            Button {
-                Task { await model.refreshProviders() }
-            } label: {
-                Label(model.t(.refreshProviders), systemImage: "arrow.triangle.2.circlepath")
-            }
-        }
     }
 
     private func providerPanel(
         title: String,
         providers: [MihomoProvider],
         showHealthcheck: Bool,
+        showsRefreshControl: Bool,
         updateAction: @escaping (MihomoProvider) -> Void,
         healthcheckAction: @escaping (MihomoProvider) -> Void
     ) -> some View {
@@ -396,6 +545,17 @@ struct ProvidersView: View {
                 Text(title)
                     .font(.headline)
                 Spacer()
+                if showsRefreshControl {
+                    Button {
+                        Task { await model.refreshProviders() }
+                    } label: {
+                        Label(model.t(.refresh), systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(ChumenActionTone.refresh.color)
+                    .help(model.t(.refreshProviders))
+                }
                 Text("\(providers.count)")
                     .foregroundStyle(.secondary)
             }
@@ -505,12 +665,12 @@ struct ProvidersView: View {
                 .frame(width: 64, alignment: .trailing)
 
             HStack(spacing: 8) {
-                providerActionButton(title: model.t(.update), systemImage: "arrow.down.circle") {
+                providerActionButton(title: model.t(.update), systemImage: "arrow.down.circle", tone: .update) {
                     updateAction(provider)
                 }
 
                 if showHealthcheck {
-                    providerActionButton(title: model.t(.delayTest), systemImage: "speedometer") {
+                    providerActionButton(title: model.t(.delayTest), systemImage: "speedometer", tone: .test) {
                         healthcheckAction(provider)
                     }
                 }
@@ -520,25 +680,23 @@ struct ProvidersView: View {
         .frame(width: showHealthcheck ? 248 : 158, alignment: .trailing)
     }
 
-    private func providerActionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+    private func providerActionButton(
+        title: String,
+        systemImage: String,
+        tone: ChumenActionTone,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: systemImage)
                     .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(tone.color)
                 Text(title)
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
             }
-            .foregroundStyle(Color.primary)
             .frame(width: 82, height: 34)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(ChumenStyle.controlFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(ChumenStyle.border.opacity(0.55))
-            )
+            .chumenActionSurface(tone)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

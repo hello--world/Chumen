@@ -130,6 +130,7 @@ final class AppModel: ObservableObject {
     @Published var proxyProviders: [MihomoProvider] = []
     @Published var ruleProviders: [MihomoProvider] = []
     @Published var proxyDelays: [String: Int] = [:]
+    @Published private(set) var proxyDelayStates: [ProxyDelayTestKey: ProxyDelayTestState] = [:]
     @Published var connections: [MihomoConnection] = []
     @Published var closedConnections: [MihomoConnection] = []
     @Published private(set) var connectionAnalysisSnapshot = ConnectionAnalyzer.analyze([])
@@ -213,6 +214,7 @@ final class AppModel: ObservableObject {
     private var aiTask: Task<Void, Never>?
     private var aiOllamaModelsTask: Task<Void, Never>?
     private var pendingTunToggleTarget: Bool?
+    private var activeProxyDelayGroups = Set<String>()
     private var lastSavedSettings: ChumenRuntimeSettings
     private var isPreparingForQuit = false
     private let aiKeychainStore = ChumenAIKeychainStore()
@@ -2803,29 +2805,86 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func proxyDelayState(for proxyName: String, in group: ProxyGroupSnapshot) -> ProxyDelayTestState {
+        let key = ProxyDelayTestKey(groupName: group.name, proxyName: proxyName)
+        if let state = proxyDelayStates[key] {
+            return state
+        }
+        if let delay = proxyDelays[proxyName] {
+            return .completed(.value(delay))
+        }
+        return .idle
+    }
+
     func testDelay(name: String) {
-        Task {
-            do {
-                let result = try await mihomoClient().delayProxy(name: name)
-                proxyDelays[name] = result.delay
-                statusText = "\(name): \(result.delay) ms"
-                await refreshProxies()
-            } catch {
-                statusText = displayError(error)
+        guard let group = proxyGroups.first(where: { $0.options.contains(name) }) else { return }
+        testDelay(name: name, in: group)
+    }
+
+    func testDelay(name: String, in group: ProxyGroupSnapshot) {
+        let key = ProxyDelayTestKey(groupName: group.name, proxyName: name)
+        guard proxyDelayStates[key] != .testing else { return }
+        beginProxyDelayTests(names: [name], in: group, isBatch: false)
+    }
+
+    func testDelays(in group: ProxyGroupSnapshot) {
+        guard !activeProxyDelayGroups.contains(group.name) else { return }
+        beginProxyDelayTests(names: group.options, in: group, isBatch: true)
+    }
+
+    func testGroupDelay(_ group: ProxyGroupSnapshot) {
+        testDelays(in: group)
+    }
+
+    private func beginProxyDelayTests(names: [String], in group: ProxyGroupSnapshot, isBatch: Bool) {
+        let testableNames = ProxyDelayTesting.testableProxyNames(from: names)
+        guard !testableNames.isEmpty else { return }
+
+        let client: MihomoClient
+        do {
+            client = try mihomoClient()
+        } catch {
+            statusText = displayError(error)
+            return
+        }
+
+        if isBatch {
+            activeProxyDelayGroups.insert(group.name)
+        }
+        for name in testableNames {
+            let key = ProxyDelayTestKey(groupName: group.name, proxyName: name)
+            proxyDelayStates[key] = .testing
+        }
+
+        let stream = ProxyDelayTesting.events(
+            proxyNames: testableNames,
+            groupName: group.name,
+            client: client
+        )
+        Task { [weak self] in
+            for await event in stream {
+                self?.applyProxyDelayEvent(event)
+            }
+
+            guard let self else { return }
+            if isBatch {
+                self.activeProxyDelayGroups.remove(group.name)
+                self.statusText = "\(self.t(.delayTest)) \(group.name)"
+                await self.refreshProxies()
             }
         }
     }
 
-    func testGroupDelay(_ group: ProxyGroupSnapshot) {
-        Task {
-            do {
-                let response = try await mihomoClient().delayGroup(name: group.name)
-                coreToolResult = Self.jsonString(response)
-                statusText = "\(t(.delayTest)) \(group.name)"
-                await refreshProxies()
-            } catch {
-                statusText = displayError(error)
-                coreToolResult = displayError(error)
+    private func applyProxyDelayEvent(_ event: ProxyDelayTestEvent) {
+        switch event {
+        case let .started(key):
+            proxyDelayStates[key] = .testing
+        case let .completed(key, result):
+            proxyDelayStates[key] = .completed(result)
+            if case let .value(delay) = result {
+                proxyDelays[key.proxyName] = delay
+            } else {
+                proxyDelays.removeValue(forKey: key.proxyName)
             }
         }
     }
@@ -3504,6 +3563,8 @@ final class AppModel: ObservableObject {
         proxyProviders.removeAll()
         ruleProviders.removeAll()
         proxyDelays.removeAll()
+        proxyDelayStates.removeAll()
+        activeProxyDelayGroups.removeAll()
         rules.removeAll()
         resetConnectionTrafficBreakdown()
         resetMemoryTelemetry()

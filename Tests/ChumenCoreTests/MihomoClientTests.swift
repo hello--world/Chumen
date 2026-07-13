@@ -140,6 +140,40 @@ final class MihomoClientTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 1)
     }
 
+    func testProxyDelayTestingStreamsResultsAndSkipsBuiltInProxies() async throws {
+        MockURLProtocol.handler = { request in
+            let name = request.url?.pathComponents.dropFirst(2).dropLast().first
+            let delay = name == "Node A" ? 42 : 0
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                "{\"delay\":\(delay)}".data(using: .utf8)!
+            )
+        }
+
+        let client = MihomoClient(baseURL: URL(string: "http://127.0.0.1:9097")!, secret: "", session: mockSession())
+        let events = ProxyDelayTesting.events(
+            proxyNames: ["DIRECT", "Node B", "Node A", "Node A"],
+            groupName: "Auto",
+            client: client,
+            maximumConcurrency: 2
+        )
+        var received: [ProxyDelayTestEvent] = []
+
+        for await event in events {
+            received.append(event)
+        }
+
+        XCTAssertEqual(
+            Set(received),
+            [
+                .started(ProxyDelayTestKey(groupName: "Auto", proxyName: "Node A")),
+                .started(ProxyDelayTestKey(groupName: "Auto", proxyName: "Node B")),
+                .completed(ProxyDelayTestKey(groupName: "Auto", proxyName: "Node A"), .value(42)),
+                .completed(ProxyDelayTestKey(groupName: "Auto", proxyName: "Node B"), .timedOut)
+            ]
+        )
+    }
+
     func testStoragePutEncodesArbitraryJSONValue() async throws {
         let expectation = expectation(description: "request")
         MockURLProtocol.handler = { request in
